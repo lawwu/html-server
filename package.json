@@ -1,8 +1,8 @@
 {
-  "name": "artifact-server",
+  "name": "@lawwu/html-server",
   "version": "2.0.0",
   "private": true,
-  "description": "Store, version, search, review and render HTML artifacts over curl. Zero dependencies.",
+  "description": "Store, version, search, review and render HTML pages from the command line. Zero dependencies.",
   "license": "MIT",
   "author": "Lawrence Wu",
   "type": "module",
@@ -10,10 +10,15 @@
     "node": ">=22.13"
   },
   "bin": {
-    "artifact-server": "src/server.js"
+    "html-server": "src/cli.js"
   },
+  "files": [
+    "src",
+    "public",
+    "gallery"
+  ],
   "scripts": {
-    "start": "node src/server.js serve",
+    "start": "node src/cli.js serve",
     "test": "node --test test/"
   }
 }

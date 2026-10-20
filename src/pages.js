@@ -120,13 +120,13 @@ export function docsPage(base, routes) {
   return shell('Artifacts API', `<main class="wrap docs"><p><a href="/">← Artifacts</a></p><h1>API</h1>
 <h2>Quickstart</h2>
 <pre>A=${esc(base)}
-H="Authorization: Bearer $ARTIFACT_TOKEN"
+H="Authorization: Bearer $HTML_SERVER_TOKEN"
 
 # upload, or add a version (the URL must end in / so curl appends the file name)
 curl -T trip-plan.html -H "$H" -H "X-Note: first draft" $A/api/artifacts/
 
-# or with the CLI next to the server
-./art put trip-plan.html "first draft"
+# or with the html-server CLI (it finds your token in ~/.html-server/token)
+html-server put trip-plan.html "first draft"
 
 # view it, search, trash, then delete for good
 open $A/trip-plan.html
