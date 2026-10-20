@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Artifact lifecycle — a state machine you can drive</title>
+<meta name="description" content="The artifact server's lifecycle (none, active, trashed, purged) as an interactive state diagram: fire any event and see the next state or the 409 the server would return.">
+<meta name="category" content="architecture">
+<style>
+:root{
+  --bg:#fbfaf7; --panel:#fff; --ink:#1b1a17; --ink-2:#5f5b52; --rule:#dedad0;
+  --active:#1f7a4d; --trashed:#b7791f; --purged:#a3312b; --none:#6b7280; --hl:#2a5bd7;
+  --active-bg:#e3f3ea; --trashed-bg:#fbf0dc; --purged-bg:#f8e1df; --none-bg:#eef0f3;
+  --mono: ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+  --sans: "Gill Sans","Gill Sans MT","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#121210; --panel:#1b1b18; --ink:#ecebe6; --ink-2:#a7a397; --rule:#34332e;
+    --active:#5cd39a; --trashed:#f0b85a; --purged:#ff8a80; --none:#a1a8b3; --hl:#86a8ff;
+    --active-bg:#11291d; --trashed-bg:#2c220f; --purged-bg:#321615; --none-bg:#22252a; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:60rem;margin:0 auto;padding:2.5rem 1rem 4rem}
+.eyebrow{font:600 .74rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+h1{font-size:clamp(1.7rem,4.6vw,2.6rem);line-height:1.08;margin:.4rem 0 .7rem;letter-spacing:-.015em;font-weight:600}
+.lede{color:var(--ink-2);max-width:42rem;margin:0 0 1.5rem}
+code{font:.86em var(--mono);background:var(--none-bg);padding:.05em .3em;border-radius:3px}
+.board{display:grid;grid-template-columns:1fr;gap:1rem}
+.diagram{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:.5rem}
+.diagram svg{width:100%;height:auto;display:block}
+svg text{font-family:var(--sans);fill:var(--ink)}
+svg .st circle.body{stroke-width:2.5;transition:all .3s}
+svg .st text.name{font-size:17px;font-weight:600;text-anchor:middle}
+svg .st text.sub{font:11px var(--mono);fill:var(--ink-2);text-anchor:middle}
+svg .st-none circle.body{fill:var(--none-bg);stroke:var(--none)}
+svg .st-active circle.body{fill:var(--active-bg);stroke:var(--active)}
+svg .st-trashed circle.body{fill:var(--trashed-bg);stroke:var(--trashed)}
+svg .st-purged circle{fill:var(--purged-bg);stroke:var(--purged)}
+svg .st.cur circle.body{stroke-width:5;filter:drop-shadow(0 0 6px var(--hl))}
+svg .st.cur text.name{text-decoration:underline}
+svg .tr path{fill:none;stroke:var(--ink-2);stroke-width:2;transition:stroke .3s,stroke-width .3s}
+svg .tr text{font:600 13px var(--mono);fill:var(--ink-2);text-anchor:middle}
+svg .tr.avail path{stroke:var(--hl);stroke-width:2.6}
+svg .tr.avail text{fill:var(--hl)}
+svg .tr.fired path{stroke-width:5}
+svg .tr .lbl-bg{fill:var(--panel)}
+.dot{fill:var(--hl)}
+.controls{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:1rem 1.1rem}
+.controls h2,.log h2,.table h2{font:600 .78rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);margin:0 0 .6rem}
+.events{display:flex;flex-wrap:wrap;gap:.5rem}
+.events button{font:600 .9rem var(--mono);padding:.5rem .85rem;border-radius:8px;border:1.5px solid var(--rule);background:var(--bg);color:var(--ink);cursor:pointer}
+.events button.ok{border-color:var(--hl);color:var(--hl)}
+.events button:focus-visible{outline:2px solid var(--hl);outline-offset:2px}
+.events .reset{margin-left:auto;font-family:var(--sans);font-weight:500;color:var(--ink-2)}
+.status{display:flex;flex-wrap:wrap;gap:1.2rem;margin-top:.9rem;font-size:.9rem;color:var(--ink-2)}
+.status b{font-family:var(--mono);color:var(--ink)}
+.pill{display:inline-block;padding:.05rem .55rem;border-radius:999px;font:600 .82rem var(--mono)}
+.p-none{background:var(--none-bg);color:var(--none)} .p-active{background:var(--active-bg);color:var(--active)}
+.p-trashed{background:var(--trashed-bg);color:var(--trashed)} .p-purged{background:var(--purged-bg);color:var(--purged)}
+.split{display:grid;grid-template-columns:1.2fr 1fr;gap:1rem}
+@media (max-width:760px){ .split{grid-template-columns:1fr} }
+.log{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:1rem 1.1rem}
+.log ol{list-style:none;margin:0;padding:0;font:.8rem/1.5 var(--mono);max-height:18rem;overflow:auto}
+.log li{padding:.45rem 0;border-top:1px dashed var(--rule)}
+.log li:first-child{border-top:0}
+.log .req{color:var(--ink)} .log .c2{color:var(--active)} .log .c4{color:var(--purged)}
+.log .why{color:var(--ink-2);display:block;white-space:pre-wrap}
+.table{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:1rem 1.1rem;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font:.85rem var(--mono)}
+th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--rule)}
+th{font-weight:600;color:var(--ink-2);font-size:.75rem;letter-spacing:.06em;text-transform:uppercase}
+tr.hot td{background:var(--none-bg)}
+.notes{margin-top:2rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:1rem}
+.notes div{border-top:3px solid var(--rule);padding-top:.6rem;font-size:.93rem;color:var(--ink-2)}
+.notes b{color:var(--ink);display:block;margin-bottom:.2rem}
+footer{margin-top:2.5rem;font-size:.82rem;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Architecture · lifecycle</div>
+  <h1>Five rows, four states, and a 409 for everything else</h1>
+  <p class="lede">Every mutation on the artifact server goes through <code>transition(state, event)</code>, a lookup in one small table. Any (state, event) pair not in the table is refused with a 409 that names the events that <em>are</em> allowed. Drive it yourself: blue arrows are the events legal from where you are now.</p>
+
+  <div class="board">
+    <div class="diagram">
+<svg viewBox="0 0 800 340" role="img" aria-labelledby="t d">
+<title id="t">Artifact lifecycle state machine</title>
+<desc id="d">States none, active, trashed and purged. create: none to active. update: active to active. trash: active to trashed. restore: trashed to active. purge: trashed to purged, which is terminal.</desc>
+<defs>
+  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
+</defs>
+<!-- transitions -->
+<g class="tr" id="tr-create"><path id="p-create" d="M124 190 L236 190" marker-end="url(#ar)"/><rect class="lbl-bg" x="150" y="160" width="62" height="18" rx="4"/><text x="181" y="174">create</text></g>
+<g class="tr" id="tr-update"><path id="p-update" d="M268 136 C230 50 350 50 312 136" marker-end="url(#ar)"/><rect class="lbl-bg" x="258" y="50" width="64" height="18" rx="4"/><text x="290" y="64">update</text></g>
+<g class="tr" id="tr-trash"><path id="p-trash" d="M336 166 C400 112 460 112 524 166" marker-end="url(#ar)"/><rect class="lbl-bg" x="401" y="106" width="58" height="18" rx="4"/><text x="430" y="120">trash</text></g>
+<g class="tr" id="tr-restore"><path id="p-restore" d="M524 214 C460 268 400 268 336 214" marker-end="url(#ar)"/><rect class="lbl-bg" x="394" y="256" width="72" height="18" rx="4"/><text x="430" y="270">restore</text></g>
+<g class="tr" id="tr-purge"><path id="p-purge" d="M624 190 L686 190" marker-end="url(#ar)"/><rect class="lbl-bg" x="626" y="160" width="58" height="18" rx="4"/><text x="655" y="174">purge</text></g>
+<!-- states -->
+<g class="st st-none" id="s-none"><circle class="body" cx="82" cy="190" r="40"/><text class="name" x="82" y="194">none</text><text class="sub" x="82" y="250">no row yet</text></g>
+<g class="st st-active" id="s-active"><circle class="body" cx="290" cy="190" r="52"/><text class="name" x="290" y="190">active</text><text class="sub" x="290" y="208" id="vcount">v0</text><text class="sub" x="290" y="266">served at /&lt;name&gt;</text></g>
+<g class="st st-trashed" id="s-trashed"><circle class="body" cx="570" cy="190" r="52"/><text class="name" x="570" y="194">trashed</text><text class="sub" x="570" y="266">hidden, recoverable</text></g>
+<g class="st st-purged" id="s-purged"><circle class="body" cx="736" cy="190" r="48"/><circle cx="736" cy="190" r="40" style="fill:none;stroke-width:1.5"/><text class="name" x="736" y="194">purged</text><text class="sub" x="736" y="262">rows deleted</text></g>
+<circle class="dot" id="token" r="7" cx="82" cy="190" opacity="0"/>
+</svg>
+    </div>
+
+    <div class="controls">
+      <h2>Fire an event</h2>
+      <div class="events" id="events"></div>
+      <div class="status">
+        <span>state <span class="pill" id="pill">none</span></span>
+        <span>versions <b id="nver">0</b></span>
+        <span>allowed now <b id="allowed"></b></span>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="log"><h2>What the server would say</h2><ol id="log"></ol></div>
+      <div class="table"><h2>The whole table</h2>
+        <table><thead><tr><th>state</th><th>event</th><th>→ next</th></tr></thead><tbody id="tbody"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><b>Illegal pairs are the point.</b>Because the table is closed, "update a trashed page" and "purge an active page" can't happen by accident: the server answers 409 and lists what you <em>can</em> do.</div>
+    <div><b>Visibility is not a state.</b>Public and private are a column on the artifact, orthogonal to the lifecycle; either can be active or trashed.</div>
+    <div><b>Adding a state is adding rows.</b>An <code>archived</code> state would be two or three new rows. The test that walks every illegal pair covers it automatically.</div>
+    <div><b>Purge is two steps on purpose.</b>Only a trashed artifact can be purged, so deletion for good always passes through a recoverable stop. Purged rows are gone, so the name is free for a fresh <code>create</code>.</div>
+  </div>
+  <footer>Transition table as defined in the server source. The HTTP lines are the request each event maps to; error text is paraphrased.</footer>
+</div>
+<script>
+(function(){
+  var T = [["none","create","active"],["active","update","active"],["active","trash","trashed"],["trashed","restore","active"],["trashed","purge","purged"]];
+  var HTTP = {create:"PUT /api/artifacts/trip-plan.html", update:"PUT /api/artifacts/trip-plan.html", trash:"DELETE /api/artifacts/trip-plan.html", restore:"POST /api/artifacts/trip-plan.html/restore", purge:"DELETE /api/artifacts/trip-plan.html?purge=1"};
+  var EV = ["create","update","trash","restore","purge"];
+  var state = "none", versions = 0, busy = false;
+  var $ = function(id){return document.getElementById(id);};
+  function allowed(s){ return T.filter(function(r){return r[0]===s;}).map(function(r){return r[1];}).sort(); }
+  function next(s,e){ for(var i=0;i<T.length;i++) if(T[i][0]===s&&T[i][1]===e) return T[i][2]; return null; }
+  var evBox = $('events');
+  EV.forEach(function(e){ var b=document.createElement('button'); b.type='button'; b.textContent=e; b.dataset.e=e; b.addEventListener('click',function(){fire(e);}); evBox.appendChild(b); });
+  var r = document.createElement('button'); r.type='button'; r.className='reset'; r.textContent='↺ start over'; r.addEventListener('click',reset); evBox.appendChild(r);
+  T.forEach(function(row){ var tr=document.createElement('tr'); tr.dataset.s=row[0]; tr.innerHTML='<td><span class="pill p-'+row[0]+'">'+row[0]+'</span></td><td>'+row[1]+'</td><td><span class="pill p-'+row[2]+'">'+row[2]+'</span></td>'; $('tbody').appendChild(tr); });
+  function render(){
+    var a = allowed(state);
+    ['none','active','trashed','purged'].forEach(function(s){ $('s-'+s).classList.toggle('cur', s===state); });
+    EV.forEach(function(e){ $('tr-'+e).classList.toggle('avail', a.indexOf(e)>=0); });
+    evBox.querySelectorAll('button[data-e]').forEach(function(b){ b.classList.toggle('ok', a.indexOf(b.dataset.e)>=0); });
+    $('pill').className='pill p-'+state; $('pill').textContent=state;
+    $('nver').textContent=versions; $('vcount').textContent = versions? 'v'+versions : 'no versions';
+    $('allowed').textContent = a.length? a.join(', ') : '— (terminal)';
+    document.querySelectorAll('#tbody tr').forEach(function(tr){ tr.classList.toggle('hot', tr.dataset.s===state); });
+  }
+  function log(html){ var li=document.createElement('li'); li.innerHTML=html; var ol=$('log'); ol.insertBefore(li, ol.firstChild); }
+  function animate(e, done){
+    var path = $('p-'+e), dot = $('token'), len = path.getTotalLength(), t0 = null, dur = 650;
+    $('tr-'+e).classList.add('fired'); dot.setAttribute('opacity','1');
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(reduce){ dur = 1; }
+    function step(ts){ if(!t0) t0=ts; var k=Math.min(1,(ts-t0)/dur); var p=path.getPointAtLength(len*(k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2)); dot.setAttribute('cx',p.x); dot.setAttribute('cy',p.y);
+      if(k<1) requestAnimationFrame(step); else { dot.setAttribute('opacity','0'); $('tr-'+e).classList.remove('fired'); done(); } }
+    requestAnimationFrame(step);
+  }
+  function fire(e){
+    if(busy) return;
+    var n = next(state,e);
+    if(!n){
+      var a = allowed(state);
+      log('<span class="req">'+HTTP[e]+'</span> <span class="c4">→ 409 Conflict</span><span class="why">cannot \''+e+'\' an artifact that is \''+state+'\'; allowed: ['+a.map(function(x){return "'"+x+"'";}).join(', ')+']</span>');
+      return;
+    }
+    busy = true;
+    animate(e, function(){
+      var prev = state; state = n;
+      if(e==='create'||e==='update') versions++;
+      if(e==='purge') versions = 0;
+      var code = e==='create' ? '201 Created' : '200 OK';
+      var why = {create:'version 1 stored; page live at /trip-plan.html', update:'version '+versions+' appended (old versions untouched)', trash:'hidden from listings and /trip-plan.html; versions kept', restore:'back at /trip-plan.html with all versions', purge:'artifact, versions, comments and views deleted'}[e];
+      log('<span class="req">'+HTTP[e]+'</span> <span class="c2">→ '+code+'</span><span class="why">'+prev+' —'+e+'→ '+n+': '+why+'</span>');
+      busy = false; render();
+    });
+  }
+  function reset(){ state='none'; versions=0; $('log').innerHTML=''; log('<span class="why">Fresh name: no artifact called trip-plan.html exists yet. Try <b>update</b> first to see a 409, then <b>create</b>.</span>'); render(); }
+  reset();
+})();
+</script>
+</body>
+</html>

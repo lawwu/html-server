@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simpson's paradox in the 1973 Berkeley admissions data</title>
+<meta name="description" content="An exploratory analysis of the public 1973 UC Berkeley graduate admissions data showing how an aggregate gender gap reverses within departments, with an interactive reweighting.">
+<meta name="category" content="data-science">
+<style>
+:root{
+  --bg:#f7f7f4; --card:#fff; --ink:#151a1f; --ink-2:#56606b; --rule:#dde1e4;
+  --m:#2b6cb0; --w:#c05621; --m-soft:#dbe8f6; --w-soft:#f8e3d5; --acc:#0b7a75;
+  --sans: "Avenir Next","Helvetica Neue","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f1316; --card:#171c21; --ink:#e8edf1; --ink-2:#9aa6b1; --rule:#2a323a;
+    --m:#7fb4f0; --w:#f6a26c; --m-soft:#16283c; --w-soft:#3a2416; --acc:#5fd3cc; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16.5px/1.6 var(--sans)}
+.wrap{max-width:58rem;margin:0 auto;padding:2.5rem 1rem 4rem}
+.kicker{font:600 .75rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--acc)}
+h1{font-size:clamp(1.8rem,5vw,2.8rem);line-height:1.08;margin:.4rem 0 .8rem;letter-spacing:-.02em}
+h2{font-size:1.25rem;margin:2.6rem 0 .5rem}
+.lede{font-size:1.1rem;color:var(--ink-2);max-width:44rem}
+.m{color:var(--m);font-weight:600} .w{color:var(--w);font-weight:600}
+.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:1rem;margin:1.5rem 0}
+.stat{background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.2rem}
+.stat .lab{font:.75rem var(--mono);color:var(--ink-2);text-transform:uppercase;letter-spacing:.08em}
+.stat .num{font-size:2.6rem;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat .sub{font-size:.85rem;color:var(--ink-2)}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;margin:1rem 0}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:34rem;font:.85rem var(--mono);font-variant-numeric:tabular-nums}
+th,td{padding:.4rem .5rem;text-align:right;border-bottom:1px solid var(--rule)}
+th{color:var(--ink-2);font-weight:600;font-size:.75rem}
+th:first-child,td:first-child{text-align:left}
+td.win{font-weight:700}
+tfoot td{border-top:2px solid var(--ink-2);font-weight:700}
+svg{display:block;width:100%;height:auto}
+svg text{font:11px var(--sans);fill:var(--ink-2)}
+svg .lbl{font-weight:600;fill:var(--ink);font-size:12px}
+svg .grid{stroke:var(--rule)}
+.legend{display:flex;gap:1.2rem;flex-wrap:wrap;font-size:.85rem;color:var(--ink-2);margin:.2rem 0 .6rem}
+.legend i{display:inline-block;width:.8rem;height:.8rem;border-radius:50%;margin-right:.35rem;vertical-align:-.1rem}
+.slider{display:grid;grid-template-columns:1fr auto;gap:.5rem 1rem;align-items:center}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.out{font:600 1.1rem var(--mono);font-variant-numeric:tabular-nums}
+.note{font-size:.9rem;color:var(--ink-2)}
+.callout{border-left:4px solid var(--acc);background:var(--card);padding:.8rem 1.1rem;border-radius:0 8px 8px 0;margin:1.2rem 0}
+footer{margin-top:3rem;font-size:.8rem;color:var(--ink-2);border-top:1px solid var(--rule);padding-top:.8rem}
+code{font:.85em var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Data science · exploratory analysis</div>
+  <h1>Men were admitted far more often. In most departments, women were.</h1>
+  <p class="lede">The 1973 graduate admissions numbers from UC Berkeley's six largest departments are the textbook case of Simpson's paradox: a gap in the aggregate that shrinks — and in four of six departments reverses — once you split by the variable that drives both who applies and who gets in.</p>
+
+  <div class="big" id="big"></div>
+
+  <h2>1 · The data</h2>
+  <p>4,526 applications to six departments (anonymized A–F in the original study). Counts are applicants and admits; the rate column is admits ÷ applicants.</p>
+  <div class="card scroll"><table id="tbl"></table></div>
+
+  <h2>2 · Department by department</h2>
+  <div class="legend"><span><i style="background:var(--m)"></i>Men</span><span><i style="background:var(--w)"></i>Women</span><span>circle area ∝ number of applicants</span></div>
+  <div class="card"><svg id="dots" viewBox="0 0 720 330" role="img" aria-label="Admission rate by department and gender"></svg></div>
+  <p>Read the chart top to bottom and two patterns appear. Within a department the two circles sit close together, and the orange one is to the right in A, B, D and F. But the <em>big</em> blue circles cluster at the top, in A and B, where most applicants are admitted, while the big orange circles sit lower, in C and E, where most are turned away.</p>
+
+  <div class="callout"><b>The mechanism.</b> Department is a confounder: it affects both the outcome (admission rates range from 6% to 64%) and the grouping (women applied disproportionately to the most selective departments). The aggregate rate is a weighted average of department rates, and the two groups use very different weights.</div>
+
+  <h2>3 · Reweight it yourself</h2>
+  <p>Hold each department's admission rates for women fixed and change only <em>where</em> women apply. At 0% they apply in their actual 1973 mix; at 100% they apply in exactly the men's mix.</p>
+  <div class="card">
+    <div class="slider">
+      <label for="mix">Women's application mix → men's mix: <b id="pct">0%</b></label><span></span>
+      <input id="mix" type="range" min="0" max="100" value="0" step="1">
+      <span class="out" id="rate"></span>
+    </div>
+    <svg id="bars" viewBox="0 0 720 120" role="img" aria-label="Aggregate admission rates"></svg>
+    <p class="note" id="mixnote"></p>
+  </div>
+
+  <h2>4 · Takeaway</h2>
+  <ol>
+    <li>An aggregate comparison is only as fair as its weights. Before reading a gap as an effect, ask what else differs between the groups being compared.</li>
+    <li>Here, standardizing to a common application mix turns a 14-point gap favoring men into a gap of about 7 points favoring women.</li>
+    <li>Splitting is not automatically "more correct" either: whether you condition on a variable depends on the causal question. The 1975 study asked about the admissions process, so department-level comparison was the right lens; why women applied where they did is a separate question it could not answer.</li>
+  </ol>
+  <footer>Data: six largest departments, UC Berkeley graduate admissions, fall 1973 — Bickel, Hammel &amp; O'Connell, "Sex Bias in Graduate Admissions: Data from Berkeley," <i>Science</i> 187 (1975); the same counts ship with R as <code>datasets::UCBAdmissions</code>. All figures computed in-page from those counts.</footer>
+</div>
+<script>
+(function(){
+  var D = [
+    {d:'A', ma:825, mx:512, wa:108, wx:89},
+    {d:'B', ma:560, mx:353, wa:25,  wx:17},
+    {d:'C', ma:325, mx:120, wa:593, wx:202},
+    {d:'D', ma:417, mx:138, wa:375, wx:131},
+    {d:'E', ma:191, mx:53,  wa:393, wx:94},
+    {d:'F', ma:373, mx:22,  wa:341, wx:24}
+  ];
+  var sum=function(k){return D.reduce(function(s,r){return s+r[k];},0);};
+  var MA=sum('ma'), MX=sum('mx'), WA=sum('wa'), WX=sum('wx');
+  var pct=function(v,d){return (100*v).toFixed(d==null?1:d)+'%';};
+  var mr=MX/MA, wr=WX/WA;
+  var std = D.reduce(function(s,r){return s + (r.ma/MA)*(r.wx/r.wa);},0);
+  var nWomenAhead = D.filter(function(r){return r.wx/r.wa > r.mx/r.ma;}).length;
+  document.getElementById('big').innerHTML =
+    '<div class="stat"><div class="lab">Men admitted</div><div class="num m">'+pct(mr)+'</div><div class="sub">'+MX.toLocaleString()+' of '+MA.toLocaleString()+' applicants</div></div>'+
+    '<div class="stat"><div class="lab">Women admitted</div><div class="num w">'+pct(wr)+'</div><div class="sub">'+WX.toLocaleString()+' of '+WA.toLocaleString()+' applicants</div></div>'+
+    '<div class="stat"><div class="lab">Departments where women\'s rate was higher</div><div class="num" style="color:var(--acc)">'+nWomenAhead+' of 6</div><div class="sub">gap in the aggregate: '+(100*(mr-wr)).toFixed(1)+' points for men</div></div>';
+
+  var h='<thead><tr><th>Dept</th><th>Men applied</th><th>admitted</th><th>rate</th><th>Women applied</th><th>admitted</th><th>rate</th><th>share of women\'s apps</th></tr></thead><tbody>';
+  D.forEach(function(r){ var a=r.mx/r.ma, b=r.wx/r.wa;
+    h+='<tr><td>'+r.d+'</td><td>'+r.ma+'</td><td>'+r.mx+'</td><td class="'+(a>b?'win m':'')+'">'+pct(a,0)+'</td><td>'+r.wa+'</td><td>'+r.wx+'</td><td class="'+(b>a?'win w':'')+'">'+pct(b,0)+'</td><td>'+pct(r.wa/WA,0)+'</td></tr>'; });
+  h+='</tbody><tfoot><tr><td>All</td><td>'+MA+'</td><td>'+MX+'</td><td class="m">'+pct(mr,0)+'</td><td>'+WA+'</td><td>'+WX+'</td><td class="w">'+pct(wr,0)+'</td><td>100%</td></tr></tfoot>';
+  document.getElementById('tbl').innerHTML=h;
+
+  var NS='http://www.w3.org/2000/svg';
+  function el(n,a,p){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+  var svg=document.getElementById('dots'), L=60, R=700, T=30, rowH=48, sx=function(v){return L+v*(R-L)/0.9;};
+  [0,.2,.4,.6,.8].forEach(function(v){ el('line',{x1:sx(v),x2:sx(v),y1:T-10,y2:T+rowH*6-10,class:'grid'},svg); el('text',{x:sx(v),y:T+rowH*6+8,'text-anchor':'middle'},svg).textContent=(v*100)+'%'; });
+  el('text',{x:R,y:T+rowH*6+24,'text-anchor':'end'},svg).textContent='admission rate →';
+  var rad=function(n){return Math.sqrt(n)*0.62;};
+  D.forEach(function(r,i){ var y=T+i*rowH+10, a=r.mx/r.ma, b=r.wx/r.wa;
+    el('text',{x:20,y:y+4,class:'lbl'},svg).textContent='Dept '+r.d;
+    el('line',{x1:sx(Math.min(a,b)),x2:sx(Math.max(a,b)),y1:y,y2:y,stroke:'var(--ink-2)','stroke-width':1.5},svg);
+    var cm=el('circle',{cx:sx(a),cy:y,r:rad(r.ma),fill:'var(--m)','fill-opacity':.35,stroke:'var(--m)','stroke-width':1.5},svg);
+    var cw=el('circle',{cx:sx(b),cy:y,r:rad(r.wa),fill:'var(--w)','fill-opacity':.35,stroke:'var(--w)','stroke-width':1.5},svg);
+    el('title',{},cm).textContent='Dept '+r.d+' men: '+r.mx+'/'+r.ma+' = '+pct(a);
+    el('title',{},cw).textContent='Dept '+r.d+' women: '+r.wx+'/'+r.wa+' = '+pct(b);
+  });
+
+  var bars=document.getElementById('bars'), slider=document.getElementById('mix');
+  function update(){
+    var t=+slider.value/100;
+    var rate=D.reduce(function(s,r){ var share=(1-t)*(r.wa/WA)+t*(r.ma/MA); return s+share*(r.wx/r.wa); },0);
+    document.getElementById('pct').textContent=slider.value+'%';
+    document.getElementById('rate').textContent=pct(rate);
+    bars.innerHTML='';
+    var bx=function(v){return 130+v*560/0.6;};
+    [['Men (actual)',mr,'var(--m)'],['Women (reweighted)',rate,'var(--w)']].forEach(function(b,i){ var y=14+i*46;
+      el('text',{x:0,y:y+18,class:'lbl'},bars).textContent=b[0];
+      el('rect',{x:130,y:y,width:bx(b[1])-130,height:26,rx:4,fill:b[2],'fill-opacity':.8},bars);
+      el('text',{x:bx(b[1])+6,y:y+18,class:'lbl'},bars).textContent=pct(b[1]); });
+    var gap=(rate-mr)*100;
+    document.getElementById('mixnote').textContent = slider.value==='0' ? 'Actual 1973 mix: women\'s aggregate rate is '+pct(wr)+', '+(-gap).toFixed(1)+' points below men.' :
+      (gap<0 ? 'Gap: '+(-gap).toFixed(1)+' points below men.' : 'Gap: '+gap.toFixed(1)+' points above men — with nothing changed but where applications went.') + (slider.value==='100' ? ' This is the "standardized" rate, '+pct(std)+'.' : '');
+  }
+  slider.addEventListener('input',update); update();
+})();
+</script>
+</body>
+</html>

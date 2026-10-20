@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gradient descent, momentum and Adam on a loss surface</title>
+<meta name="description" content="Race plain gradient descent, momentum and Adam across three 2D loss surfaces; click to pick a start point and tune the learning rate to watch convergence, zig-zagging and divergence.">
+<meta name="category" content="machine-learning">
+<style>
+:root{
+  --bg:#f5f3ee; --panel:#fffdf8; --ink:#1c1b19; --ink-2:#615d55; --rule:#dcd6ca;
+  --gd:#e4572e; --mom:#2a7fde; --adam:#17a36b; --acc:#1c1b19;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans: "Avenir Next","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#101112; --panel:#18191b; --ink:#ececea; --ink-2:#a3a29c; --rule:#303236;
+    --gd:#ff7b54; --mom:#6aaeff; --adam:#47d698; --acc:#ececea; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15.5px/1.55 var(--sans)}
+.wrap{max-width:70rem;margin:0 auto;padding:2rem 1rem 3rem}
+.kicker{font:600 .74rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+h1{font-size:clamp(1.6rem,4.4vw,2.4rem);line-height:1.1;margin:.35rem 0 .5rem;letter-spacing:-.02em}
+.lede{color:var(--ink-2);max-width:46rem;margin:0 0 1.2rem}
+.layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(16rem,1fr);gap:1rem;align-items:start}
+@media (max-width:820px){ .layout{grid-template-columns:1fr} }
+.surface{position:relative;background:var(--panel);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.surface canvas{display:block;width:100%;cursor:crosshair;touch-action:manipulation}
+.hint{position:absolute;left:.7rem;top:.6rem;font:.75rem var(--mono);background:rgba(0,0,0,.55);color:#fff;padding:.2rem .5rem;border-radius:4px;pointer-events:none}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:1rem}
+.panel h2{font:600 .72rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);margin:0 0 .5rem}
+.seg{display:flex;flex-wrap:wrap;border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin-bottom:.9rem}
+.seg button{flex:1;border:0;background:transparent;color:var(--ink);font:600 .82rem var(--sans);padding:.5rem .4rem;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--acc);color:var(--bg)}
+.ctl{margin:.7rem 0}
+.ctl label{display:flex;justify-content:space-between;font-size:.86rem}
+.ctl output{font:600 .85rem var(--mono)}
+input[type=range]{width:100%;accent-color:var(--ink)}
+.row{display:flex;gap:.5rem;margin:.9rem 0}
+.row button{flex:1;font:600 .86rem var(--sans);padding:.55rem;border-radius:8px;border:1.5px solid var(--ink);background:var(--panel);color:var(--ink);cursor:pointer}
+.row button.primary{background:var(--ink);color:var(--bg)}
+.opt{display:grid;grid-template-columns:auto 1fr auto;gap:.2rem .6rem;align-items:center;font-size:.86rem;padding:.35rem 0;border-top:1px dashed var(--rule)}
+.opt input{accent-color:var(--ink)}
+.opt .sw{display:inline-block;width:1.4rem;height:.25rem;border-radius:2px;margin-right:.3rem;vertical-align:middle}
+.opt .val{font:.8rem var(--mono);color:var(--ink-2);text-align:right}
+.loss canvas{width:100%;height:9rem;display:block}
+.explain{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:1rem;margin-top:1.5rem}
+.explain div{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:.9rem 1rem;font-size:.92rem;color:var(--ink-2)}
+.explain b{color:var(--ink);display:block;margin-bottom:.25rem}
+code{font:.85em var(--mono)}
+.eq{font:.8rem/1.6 var(--mono);color:var(--ink)}
+footer{margin-top:2rem;font-size:.8rem;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Machine learning · optimization</div>
+  <h1>Three optimizers, one valley</h1>
+  <p class="lede">Training a model means walking downhill on a loss surface. Here the surface has only two parameters, so you can see it. Click anywhere to drop all three optimizers at the same spot, then press run. Push the learning rate up until something breaks.</p>
+
+  <div class="layout">
+    <div>
+      <div class="surface"><canvas id="cv" aria-label="Loss surface; click to set the starting point"></canvas><div class="hint" id="hint">click to set start</div></div>
+      <div class="explain">
+        <div><b>Gradient descent</b><span class="eq">θ ← θ − η∇L(θ)</span><br>Step straight downhill. In a narrow valley the steepest direction points across it, not along it, so GD zig-zags.</div>
+        <div><b>Momentum</b><span class="eq">v ← βv + ∇L;  θ ← θ − ηv</span><br>Keep a running velocity. Side-to-side gradients cancel; the along-the-valley component accumulates.</div>
+        <div><b>Adam</b><span class="eq">θ ← θ − α·m̂ / (√v̂ + ε)</span><br>Rescale each coordinate by its recent gradient size, so steep and shallow directions take similar-sized steps.</div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Surface</h2>
+      <div class="seg" id="fsel"></div>
+      <h2>Optimizers</h2>
+      <div id="opts"></div>
+      <div class="ctl"><label for="lr">learning rate η (GD, momentum) <output id="lro"></output></label><input id="lr" type="range" min="-4" max="0" step="0.05"></div>
+      <div class="ctl"><label for="beta">momentum β <output id="betao"></output></label><input id="beta" type="range" min="0" max="0.99" step="0.01" value="0.9"></div>
+      <div class="ctl"><label for="alr">Adam step size α <output id="alro"></output></label><input id="alr" type="range" min="-3" max="0" step="0.05"></div>
+      <div class="row"><button class="primary" id="run">Run</button><button id="step">Step</button><button id="reset">Reset</button></div>
+      <h2>Loss (log scale) · iteration <span id="it">0</span></h2>
+      <div class="loss"><canvas id="lc" aria-label="Loss per iteration"></canvas></div>
+    </div>
+  </div>
+  <footer>All three surfaces are standard optimization test functions (an ill-conditioned quadratic, Rosenbrock's banana, Himmelblau's four-minimum function). Gradients are analytic; nothing here is trained on data.</footer>
+</div>
+<script>
+(function(){
+  var F = {
+    bowl:{name:'Narrow bowl', dom:[-3,3,-2,2], f:function(x,y){return 0.5*(x*x+10*y*y);}, g:function(x,y){return [x,10*y];}, start:[-2.6,1.4], lr:-0.85, alr:-1.0, mins:[[0,0]]},
+    rosen:{name:'Rosenbrock', dom:[-2,2,-1,3], f:function(x,y){var a=1-x,b=y-x*x;return a*a+100*b*b;}, g:function(x,y){var b=y-x*x;return [-2*(1-x)-400*x*b,200*b];}, start:[-1.5,2.4], lr:-3.0, alr:-1.6, mins:[[1,1]]},
+    himm:{name:'Himmelblau', dom:[-5,5,-5,5], f:function(x,y){var a=x*x+y-11,b=x+y*y-7;return a*a+b*b;}, g:function(x,y){var a=x*x+y-11,b=x+y*y-7;return [4*x*a+2*b,2*a+4*y*b];}, start:[-0.3,-0.6], lr:-2.2, alr:-1.0, mins:[[3,2],[-2.805118,3.131312],[-3.779310,-3.283186],[3.584428,-1.848126]]}
+  };
+  var OPT = [{k:'gd',name:'Gradient descent',c:'--gd'},{k:'mom',name:'Momentum',c:'--mom'},{k:'adam',name:'Adam',c:'--adam'}];
+  var $ = function(id){return document.getElementById(id);};
+  var cv=$('cv'), ctx=cv.getContext('2d'), lc=$('lc'), lctx=lc.getContext('2d');
+  var fk='bowl', start, runs={}, it=0, playing=false, bg=null, W=0, H=0, dpr=1, on={gd:true,mom:true,adam:true};
+  function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+  Object.keys(F).forEach(function(k){ var b=document.createElement('button'); b.textContent=F[k].name; b.dataset.k=k; b.addEventListener('click',function(){ setF(k); }); $('fsel').appendChild(b); });
+  OPT.forEach(function(o){ var d=document.createElement('label'); d.className='opt'; d.innerHTML='<input type="checkbox" checked data-k="'+o.k+'"><span><span class="sw" style="background:var('+o.c+')"></span>'+o.name+'</span><span class="val" id="v-'+o.k+'">—</span>'; $('opts').appendChild(d);
+    d.querySelector('input').addEventListener('change',function(e){ on[o.k]=e.target.checked; drawAll(); }); });
+
+  // colour ramp (dark-to-light, perceptually ordered); bands every 1/14 of log-range give contour look
+  var RAMP=[[13,8,135],[84,2,163],[139,10,165],[185,50,137],[219,92,104],[244,136,73],[254,188,43],[240,249,33]];
+  function ramp(t){ t=Math.max(0,Math.min(1,t))*(RAMP.length-1); var i=Math.floor(t), f=t-i, a=RAMP[i], b=RAMP[Math.min(i+1,RAMP.length-1)]; return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f]; }
+  function toPx(x,y){ var d=F[fk].dom; return [(x-d[0])/(d[1]-d[0])*W, H-(y-d[2])/(d[3]-d[2])*H]; }
+  function toXY(px,py){ var d=F[fk].dom; return [d[0]+px/W*(d[1]-d[0]), d[2]+(H-py)/H*(d[3]-d[2])]; }
+
+  function size(){
+    dpr=Math.min(window.devicePixelRatio||1,2);
+    var w=cv.parentNode.clientWidth; W=Math.round(w*dpr); H=Math.round(w*0.72*dpr);
+    cv.width=W; cv.height=H; cv.style.height=(w*0.72)+'px';
+    lc.width=Math.round(lc.clientWidth*dpr); lc.height=Math.round(lc.clientHeight*dpr);
+    renderBg(); drawAll();
+  }
+  function renderBg(){
+    if(!W||!H) return;
+    var f=F[fk], img=ctx.createImageData(W,H), step=2, vals=new Float32Array(Math.ceil(W/step)*Math.ceil(H/step)), cols=Math.ceil(W/step), lo=Infinity, hi=-Infinity, i=0, px, py;
+    for(py=0;py<H;py+=step) for(px=0;px<W;px+=step){ var p=toXY(px,py), v=Math.log(f.f(p[0],p[1])+1e-3); vals[i++]=v; if(v<lo)lo=v; if(v>hi)hi=v; }
+    var bands=16;
+    for(py=0;py<H;py++) for(px=0;px<W;px++){
+      var t=(vals[Math.floor(py/step)*cols+Math.floor(px/step)]-lo)/(hi-lo), q=Math.floor(t*bands)/bands, c=ramp(0.12+0.8*q), edge=(t*bands)%1<0.06?0.82:1, o=(py*W+px)*4;
+      img.data[o]=c[0]*edge; img.data[o+1]=c[1]*edge; img.data[o+2]=c[2]*edge; img.data[o+3]=255; }
+    ctx.putImageData(img,0,0); bg=ctx.getImageData(0,0,W,H);
+  }
+  function reset(){
+    it=0; runs={};
+    OPT.forEach(function(o){ runs[o.k]={p:start.slice(),v:[0,0],m:[0,0],s:[0,0],path:[start.slice()],loss:[F[fk].f(start[0],start[1])],dead:false}; });
+    drawAll();
+  }
+  function lr(){ return Math.pow(10,+$('lr').value); }
+  function alr(){ return Math.pow(10,+$('alr').value); }
+  function stepOnce(){
+    var f=F[fk], eta=lr(), beta=+$('beta').value, a=alr(), b1=0.9, b2=0.999, eps=1e-8; it++;
+    OPT.forEach(function(o){ var r=runs[o.k]; if(r.dead) return; var g=f.g(r.p[0],r.p[1]);
+      if(o.k==='gd'){ r.p=[r.p[0]-eta*g[0], r.p[1]-eta*g[1]]; }
+      else if(o.k==='mom'){ r.v=[beta*r.v[0]+g[0], beta*r.v[1]+g[1]]; r.p=[r.p[0]-eta*r.v[0], r.p[1]-eta*r.v[1]]; }
+      else { r.m=[b1*r.m[0]+(1-b1)*g[0], b1*r.m[1]+(1-b1)*g[1]]; r.s=[b2*r.s[0]+(1-b2)*g[0]*g[0], b2*r.s[1]+(1-b2)*g[1]*g[1]];
+        var c1=1-Math.pow(b1,it), c2=1-Math.pow(b2,it); r.p=[r.p[0]-a*(r.m[0]/c1)/(Math.sqrt(r.s[0]/c2)+eps), r.p[1]-a*(r.m[1]/c1)/(Math.sqrt(r.s[1]/c2)+eps)]; }
+      var L=f.f(r.p[0],r.p[1]);
+      if(!isFinite(L) || L>1e12 || Math.abs(r.p[0])>1e4 || Math.abs(r.p[1])>1e4){ r.dead=true; L=Infinity; }
+      r.path.push(r.p.slice()); r.loss.push(L); });
+  }
+  function drawAll(){
+    if(!bg) return; ctx.putImageData(bg,0,0);
+    var f=F[fk];
+    f.mins.forEach(function(m){ var q=toPx(m[0],m[1]); ctx.strokeStyle='#fff'; ctx.lineWidth=2*dpr; ctx.beginPath(); ctx.moveTo(q[0]-6*dpr,q[1]); ctx.lineTo(q[0]+6*dpr,q[1]); ctx.moveTo(q[0],q[1]-6*dpr); ctx.lineTo(q[0],q[1]+6*dpr); ctx.stroke(); });
+    OPT.forEach(function(o){ if(!on[o.k]) return; var r=runs[o.k], col=css(o.c);
+      ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.lineWidth=4.5*dpr; ctx.lineJoin='round'; path(r); ctx.stroke();
+      ctx.strokeStyle=col; ctx.lineWidth=2.4*dpr; path(r); ctx.stroke();
+      var last=r.path[r.path.length-1], q=toPx(last[0],last[1]); ctx.fillStyle=col; ctx.strokeStyle='#fff'; ctx.lineWidth=1.5*dpr; ctx.beginPath(); ctx.arc(q[0],q[1],5.5*dpr,0,7); ctx.fill(); ctx.stroke();
+      var L=r.loss[r.loss.length-1]; $('v-'+o.k).textContent = r.dead ? 'diverged' : (L<1e-4? L.toExponential(1) : L.toPrecision(3)); });
+    var s=toPx(start[0],start[1]); ctx.fillStyle='#fff'; ctx.strokeStyle='#000'; ctx.lineWidth=1.5*dpr; ctx.beginPath(); ctx.rect(s[0]-5*dpr,s[1]-5*dpr,10*dpr,10*dpr); ctx.fill(); ctx.stroke();
+    $('it').textContent=it; drawLoss();
+  }
+  function path(r){ ctx.beginPath(); r.path.forEach(function(p,i){ var q=toPx(Math.max(-1e4,Math.min(1e4,p[0])),Math.max(-1e4,Math.min(1e4,p[1]))); if(i) ctx.lineTo(q[0],q[1]); else ctx.moveTo(q[0],q[1]); }); }
+  function drawLoss(){
+    var w=lc.width, h=lc.height, pad=6*dpr; lctx.clearRect(0,0,w,h);
+    var all=[]; OPT.forEach(function(o){ if(on[o.k]) runs[o.k].loss.forEach(function(v){ if(isFinite(v)) all.push(Math.log10(Math.max(v,1e-12))); }); });
+    if(!all.length) return; var lo=Math.min.apply(null,all), hi=Math.max.apply(null,all); if(hi-lo<1){hi+=.5;lo-=.5;}
+    var n=Math.max(30,it+1);
+    lctx.strokeStyle=css('--rule'); lctx.lineWidth=1; for(var e=Math.ceil(lo);e<=hi;e++){ var y=h-pad-(e-lo)/(hi-lo)*(h-2*pad); lctx.beginPath(); lctx.moveTo(0,y); lctx.lineTo(w,y); lctx.stroke(); lctx.fillStyle=css('--ink-2'); lctx.font=(10*dpr)+'px ui-monospace,monospace'; lctx.fillText('1e'+e,2*dpr,y-2*dpr); }
+    OPT.forEach(function(o){ if(!on[o.k]) return; lctx.strokeStyle=css(o.c); lctx.lineWidth=2*dpr; lctx.beginPath(); var started=false;
+      runs[o.k].loss.forEach(function(v,i){ if(!isFinite(v)) return; var x=pad+i/(n-1)*(w-2*pad), y=h-pad-(Math.log10(Math.max(v,1e-12))-lo)/(hi-lo)*(h-2*pad); if(started) lctx.lineTo(x,y); else {lctx.moveTo(x,y); started=true;} }); lctx.stroke(); });
+  }
+  function labels(){ $('lro').textContent=lr().toPrecision(2); $('betao').textContent=(+$('beta').value).toFixed(2); $('alro').textContent=alr().toPrecision(2); }
+  function setF(k){ fk=k; var f=F[k]; start=f.start.slice(); $('lr').value=f.lr; $('alr').value=f.alr; labels();
+    document.querySelectorAll('#fsel button').forEach(function(b){ b.setAttribute('aria-pressed',String(b.dataset.k===k)); });
+    stop(); renderBg(); reset(); }
+  function loop(){ if(!playing) return; stepOnce(); drawAll(); var allDone = OPT.every(function(o){ var r=runs[o.k]; return r.dead || r.loss[r.loss.length-1]<1e-10; });
+    if(it>=600 || allDone){ stop(); return; } requestAnimationFrame(loop); }
+  function stop(){ playing=false; $('run').textContent='Run'; }
+  $('run').addEventListener('click',function(){ if(playing){ stop(); return; } if(it>=600) reset(); playing=true; $('run').textContent='Pause'; $('hint').style.display='none'; loop(); });
+  $('step').addEventListener('click',function(){ stop(); stepOnce(); drawAll(); });
+  $('reset').addEventListener('click',function(){ stop(); reset(); });
+  ['lr','beta','alr'].forEach(function(id){ $(id).addEventListener('input',function(){ labels(); }); $(id).addEventListener('change',function(){ if(!playing){ reset(); } }); });
+  cv.addEventListener('click',function(e){ var r=cv.getBoundingClientRect(); start=toXY((e.clientX-r.left)*dpr,(e.clientY-r.top)*dpr); $('hint').style.display='none'; stop(); reset(); });
+  var rt; window.addEventListener('resize',function(){ clearTimeout(rt); rt=setTimeout(size,150); });
+  if(window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener && window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',drawAll);
+  fk='bowl'; start=F.bowl.start.slice(); setF('bowl'); size();
+})();
+</script>
+</body>
+</html>

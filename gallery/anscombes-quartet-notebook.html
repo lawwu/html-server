@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anscombe's quartet — an exploratory notebook</title>
+<meta name="description" content="A notebook-style exploration of Anscombe's quartet: four datasets with identical summary statistics, plotted, fitted and checked with residuals to show why you always look at the data.">
+<meta name="category" content="data-science">
+<style>
+:root{
+  --bg:#fdfcf9; --cell:#ffffff; --ink:#22211f; --ink-2:#6a665e; --rule:#e5e1d8; --gutter:#9a958a;
+  --c1:#2f6fb0; --c2:#c4532b; --c3:#2e8a5a; --c4:#8a4fb5; --fit:#22211f; --hi:#fff4c2;
+  --mono: ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+  --serif: Charter,"Bitstream Charter","Sitka Text",Cambria,Georgia,serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#141413; --cell:#1c1c1a; --ink:#ebe8e1; --ink-2:#a7a297; --rule:#33322e; --gutter:#7c786f;
+    --c1:#79aef0; --c2:#f08a62; --c3:#6fd19c; --c4:#c39af0; --fit:#ebe8e1; --hi:#3a3216; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 var(--serif)}
+.wrap{max-width:56rem;margin:0 auto;padding:2.5rem 1rem 4rem}
+.nb-head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.5rem;font:.78rem var(--mono);color:var(--ink-2);border-bottom:1px solid var(--rule);padding-bottom:.6rem}
+h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.1;margin:1.2rem 0 .4rem;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.3rem;margin:2.4rem 0 .4rem}
+p{margin:.7rem 0}
+.cell{display:grid;grid-template-columns:4.2rem 1fr;gap:.6rem;margin:1rem 0}
+.cell .n{font:.75rem var(--mono);color:var(--gutter);text-align:right;padding-top:.75rem}
+.cell .body{min-width:0}
+.src{background:var(--cell);border:1px solid var(--rule);border-left:3px solid var(--c1);border-radius:4px;font:.8rem/1.55 var(--mono);padding:.6rem .8rem;white-space:pre;overflow-x:auto;margin:0}
+.src .k{color:var(--c4)} .src .s{color:var(--c3)} .src .c{color:var(--ink-2);font-style:italic}
+.out{margin-top:.5rem;overflow-x:auto}
+.out.text{font:.8rem/1.5 var(--mono);white-space:pre;color:var(--ink)}
+table{border-collapse:collapse;font:.82rem var(--mono);width:100%;min-width:30rem}
+th,td{padding:.35rem .55rem;text-align:right;border-bottom:1px solid var(--rule)}
+th{color:var(--ink-2);font-weight:600}
+th:first-child,td:first-child{text-align:left}
+td.same{background:var(--hi)}
+.grid4{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem}
+@media (max-width:560px){ .grid4{grid-template-columns:1fr} .cell{grid-template-columns:1fr} .cell .n{text-align:left;padding:0} body{font-size:16px} }
+figure{margin:0;background:var(--cell);border:1px solid var(--rule);border-radius:6px;padding:.4rem .4rem .2rem}
+figcaption{font:.75rem var(--mono);color:var(--ink-2);padding:.1rem .3rem .3rem}
+svg{display:block;width:100%;height:auto}
+svg text{font:10px var(--mono);fill:var(--ink-2)}
+svg .ax{stroke:var(--rule);stroke-width:1}
+svg .tick{stroke:var(--rule)}
+svg .fit{stroke:var(--fit);stroke-width:1.4;stroke-dasharray:5 3;opacity:.8}
+svg .zero{stroke:var(--ink-2);stroke-width:1}
+svg .pt{stroke:var(--cell);stroke-width:1.2;cursor:pointer}
+svg .pt:hover,svg .pt.sel{stroke:var(--ink);stroke-width:2}
+.toggle{display:inline-flex;border:1px solid var(--rule);border-radius:6px;overflow:hidden;font:.8rem var(--mono);margin:.3rem 0 .6rem}
+.toggle button{border:0;background:var(--cell);color:var(--ink-2);padding:.35rem .75rem;cursor:pointer;font:inherit}
+.toggle button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.md{border-left:3px solid var(--rule);padding:.1rem 0 .1rem 1rem}
+.takeaway{background:var(--cell);border:1px solid var(--rule);border-radius:8px;padding:1rem 1.2rem;margin-top:1rem}
+.takeaway ol{padding-left:1.2rem;margin:.4rem 0}
+#hover{font:.78rem var(--mono);color:var(--ink-2);min-height:1.3em}
+footer{margin-top:3rem;font-size:.82rem;color:var(--ink-2);border-top:1px solid var(--rule);padding-top:.8rem}
+code{font:.85em var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="nb-head"><span>anscombe.ipynb · computed live in this page</span><span>dataset: Anscombe (1973), public domain</span></div>
+  <h1>Four datasets, one set of numbers</h1>
+  <p>In 1973 the statistician Francis Anscombe published four small datasets, eleven points each, built so that their usual summary statistics agree to two or three decimal places. His point was blunt: a regression printout is not a substitute for a graph. This notebook walks through the quartet the way you would with any new data — summarize, plot, fit, then check the fit.</p>
+
+  <h2>1 · Load</h2>
+  <div class="cell"><div class="n">In [1]:</div><div class="body">
+<pre class="src"><span class="c"># Anscombe, F. J. (1973). "Graphs in Statistical Analysis." The American Statistician 27(1).</span>
+x123 = [10, 8, 13, 9, 11, 14, 6, 4, 12, 7, 5]
+x4   = [ 8, 8,  8, 8,  8,  8, 8, 19,  8, 8, 8]
+y1   = [8.04, 6.95,  7.58, 8.81, 8.33, 9.96, 7.24, 4.26, 10.84, 4.82, 5.68]
+y2   = [9.14, 8.14,  8.74, 8.77, 9.26, 8.10, 6.13, 3.10,  9.13, 7.26, 4.74]
+y3   = [7.46, 6.77, 12.74, 7.11, 7.81, 8.84, 6.08, 5.39,  8.15, 6.42, 5.73]
+y4   = [6.58, 5.76,  7.71, 8.84, 8.47, 7.04, 5.25, 12.50, 5.56, 7.91, 6.89]
+quartet = { <span class="s">"I"</span>:   (x123, y1), <span class="s">"II"</span>: (x123, y2),
+            <span class="s">"III"</span>: (x123, y3), <span class="s">"IV"</span>: (x4,   y4) }</pre>
+    <div class="out text" id="out-load"></div>
+  </div></div>
+
+  <h2>2 · Summarize</h2>
+  <div class="cell"><div class="n">In [2]:</div><div class="body">
+<pre class="src">summary = {k: describe(x, y) <span class="k">for</span> k, (x, y) <span class="k">in</span> quartet.items()}</pre>
+    <div class="out" id="out-stats"></div>
+  </div></div>
+  <p class="md">Highlighted rows agree across all four sets to within a unit in the last printed digit. Same means, same variances, same correlation, same least-squares line <em>y ≈ 3.00 + 0.500x</em>. If this table were all you saw, you would conclude the four datasets describe the same relationship.</p>
+
+  <h2>3 · Plot</h2>
+  <div class="cell"><div class="n">In [3]:</div><div class="body">
+<pre class="src"><span class="k">for</span> k, (x, y) <span class="k">in</span> quartet.items():
+    scatter(x, y); abline(fit(x, y))   <span class="c"># dashed line = least-squares fit</span></pre>
+    <div class="out">
+      <div class="toggle" role="group" aria-label="Plot type"><button data-mode="scatter" aria-pressed="true">y vs x</button><button data-mode="resid" aria-pressed="false">residuals vs fitted</button></div>
+      <div class="grid4" id="plots"></div>
+      <div id="hover" aria-live="polite">Hover or tap a point.</div>
+    </div>
+  </div></div>
+  <p class="md">The pictures disagree completely. <b>I</b> is what the table promised: a noisy linear trend. <b>II</b> is a smooth curve — a parabola fit by a straight line. <b>III</b> is a perfect line except for one point that drags the slope upward. <b>IV</b> has no relationship at all: ten points share one x value, and a single far point manufactures the entire slope. Switch to the residual view and the problems become impossible to miss — structure where there should be noise, and one residual towering over the rest.</p>
+
+  <h2>4 · Influence check</h2>
+  <div class="cell"><div class="n">In [4]:</div><div class="body">
+<pre class="src"><span class="c"># refit each set without its single most-influential point (largest Cook's distance)</span>
+<span class="k">for</span> k, (x, y) <span class="k">in</span> quartet.items(): print(k, fit(x, y), fit(drop_max_cooks(x, y)))</pre>
+    <div class="out text" id="out-infl"></div>
+  </div></div>
+
+  <div class="takeaway">
+    <b>Takeaway</b>
+    <ol>
+      <li>Summary statistics compress; they also hide. Identical moments and fits can come from linear, curved, outlier-driven and degenerate data.</li>
+      <li>Plot before you model, and plot residuals after. A residual plot turns "the fit looks fine" into a checkable claim.</li>
+      <li>Check influence. In III and IV one point controls the answer; a robust refit or a leave-one-out check exposes it in a line of code.</li>
+    </ol>
+  </div>
+  <footer>Data: Anscombe's quartet, as published in Anscombe (1973) and reproduced in R's <code>datasets::anscombe</code>. All statistics on this page are computed in the browser from the 44 inline values.</footer>
+</div>
+<script>
+(function(){
+  var X = [10,8,13,9,11,14,6,4,12,7,5], X4 = [8,8,8,8,8,8,8,19,8,8,8];
+  var D = [
+    {k:'I',   x:X,  y:[8.04,6.95,7.58,8.81,8.33,9.96,7.24,4.26,10.84,4.82,5.68], c:'--c1'},
+    {k:'II',  x:X,  y:[9.14,8.14,8.74,8.77,9.26,8.10,6.13,3.10,9.13,7.26,4.74], c:'--c2'},
+    {k:'III', x:X,  y:[7.46,6.77,12.74,7.11,7.81,8.84,6.08,5.39,8.15,6.42,5.73], c:'--c3'},
+    {k:'IV',  x:X4, y:[6.58,5.76,7.71,8.84,8.47,7.04,5.25,12.50,5.56,7.91,6.89], c:'--c4'}
+  ];
+  function mean(a){ return a.reduce(function(s,v){return s+v;},0)/a.length; }
+  function vari(a){ var m=mean(a); return a.reduce(function(s,v){return s+(v-m)*(v-m);},0)/(a.length-1); }
+  function fit(x,y){ var mx=mean(x), my=mean(y), sxy=0, sxx=0; for(var i=0;i<x.length;i++){ sxy+=(x[i]-mx)*(y[i]-my); sxx+=(x[i]-mx)*(x[i]-mx);} var b=sxy/sxx; return {a:my-b*mx, b:b}; }
+  function corr(x,y){ var mx=mean(x), my=mean(y), sxy=0,sxx=0,syy=0; for(var i=0;i<x.length;i++){sxy+=(x[i]-mx)*(y[i]-my);sxx+=(x[i]-mx)*(x[i]-mx);syy+=(y[i]-my)*(y[i]-my);} return sxy/Math.sqrt(sxx*syy); }
+  function cooks(x,y){ var f=fit(x,y), n=x.length, p=2, mx=mean(x), sxx=0, i; for(i=0;i<n;i++) sxx+=(x[i]-mx)*(x[i]-mx);
+    var r=x.map(function(v,i){return y[i]-(f.a+f.b*v);}); var s2=r.reduce(function(s,v){return s+v*v;},0)/(n-p);
+    return x.map(function(v,i){ var h=1/n+(v-mx)*(v-mx)/sxx; return h>=0.999999? Infinity : (r[i]*r[i]/(p*s2))*h/((1-h)*(1-h)); }); }
+  D.forEach(function(d){ d.f=fit(d.x,d.y); d.r=corr(d.x,d.y); d.res=d.x.map(function(v,i){return d.y[i]-(d.f.a+d.f.b*v);}); d.hat=d.x.map(function(v){return d.f.a+d.f.b*v;});
+    var ssr=d.res.reduce(function(s,v){return s+v*v;},0), my=mean(d.y), sst=d.y.reduce(function(s,v){return s+(v-my)*(v-my);},0); d.r2=1-ssr/sst; });
+
+  document.getElementById('out-load').textContent = 'loaded 4 datasets × 11 points  (44 observations, 0 missing)';
+
+  var rows = [['n',function(d){return d.x.length;},0],['mean x',function(d){return mean(d.x);},2],['var x',function(d){return vari(d.x);},2],['mean y',function(d){return mean(d.y);},2],['var y',function(d){return vari(d.y);},2],['corr(x, y)',function(d){return d.r;},3],['intercept',function(d){return d.f.a;},2],['slope',function(d){return d.f.b;},3],['R²',function(d){return d.r2;},2]];
+  var h = '<table><thead><tr><th>statistic</th>'+D.map(function(d){return '<th>'+d.k+'</th>';}).join('')+'</tr></thead><tbody>';
+  rows.forEach(function(r){ var vals=D.map(function(d){return r[1](d).toFixed(r[2]);}); var raw=D.map(function(d){return r[1](d);}); var same=Math.max.apply(null,raw)-Math.min.apply(null,raw) < 1.5*Math.pow(10,-r[2]);
+    h+='<tr><td>'+r[0]+'</td>'+vals.map(function(v){return '<td class="'+(same?'same':'')+'">'+v+'</td>';}).join('')+'</tr>'; });
+  document.getElementById('out-stats').innerHTML = h+'</tbody></table>';
+
+  var W=300,H=220,M={l:34,r:10,t:10,b:26}, NS='http://www.w3.org/2000/svg';
+  function el(n,a,p){ var e=document.createElementNS(NS,n); for(var k in a) e.setAttribute(k,a[k]); if(p) p.appendChild(e); return e; }
+  var plots = document.getElementById('plots'), hover = document.getElementById('hover');
+  function draw(mode){
+    plots.innerHTML='';
+    D.forEach(function(d){
+      var fig=document.createElement('figure'), svg=el('svg',{viewBox:'0 0 '+W+' '+H,role:'img','aria-label':'Dataset '+d.k+(mode==='scatter'?' scatter with fit':' residuals')});
+      var xs = mode==='scatter'? d.x : d.hat, ys = mode==='scatter'? d.y : d.res;
+      var x0 = mode==='scatter'?2:4.5, x1 = mode==='scatter'?20:13.5, y0 = mode==='scatter'?2:-3.5, y1 = mode==='scatter'?14:3.5;
+      var sx=function(v){return M.l+(v-x0)/(x1-x0)*(W-M.l-M.r);}, sy=function(v){return H-M.b-(v-y0)/(y1-y0)*(H-M.t-M.b);};
+      el('line',{x1:M.l,y1:H-M.b,x2:W-M.r,y2:H-M.b,class:'ax'},svg); el('line',{x1:M.l,y1:M.t,x2:M.l,y2:H-M.b,class:'ax'},svg);
+      var xt = mode==='scatter'?[5,10,15,20]:[6,8,10,12], yt = mode==='scatter'?[4,8,12]:[-3,0,3];
+      xt.forEach(function(v){ el('line',{x1:sx(v),x2:sx(v),y1:H-M.b,y2:H-M.b+4,class:'tick'},svg); el('text',{x:sx(v),y:H-M.b+15,'text-anchor':'middle'},svg).textContent=v; });
+      yt.forEach(function(v){ el('text',{x:M.l-6,y:sy(v)+3,'text-anchor':'end'},svg).textContent=v; });
+      el('text',{x:W-M.r,y:H-3,'text-anchor':'end'},svg).textContent = mode==='scatter'?'x':'fitted ŷ';
+      if(mode==='scatter') el('line',{x1:sx(x0),y1:sy(d.f.a+d.f.b*x0),x2:sx(x1),y2:sy(d.f.a+d.f.b*x1),class:'fit'},svg);
+      else el('line',{x1:M.l,x2:W-M.r,y1:sy(0),y2:sy(0),class:'zero'},svg);
+      xs.forEach(function(v,i){ var c=el('circle',{cx:sx(v),cy:sy(Math.max(y0,Math.min(y1,ys[i]))),r:5.2,class:'pt',fill:'var('+d.c+')',tabindex:0},svg);
+        var msg='Set '+d.k+', point '+(i+1)+': x = '+d.x[i]+', y = '+d.y[i].toFixed(2)+', fitted '+d.hat[i].toFixed(2)+', residual '+(d.res[i]>=0?'+':'')+d.res[i].toFixed(2);
+        function show(){ hover.textContent=msg; plots.querySelectorAll('.sel').forEach(function(s){s.classList.remove('sel');}); c.classList.add('sel'); }
+        c.addEventListener('mouseenter',show); c.addEventListener('focus',show); c.addEventListener('click',show); });
+      fig.appendChild(svg); var cap=document.createElement('figcaption'); cap.innerHTML='<b style="color:var('+d.c+')">'+d.k+'</b> · '+(mode==='scatter'?'ŷ = '+d.f.a.toFixed(2)+' + '+d.f.b.toFixed(3)+'x':'residual range '+Math.min.apply(null,d.res).toFixed(2)+' … '+Math.max.apply(null,d.res).toFixed(2)); fig.appendChild(cap);
+      plots.appendChild(fig);
+    });
+  }
+  document.querySelectorAll('.toggle button').forEach(function(b){ b.addEventListener('click',function(){ document.querySelectorAll('.toggle button').forEach(function(o){o.setAttribute('aria-pressed',String(o===b));}); draw(b.dataset.mode); }); });
+  draw('scatter');
+
+  var lines = D.map(function(d){
+    var c=cooks(d.x,d.y), j=0; for(var i=1;i<c.length;i++) if(c[i]>c[j]) j=i;
+    var xs=d.x.filter(function(_,i){return i!==j;}), ys=d.y.filter(function(_,i){return i!==j;});
+    var sxx=xs.reduce(function(s,v){var m=mean(xs);return s+(v-m)*(v-m);},0);
+    var refit = sxx===0 ? 'slope undefined (every remaining x = '+xs[0]+')' : 'ŷ = '+fit(xs,ys).a.toFixed(2)+' + '+fit(xs,ys).b.toFixed(3)+'x';
+    var cd = isFinite(c[j]) ? c[j].toFixed(2) : '∞ (leverage 1)';
+    return (d.k+'   ').slice(0,4)+' all 11: ŷ = '+d.f.a.toFixed(2)+' + '+d.f.b.toFixed(3)+'x   drop point '+(j+1)+' (x='+d.x[j]+', y='+d.y[j]+', Cook\'s D '+cd+'):  '+refit;
+  });
+  document.getElementById('out-infl').textContent = lines.join('\n');
+})();
+</script>
+</body>
+</html>

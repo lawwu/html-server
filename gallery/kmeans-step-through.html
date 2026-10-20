@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>k-means, one step at a time</title>
+<meta name="description" content="Step through Lloyd's k-means algorithm on synthetic 2D data: alternate the assign and update steps, click to add points, compare random and k-means++ starts, and watch the inertia fall.">
+<meta name="category" content="machine-learning">
+<style>
+:root{
+  --bg:#f2f0ea; --paper:#fbfaf6; --ink:#16181d; --ink-2:#5c606a; --rule:#d9d5ca;
+  --k0:#d1495b; --k1:#00798c; --k2:#edae49; --k3:#30638e; --k4:#7b4fa0; --k5:#4f9d69; --k6:#c46d2b; --k7:#6b6f78;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --serif: "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans: "Avenir Next","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#111214; --paper:#191a1d; --ink:#ebeae6; --ink-2:#a19f98; --rule:#2f3035;
+    --k0:#f2727f; --k1:#3fc1d1; --k2:#f6c46b; --k3:#7aa8dd; --k4:#b48ad8; --k5:#7fd29a; --k6:#f09a5a; --k7:#a7abb3; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15.5px/1.6 var(--sans)}
+.wrap{max-width:68rem;margin:0 auto;padding:2rem 1rem 3rem}
+header{display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:end;border-bottom:2px solid var(--ink);padding-bottom:.8rem;margin-bottom:1.2rem}
+@media (max-width:640px){ header{grid-template-columns:1fr} }
+h1{font:700 clamp(1.8rem,5vw,2.8rem)/1.05 var(--serif);margin:0;letter-spacing:-.01em}
+.kicker{font:600 .72rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);margin-bottom:.4rem}
+.phase{font:600 .8rem var(--mono);text-align:right}
+.phase span{display:inline-block;padding:.25rem .6rem;border:1.5px solid var(--ink);border-radius:4px;margin-left:.3rem;opacity:.35}
+.phase span.on{opacity:1;background:var(--ink);color:var(--bg)}
+.grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(15rem,1fr);gap:1.2rem;align-items:start}
+@media (max-width:820px){ .grid{grid-template-columns:1fr} }
+.stage{background:var(--paper);border:1px solid var(--rule);border-radius:4px;position:relative}
+.stage canvas{display:block;width:100%;cursor:copy;touch-action:manipulation}
+.cap{font:.78rem var(--mono);color:var(--ink-2);padding:.4rem .6rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5rem}
+.side{display:flex;flex-direction:column;gap:1rem}
+.box{background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:.9rem 1rem}
+.box h2{font:600 .72rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);margin:0 0 .5rem}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+button{font:600 .86rem var(--sans);padding:.55rem .5rem;border-radius:4px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);cursor:pointer}
+button.primary{background:var(--ink);color:var(--bg)}
+button:disabled{opacity:.4;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--k1);outline-offset:2px}
+.f{display:flex;justify-content:space-between;align-items:center;margin:.5rem 0;font-size:.88rem;gap:.5rem}
+select{font:.86rem var(--sans);padding:.3rem;border:1px solid var(--rule);border-radius:4px;background:var(--paper);color:var(--ink)}
+input[type=range]{accent-color:var(--ink);width:8rem}
+.metric{font:700 1.8rem var(--mono);font-variant-numeric:tabular-nums}
+#spark{width:100%;height:4.5rem;display:block}
+.log{font:.8rem/1.5 var(--serif);color:var(--ink-2);min-height:4.5em}
+.prose{columns:2 18rem;column-gap:2rem;margin-top:1.6rem;font:16px/1.65 var(--serif)}
+.prose p{margin:0 0 .8rem;break-inside:avoid}
+.prose b{font-family:var(--sans)}
+footer{margin-top:1.5rem;font-size:.8rem;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><div class="kicker">Machine learning · clustering</div><h1>k-means, one step at a time</h1></div>
+    <div class="phase" aria-live="polite">next: <span id="ph-a">assign</span><span id="ph-u">update</span></div>
+  </header>
+  <div class="grid">
+    <div class="stage">
+      <canvas id="cv" aria-label="Scatter of points coloured by cluster; click to add a point"></canvas>
+      <div class="cap"><span id="counts"></span><span>click or tap to add points · shaded regions = nearest centroid</span></div>
+    </div>
+    <div class="side">
+      <div class="box">
+        <h2>Algorithm</h2>
+        <div class="btns">
+          <button class="primary" id="stepb">Assign points</button>
+          <button id="play">Run to convergence</button>
+          <button id="reinit">New centroids</button>
+          <button id="newdata">New data</button>
+        </div>
+        <div class="f"><label for="k">k (clusters)</label><span><input type="range" id="k" min="1" max="8" value="4"> <b id="ko">4</b></span></div>
+        <div class="f"><label for="init">initialisation</label><select id="init"><option value="pp">k-means++</option><option value="rand">random points</option><option value="bad">all in one corner</option></select></div>
+        <div class="f"><label for="blobs">true blobs in data</label><span><input type="range" id="blobs" min="2" max="7" value="4"> <b id="bo">4</b></span></div>
+      </div>
+      <div class="box">
+        <h2>Inertia (within-cluster sum of squares)</h2>
+        <div class="metric" id="inertia">—</div>
+        <canvas id="spark" aria-label="Inertia per step"></canvas>
+      </div>
+      <div class="box"><h2>What just happened</h2><div class="log" id="log" aria-live="polite"></div></div>
+    </div>
+  </div>
+  <div class="prose">
+    <p><b>Two moves, repeated.</b> Lloyd's algorithm alternates an <em>assign</em> step — give each point to its nearest centroid — and an <em>update</em> step — move each centroid to the mean of the points it owns. Each move can only lower the inertia (or leave it unchanged), and there are finitely many ways to partition the points, so the loop must stop.</p>
+    <p><b>Stopping is not winning.</b> It stops at a <em>local</em> optimum. Try “all in one corner” with several blobs: centroids crowd together and one cluster can end up straddling two blobs. k-means++ spreads the starting centroids out by picking each new one with probability proportional to its squared distance from those already chosen, which is why it is the default in most libraries.</p>
+    <p><b>Choosing k.</b> Inertia always falls as k rises — with k equal to the number of points it is zero — so it cannot pick k by itself. Set k above and below the true number of blobs and compare where the inertia lands; the “elbow” where adding a cluster stops helping much is the usual heuristic.</p>
+    <p><b>What k-means assumes.</b> Euclidean distance and a mean as the centre, so it prefers round, similarly-sized clusters. Add a long thin line of points by clicking and watch it get chopped into pieces rather than kept whole.</p>
+  </div>
+  <footer>Synthetic data: Gaussian blobs from a seeded random generator, regenerated with “New data”. No external data is used.</footer>
+</div>
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var cv=$('cv'), ctx=cv.getContext('2d'), sp=$('spark'), sctx=sp.getContext('2d');
+  var P=[], C=[], A=[], phase='assign', hist=[], seed=7, playing=false, dpr=1, W=0, H=0, iter=0;
+  function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+  function col(i){return css('--k'+(i%8));}
+  function rng(){ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; }
+  function gauss(){ var u=rng()||1e-9, v=rng(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+  function genData(){
+    P=[]; var nb=+$('blobs').value;
+    for(var b=0;b<nb;b++){ var cx=0.15+0.7*rng(), cy=0.15+0.7*rng(), s=0.035+0.05*rng(), n=25+Math.floor(30*rng());
+      for(var i=0;i<n;i++) P.push([clamp(cx+s*gauss()), clamp(cy+s*gauss())]); }
+  }
+  function clamp(v){return Math.max(0.02,Math.min(0.98,v));}
+  function d2(a,b){var dx=a[0]-b[0],dy=a[1]-b[1];return dx*dx+dy*dy;}
+  function initC(){
+    var k=+$('k').value, m=$('init').value; C=[]; A=P.map(function(){return -1;});
+    if(m==='bad'){ for(var i=0;i<k;i++) C.push([0.04+0.03*rng(),0.04+0.03*rng()]); }
+    else if(m==='rand'){ for(i=0;i<k;i++) C.push(P[Math.floor(rng()*P.length)].slice()); }
+    else { C.push(P[Math.floor(rng()*P.length)].slice());
+      while(C.length<k){ var ds=P.map(function(p){return Math.min.apply(null,C.map(function(c){return d2(p,c);}));}), tot=ds.reduce(function(s,v){return s+v;},0), r=rng()*tot, j=0;
+        for(;j<P.length-1;j++){ r-=ds[j]; if(r<=0) break; } C.push(P[j].slice()); } }
+    phase='assign'; hist=[]; iter=0; setLog(m==='pp'?'Placed '+k+' centroids with k-means++: the first at random, each next one favouring points far from those already placed.':m==='rand'?'Placed '+k+' centroids on randomly chosen data points.':'Placed all '+k+' centroids in the bottom-left corner: a deliberately poor start.');
+    ui();
+  }
+  function inertia(){ if(A[0]===-1||A.indexOf(-1)>=0) return null; var s=0; P.forEach(function(p,i){s+=d2(p,C[A[i]]);}); return s; }
+  function assign(){ var changed=0; P.forEach(function(p,i){ var best=0,bd=Infinity; C.forEach(function(c,j){var d=d2(p,c); if(d<bd){bd=d;best=j;}}); if(A[i]!==best){changed++;A[i]=best;} }); return changed; }
+  function update(){ var moved=0, empty=0; C=C.map(function(c,j){ var sx=0,sy=0,n=0; P.forEach(function(p,i){ if(A[i]===j){sx+=p[0];sy+=p[1];n++;} }); if(!n){empty++; return c;} var nc=[sx/n,sy/n]; moved=Math.max(moved,Math.sqrt(d2(c,nc))); return nc; }); return {moved:moved,empty:empty}; }
+  function step(){
+    if(phase==='assign'){ var ch=assign(); var I=inertia(); hist.push(I); phase='update';
+      setLog(ch? ch+' point'+(ch===1?'':'s')+' changed cluster. Inertia is now '+I.toFixed(3)+'.' : 'No point changed cluster — the algorithm has converged. Inertia: '+I.toFixed(3)+'.');
+      ui(); return ch; }
+    var r=update(); iter++; var I2=inertia(); hist.push(I2); phase='assign';
+    setLog('Moved each centroid to the mean of its points (largest move '+(r.moved*100).toFixed(1)+'% of the width). Inertia '+I2.toFixed(3)+'.'+(r.empty?' '+r.empty+' centroid'+(r.empty>1?'s':'')+' owned no points and stayed put.':''));
+    ui(); return r.moved>1e-9?1:0;
+  }
+  function setLog(s){ $('log').textContent=s; }
+  function ui(){
+    $('ph-a').classList.toggle('on',phase==='assign'); $('ph-u').classList.toggle('on',phase==='update');
+    $('stepb').textContent = phase==='assign'?'Assign points':'Update centroids';
+    var I=inertia(); $('inertia').textContent = I==null?'—':I.toFixed(3);
+    var counts=C.map(function(_,j){return A.filter(function(a){return a===j;}).length;});
+    $('counts').textContent = P.length+' points · '+(A.indexOf(-1)>=0?'unassigned':'sizes '+counts.join(' / '));
+    draw(); spark();
+  }
+  function size(){ dpr=Math.min(window.devicePixelRatio||1,2); var w=cv.parentNode.clientWidth; W=Math.round(w*dpr); H=Math.round(w*0.68*dpr); cv.width=W; cv.height=H; cv.style.height=(w*0.68)+'px'; sp.width=Math.round(sp.clientWidth*dpr); sp.height=Math.round(sp.clientHeight*dpr); draw(); spark(); }
+  function hexA(c,a){ // css colour (#rrggbb) to rgba
+    if(c[0]!=='#') return c; var n=parseInt(c.slice(1),16); return 'rgba('+(n>>16&255)+','+(n>>8&255)+','+(n&255)+','+a+')'; }
+  function draw(){
+    if(!W) return; ctx.clearRect(0,0,W,H);
+    if(C.length){ var s=6*dpr; for(var y=0;y<H;y+=s) for(var x=0;x<W;x+=s){ var p=[(x+s/2)/W,(y+s/2)/H], b=0, bd=Infinity; for(var j=0;j<C.length;j++){var d=d2(p,C[j]); if(d<bd){bd=d;b=j;}} ctx.fillStyle=hexA(col(b),0.09); ctx.fillRect(x,y,s,s); } }
+    if(phase==='update' && A.indexOf(-1)<0){ ctx.lineWidth=1*dpr; P.forEach(function(p,i){ ctx.strokeStyle=hexA(col(A[i]),0.35); ctx.beginPath(); ctx.moveTo(p[0]*W,p[1]*H); ctx.lineTo(C[A[i]][0]*W,C[A[i]][1]*H); ctx.stroke(); }); }
+    var ink=css('--ink'), paper=css('--paper');
+    P.forEach(function(p,i){ ctx.beginPath(); ctx.arc(p[0]*W,p[1]*H,4.2*dpr,0,7); ctx.fillStyle = A[i]<0? css('--ink-2') : col(A[i]); ctx.fill(); ctx.lineWidth=1*dpr; ctx.strokeStyle=paper; ctx.stroke(); });
+    C.forEach(function(c,j){ var x=c[0]*W, y=c[1]*H, r=10*dpr; ctx.save(); ctx.translate(x,y); ctx.rotate(Math.PI/4); ctx.fillStyle=col(j); ctx.strokeStyle=ink; ctx.lineWidth=2.5*dpr; ctx.fillRect(-r/1.4,-r/1.4,r*1.42,r*1.42); ctx.strokeRect(-r/1.4,-r/1.4,r*1.42,r*1.42); ctx.restore(); });
+  }
+  function spark(){ var w=sp.width,h=sp.height; sctx.clearRect(0,0,w,h); var v=hist.filter(function(x){return x!=null;}); if(v.length<1) return;
+    var hi=Math.max.apply(null,v), lo=Math.min.apply(null,v); if(hi===lo){hi+=1e-6;} var n=Math.max(v.length,10), pad=4*dpr;
+    sctx.strokeStyle=css('--ink'); sctx.lineWidth=2*dpr; sctx.beginPath(); v.forEach(function(x,i){ var px=pad+i/(n-1)*(w-2*pad), py=pad+(1-(x-lo)/(hi-lo))*(h-2*pad); i?sctx.lineTo(px,py):sctx.moveTo(px,py); }); sctx.stroke();
+    v.forEach(function(x,i){ var px=pad+i/(n-1)*(w-2*pad), py=pad+(1-(x-lo)/(hi-lo))*(h-2*pad); sctx.fillStyle=css('--k1'); sctx.beginPath(); sctx.arc(px,py,2.5*dpr,0,7); sctx.fill(); }); }
+  function stop(){ playing=false; $('play').textContent='Run to convergence'; }
+  function play(){ if(!playing) return; var ch=step(); if(!ch && phase==='update'){ stop(); return; } if(iter>100){stop();return;} setTimeout(play, 380); }
+  $('stepb').addEventListener('click',function(){ stop(); step(); });
+  $('play').addEventListener('click',function(){ if(playing){stop();return;} playing=true; $('play').textContent='Pause'; play(); });
+  $('reinit').addEventListener('click',function(){ stop(); initC(); });
+  $('newdata').addEventListener('click',function(){ stop(); seed=(Date.now()&0xffffff)>>>0; genData(); initC(); });
+  $('k').addEventListener('input',function(){ $('ko').textContent=this.value; stop(); initC(); });
+  $('blobs').addEventListener('input',function(){ $('bo').textContent=this.value; stop(); genData(); initC(); });
+  $('init').addEventListener('change',function(){ stop(); initC(); });
+  cv.addEventListener('click',function(e){ var r=cv.getBoundingClientRect(); P.push([(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height]); A.push(-1); phase='assign'; setLog('Added a point. It has no cluster yet — run an assign step.'); ui(); });
+  var rt; window.addEventListener('resize',function(){clearTimeout(rt);rt=setTimeout(size,150);});
+  genData(); initC(); size();
+})();
+</script>
+</body>
+</html>
