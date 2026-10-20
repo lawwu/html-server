@@ -7,6 +7,8 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.3.0 (2026-10-20)
+
 - **Open editing:** `html-server config editing open` lets any signed-in user upload
   new versions of, or restore old versions of, public pages. Only the owner can still
   trash, delete, change visibility or edit private pages. Off by default.
