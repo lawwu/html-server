@@ -11,7 +11,7 @@ import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
+import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
 
 // The version comes from package.json, so the two can never drift.
 export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -36,14 +36,20 @@ Run the server (on this machine, straight to the database):
   serve [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--db PATH]
   create-user NAME [--admin] [--save]    print a new user's token once (--save: also keep it for this CLI)
   reset-token NAME [--save]              new token for a user who lost theirs; pages are kept
-  config [usernames name|email]          show or change this deployment's settings
+  backup [PATH] [--keep N]               snapshot the database (safe while serving); default: ${BACKUP_DIR}
+                                        --keep N: then delete all but the newest N backups there
+  config [usernames name|email] [editing owner|open]
+                                        show or change this deployment's settings
 
 Sign this CLI in to a server (saved, so there's nothing to add to your shell profile):
   login [--url URL] [--token TOKEN]     asks for anything missing; checks it before saving
   logout
 
 Use a running server:
-  put FILE [NOTE] [--private] [--name NAME]   upload; the page lives at /pages/<file name>
+  put FILE [NOTE] [--private] [--name NAME] [--base N]
+                                        upload; the page lives at /pages/<file name>.
+                                        --base N: refuse if someone added a version after vN
+  history NAME                          every version, with date, author and note
   import DIR [--private]                upload every .html file in DIR (re-runnable: unchanged files are skipped)
   ls                                    your pages and everyone's public ones
   find WORDS...                         search (typos are fine)
@@ -125,11 +131,64 @@ const serverCommands = {
     console.log(token);
     if (opts.save) saveForCli(token, opts);
   },
+  /**
+   * A consistent copy of the database, safe while the server is running: SQLite's
+   * VACUUM INTO on a read-only connection, so the live file is never written. The
+   * copy is checked before we report success. Restore: stop the server, copy the
+   * backup over the database file, start it again.
+   */
+  async backup([target], opts) {
+    if (!existsSync(opts.db)) fail(`no database at ${opts.db}`);
+    const stamp = new Date().toLocaleString('sv-SE').replace(' ', 'T').replace(/:/g, ''); // 2026-10-20T121314, local time
+    let out;
+    if (!target || (existsSync(target) && statSync(target).isDirectory())) {
+      const dir = target || BACKUP_DIR;
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      out = join(dir, `artifacts-${stamp}.db`);
+      for (let i = 2; existsSync(out); i++) out = join(dir, `artifacts-${stamp}-${i}.db`);
+    } else {
+      out = target;
+      if (existsSync(out)) fail(`${out} already exists; not overwriting it`);
+      mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
+    }
+    const { DatabaseSync } = await import('node:sqlite');
+    const src = new DatabaseSync(opts.db, { readOnly: true });
+    try { src.prepare('VACUUM INTO ?').run(out); } finally { src.close(); }
+    chmodSync(out, 0o600);
+
+    const copy = new DatabaseSync(out, { readOnly: true });
+    let check, pages, versions;
+    try {
+      check = copy.prepare('PRAGMA integrity_check').get().integrity_check;
+      pages = copy.prepare('SELECT COUNT(*) AS n FROM artifacts').get().n;
+      versions = copy.prepare('SELECT COUNT(*) AS n FROM versions').get().n;
+    } finally { copy.close(); }
+    if (check !== 'ok') { rmSync(out); fail(`backup failed its integrity check (${check}); nothing kept`); }
+    const kb = (statSync(out).size / 1024).toFixed(0);
+    console.log(`backed up ${pages} pages, ${versions} versions → ${out} (${kb} KB)`);
+
+    if (opts.keep != null) {
+      if (!/^\d+$/.test(opts.keep) || Number(opts.keep) < 1) fail('--keep must be a number of backups, 1 or more');
+      // Only touches our own timestamped files in the backup folder, never anything else.
+      const dir = dirname(out);
+      const ours = readdirSync(dir)
+        .filter((f) => /^artifacts-\d{4}-\d{2}-\d{2}T\d{6}(-\d+)?\.db$/.test(f))
+        .map((f) => ({ f, t: statSync(join(dir, f)).mtimeMs }))
+        .sort((x, y) => y.t - x.t || (y.f > x.f ? 1 : -1))
+        .map(({ f }) => f); // newest first
+      for (const f of ours.slice(Number(opts.keep))) {
+        rmSync(join(dir, f));
+        console.log(`removed old backup ${f}`);
+      }
+    }
+  },
   async config([key, value], opts) {
     const store = await openStore(opts.db);
     if (key === 'usernames' && value) store.setUsernames(value);
-    else if (key) fail('usage: config [usernames name|email]');
+    else if (key === 'editing' && value) store.setEditing(value);
+    else if (key) fail('usage: config [usernames name|email] [editing owner|open]');
     console.log(`usernames: ${store.usernames}`);
+    console.log(`editing:   ${store.editing}${store.editing === 'open' ? ' (any signed-in user can add versions to public pages)' : ' (only a page\'s owner adds versions)'}`);
   },
 };
 
@@ -226,12 +285,16 @@ function openInBrowser(url) {
 
 const clientCommands = {
   async put([file, note = ''], opts) {
-    if (!file || !existsSync(file)) fail('usage: put FILE [NOTE] [--private] [--name NAME]');
+    if (!file || !existsSync(file)) fail('usage: put FILE [NOTE] [--private] [--name NAME] [--base N]');
     const name = opts.name || basename(file); // upload to the base name, so out/page.html works
     // The name is in the URL, so options can ride in the query string (any characters, unlike headers).
     const q = new URLSearchParams();
     if (note) q.set('note', note);
     if (opts.private) q.set('visibility', 'private');
+    if (opts.base != null) {
+      if (!/^\d+$/.test(opts.base)) fail('--base must be a version number');
+      q.set('base', opts.base);
+    }
     const a = await api('PUT', `/api/artifacts/${enc(name)}${q.size ? `?${q}` : ''}`, { body: readFileSync(file), auth: 'required' });
     console.log(`published v${a.latest_version}: ${SERVER}${a.url}`);
     console.log(`review:       ${SERVER}/review/${enc(a.slug)}`);
@@ -269,6 +332,17 @@ const clientCommands = {
     }
     console.log(Object.entries(count).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', '));
     if (count.failed) process.exitCode = 1;
+  },
+  async history([name]) {
+    if (!name) fail('usage: history NAME');
+    const a = await api('GET', `/api/artifacts/${enc(name)}`);
+    console.log(`${a.slug} — ${a.title} (owner: ${a.owner})`);
+    for (const v of a.versions.slice().reverse()) {
+      const when = new Date(v.created_at * 1000).toLocaleString('en-CA', { dateStyle: 'short', timeStyle: 'short' });
+      const cur = v.n === a.latest_version ? ' (current)' : '';
+      console.log(`  v${String(v.n).padEnd(4)} ${when}  ${v.author.padEnd(16)} ${v.note}${cur}`);
+    }
+    console.log(`changes: html-server diff ${a.slug} FROM TO   ·   ${SERVER}/history/${enc(a.slug)}`);
   },
   async ls() { printList(await api('GET', '/api/artifacts?limit=500')); },
   async find(words) {
@@ -318,6 +392,8 @@ export async function main(argv) {
       purge: { type: 'boolean', default: false },
       source: { type: 'boolean', default: false },
       name: { type: 'string' },
+      base: { type: 'string' },
+      keep: { type: 'string' },
       url: { type: 'string' },
       token: { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },

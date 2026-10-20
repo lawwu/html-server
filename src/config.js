@@ -12,6 +12,8 @@ export const DEFAULT_DB = join(HOME_DIR, 'artifacts.db');
 // HTML_SERVER_TOKEN override it for one shell or script.
 export const CREDENTIALS_FILE = join(HOME_DIR, 'credentials.json');
 export const FALLBACK_URL = 'http://127.0.0.1:8765';
+// Where `html-server backup` writes when no path is given; `--keep N` prunes here.
+export const BACKUP_DIR = join(HOME_DIR, 'backups');
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 8765;
 export const MAX_BODY_BYTES = 16 * 1024 * 1024; // 16 MB per version
@@ -25,6 +27,12 @@ export const USERNAME_RULES = {
   email: { re: /^[^\s@/]{1,64}@[^\s@/.]+(\.[^\s@/.]+)+$/, hint: 'an email address, like alice@example.com' },
 };
 export const DEFAULT_USERNAMES = 'name';
+// Who may upload new versions of a page, per deployment (`config editing open`):
+// "owner" — only the person who created it (the default, so upgrading never opens
+// an existing server); "open" — any signed-in user, for public, active pages.
+// Either way only the owner can trash, delete or change visibility.
+export const EDITING_MODES = ['owner', 'open'];
+export const DEFAULT_EDITING = 'owner';
 // Email usernames are shown to anonymous visitors only as "alice@…", so a public
 // gallery never publishes anyone's address. Signed-in users see them in full.
 export const MASK_EMAILS_FOR_ANONYMOUS = true;

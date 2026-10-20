@@ -3,7 +3,7 @@
 // own ~/.html-server is never touched.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -95,7 +95,7 @@ test('--version prints the package.json version', async () => {
 
 test('errors are one line with a non-zero exit', async () => {
   let r = (await cli(['put', '/nope.html']));
-  assert.deepEqual([r.code, r.err.trim()], [1, 'error: usage: put FILE [NOTE] [--private] [--name NAME]']);
+  assert.deepEqual([r.code, r.err.trim()], [1, 'error: usage: put FILE [NOTE] [--private] [--name NAME] [--base N]']);
   r = (await cli(['whoami'], { HTML_SERVER_HOME: join(dir, 'empty-home') })); // no token anywhere
   assert.equal(r.code, 1);
   assert.match(r.err, /^error: not signed in: run `html-server login`/);
@@ -178,4 +178,59 @@ test('import: a folder of existing pages is served at /pages/{slug}; re-running 
   assert.equal(store.describe('launch-notes.html', null).latest_version, 2);
 
   assert.match((await cli(['import', join(dir, 'missing')], env)).err, /usage: import DIR/);
+});
+
+test('config editing, history, and put --base', async () => {
+  const h = { HTML_SERVER_HOME: join(dir, 'cfg-home') };
+  assert.match((await cli(['config', 'editing', 'open'], h)).out, /editing: +open/);
+  assert.match((await cli(['config'], h)).out, /editing: +open/);
+  assert.match((await cli(['config', 'editing', 'wiki'], h)).err, /editing must be one of owner, open/);
+
+  const env = { HTML_SERVER_TOKEN: store.createUser('eve') };
+  const page = join(dir, 'hist.html');
+  writeFileSync(page, '<p>one</p>');
+  await cli(['put', page, 'first'], env);
+  writeFileSync(page, '<p>two</p>');
+  await cli(['put', page, 'second'], env);
+  const r = await cli(['history', 'hist.html'], env);
+  assert.match(r.out, /v2 .* eve +second \(current\)/);
+  assert.match(r.out, /v1 .* eve +first/);
+  assert.match((await cli(['put', page, 'stale', '--base', '1'], env)).err, /at v2 now, but you started from v1/);
+  assert.match((await cli(['put', page, 'fresh', '--base', '2'], env)).out, /published v3/);
+});
+
+test('backup: a checked, private snapshot, safe while the server is serving', async () => {
+  const h = { HTML_SERVER_HOME: join(dir, 'backup-home') };
+  const live = join(dir, 'backup-home', 'artifacts.db');
+  await cli(['create-user', 'zed'], h); // creates the database
+  // Keep a connection open and write through it, like a running server would.
+  const running = new Store(live);
+  running.putVersion(running.userForToken(running.resetToken('zed')).id, 'a.html', Buffer.from('<p>a</p>'));
+
+  let r = await cli(['backup'], h);
+  assert.equal(r.code, 0, r.err);
+  const [, file] = r.out.match(/→ (\S+) \(/);
+  assert.match(r.out, /^backed up 1 pages, 1 versions → .*\/backups\/artifacts-\d{4}-\d{2}-\d{2}T\d{6}\.db/);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  const copy = new Store(file);
+  assert.match(copy.versionHtml('a.html', 1, null).toString(), /<p>a<\/p>/); // real, readable data
+  copy.close();
+
+  const explicit = join(dir, 'elsewhere', 'snap.db');
+  assert.match((await cli(['backup', explicit], h)).out, /→ .*elsewhere\/snap\.db/);
+  r = await cli(['backup', explicit], h);
+  assert.deepEqual([r.code, r.err.trim()], [1, `error: ${explicit} already exists; not overwriting it`]);
+
+  // --keep prunes only our own timestamped files, oldest first.
+  const bdir = join(dir, 'backup-home', 'backups');
+  writeFileSync(join(bdir, 'artifacts-2020-01-01T000000.db'), 'old');
+  writeFileSync(join(bdir, 'artifacts-before-upgrade.db'), 'mine'); // not ours: never touched
+  utimesSync(join(bdir, 'artifacts-2020-01-01T000000.db'), new Date(2020, 0, 1), new Date(2020, 0, 1));
+  r = await cli(['backup', '--keep', '2'], h);
+  assert.match(r.out, /removed old backup artifacts-2020-01-01T000000\.db/);
+  assert.equal(readdirSync(bdir).filter((f) => /T\d{6}/.test(f)).length, 2);
+  assert.ok(existsSync(join(bdir, 'artifacts-before-upgrade.db')));
+  assert.match((await cli(['backup', '--keep', '0'], h)).err, /--keep must be/);
+  running.close();
+  assert.match((await cli(['backup', '--db', join(dir, 'nope.db')], h)).err, /no database at/);
 });

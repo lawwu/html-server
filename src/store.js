@@ -4,7 +4,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  BOT_UA_RE, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
+  BOT_UA_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
   SLUG_RE, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
@@ -67,11 +67,21 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS artifacts_fts USING fts5(title, body);
 CREATE VIRTUAL TABLE IF NOT EXISTS artifacts_vocab USING fts5vocab(artifacts_fts, 'row');
 `;
-// Columns added after the first release: [name, definition]. Applied if missing.
-const ADDED_COLUMNS = [
-  ['description', "TEXT NOT NULL DEFAULT ''"], // from <meta name="description">, for the gallery
-  ['category', "TEXT NOT NULL DEFAULT ''"], //    from <meta name="category">
-];
+// Columns added after the first release, per table: [name, definition, backfill SQL].
+// Applied on startup if missing, so older databases upgrade in place.
+const ADDED_COLUMNS = {
+  artifacts: [
+    ['description', "TEXT NOT NULL DEFAULT ''"], // from <meta name="description">, for the gallery
+    ['category', "TEXT NOT NULL DEFAULT ''"], //    from <meta name="category">
+  ],
+  versions: [
+    // Who uploaded each version (0.3.0, for open editing). Versions from before then
+    // could only have come from the page's owner, so they're credited to them.
+    // NULL afterwards means the uploader's account was deleted.
+    ['author_id', 'INTEGER REFERENCES users(id) ON DELETE SET NULL',
+      'UPDATE versions SET author_id = (SELECT owner_id FROM artifacts WHERE artifacts.id = versions.artifact_id)'],
+  ],
+};
 
 const now = () => Date.now() / 1000;
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
@@ -125,9 +135,13 @@ export class Store {
   constructor(path) {
     this.db = new DatabaseSync(path);
     this.db.exec(SCHEMA);
-    const cols = new Set(this.db.prepare('PRAGMA table_info(artifacts)').all().map((c) => c.name));
-    for (const [name, def] of ADDED_COLUMNS) {
-      if (!cols.has(name)) this.db.exec(`ALTER TABLE artifacts ADD COLUMN ${name} ${def}`);
+    for (const [table, added] of Object.entries(ADDED_COLUMNS)) {
+      const cols = new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+      for (const [name, def, backfill] of added) {
+        if (cols.has(name)) continue;
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`);
+        if (backfill) this.db.exec(backfill);
+      }
     }
     this.db.prepare("INSERT OR IGNORE INTO meta VALUES ('visitor_secret', ?)").run(randomBytes(16).toString('hex'));
     this.visitorSecret = this.db.prepare("SELECT value FROM meta WHERE key = 'visitor_secret'").get().value;
@@ -161,6 +175,25 @@ export class Store {
   setUsernames(mode) {
     if (!USERNAME_RULES[mode]) throw new ApiError(400, `usernames must be one of ${Object.keys(USERNAME_RULES).join(', ')}`);
     this.setSetting('usernames', mode);
+  }
+
+  get editing() { return this.setting('editing', DEFAULT_EDITING); }
+  setEditing(mode) {
+    if (!EDITING_MODES.includes(mode)) throw new ApiError(400, `editing must be one of ${EDITING_MODES.join(', ')}`);
+    this.setSetting('editing', mode);
+  }
+
+  /** May this user add versions to this page? The owner always; anyone signed in under open editing. */
+  canEdit(a, userId) {
+    if (userId == null) return false;
+    if (a.owner_id === userId) return true;
+    return this.editing === 'open' && a.state === ACTIVE && a.visibility === 'public';
+  }
+
+  editable(slug, userId) {
+    const a = this.readable(slug, userId);
+    if (!this.canEdit(a, userId)) throw new ApiError(403, `'${a.slug}' belongs to ${a.owner}`);
+    return a;
   }
 
   /** Lowercase, then check against this deployment's rule. */
@@ -232,7 +265,8 @@ export class Store {
   }
 
   // --- writes ----------------------------------------------------------------------
-  putVersion(userId, slug, doc, { title, note = '', visibility } = {}) {
+  /** `base`: the version the uploader started from; refuse if someone has added one since. */
+  putVersion(userId, slug, doc, { title, note = '', visibility, base } = {}) {
     if (!SLUG_RE.test(slug) || RESERVED_SLUGS.has(slug.toLowerCase())) {
       throw new ApiError(400, `slug must be a file name matching ${SLUG_RE.source}, not reserved`);
     }
@@ -246,7 +280,14 @@ export class Store {
     const t = now();
     this.tx(() => {
       const a = this.one(`${SELECT} WHERE a.slug = ?`, slug);
-      if (a && a.owner_id !== userId) throw new ApiError(409, `'${slug}' is taken by ${a.owner}; pick another file name`);
+      if (a && !this.canEdit(a, userId)) throw new ApiError(409, `'${slug}' is taken by ${a.owner}; pick another file name`);
+      if (a && a.owner_id !== userId && visibility != null && visibility !== a.visibility) {
+        throw new ApiError(403, `only ${a.owner} can change the visibility of '${slug}'`);
+      }
+      if (base != null && a && a.latest_version !== base) {
+        throw new ApiError(409, `'${slug}' is at v${a.latest_version} now, but you started from v${base}; `
+          + `see what changed (diff ${base} ${a.latest_version}) and upload again`);
+      }
       const state = transition(a ? a.state : NONE, a ? 'update' : 'create');
       let id, n;
       if (!a) {
@@ -266,8 +307,8 @@ export class Store {
           + ' description=?, category=? WHERE id=?',
         title, state, visibility || a.visibility, n, t, description, category, id);
       }
-      this.run('INSERT INTO versions (artifact_id, n, html, sha256, size, note, created_at) VALUES (?,?,?,?,?,?,?)',
-        id, n, doc, sha256(doc), doc.length, note, t);
+      this.run('INSERT INTO versions (artifact_id, n, html, sha256, size, note, created_at, author_id) VALUES (?,?,?,?,?,?,?,?)',
+        id, n, doc, sha256(doc), doc.length, note, t, userId);
       this.run('DELETE FROM artifacts_fts WHERE rowid = ?', id);
       // The description is searchable too: it's what the gallery card shows.
       this.run('INSERT INTO artifacts_fts (rowid, title, body) VALUES (?,?,?)', id, title, `${description} ${body}`.trim());
@@ -301,15 +342,20 @@ export class Store {
 
   /** Make version n current again by appending a copy of it; history is never rewritten. */
   restoreVersion(userId, slug, n) {
-    const a = this.owned(slug, userId);
+    const a = this.editable(slug, userId);
     return this.putVersion(userId, a.slug, this.version(a, n), { note: `restored from v${n}` });
   }
 
   // --- reads -----------------------------------------------------------------------
   describe(slug, viewerId) {
     const a = this.readable(slug, viewerId);
-    const versions = this.all('SELECT n, sha256, size, note, created_at FROM versions WHERE artifact_id = ? ORDER BY n', a.id);
-    return { ...summary(a, viewerId), versions: versions.map((v) => ({ ...v })) };
+    const versions = this.all('SELECT v.n, v.sha256, v.size, v.note, v.created_at, u.name AS author'
+      + ' FROM versions v LEFT JOIN users u ON u.id = v.author_id WHERE v.artifact_id = ? ORDER BY v.n', a.id);
+    return {
+      ...summary(a, viewerId),
+      can_edit: this.canEdit(a, viewerId), // for the viewer: may they add or restore versions?
+      versions: versions.map((v) => ({ ...v, author: v.author ? displayName(v.author, viewerId) : '(deleted user)' })),
+    };
   }
 
   /** Active: every public artifact plus the viewer's own. Trashed: the viewer's own only. */
