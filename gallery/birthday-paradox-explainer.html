@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The birthday paradox, in one chart</title>
+<meta name="description" content="A single interactive chart explaining the birthday paradox: drag through room sizes, see why pairs grow faster than people, and check the exact curve against simulated rooms.">
+<meta name="category" content="data-viz">
+<style>
+:root{
+  --bg:#fbf7f0; --ink:#1f1a14; --ink-2:#6b6157; --rule:#e6ddd0; --card:#fffdf9;
+  --curve:#c2185b; --pairs:#3f6fb5; --sim:#1b8a5a; --fill:#f6d3df;
+  --serif: "Didot","Bodoni 72","Iowan Old Style",Georgia,serif;
+  --text: "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#16120f; --ink:#f1e9df; --ink-2:#b1a596; --rule:#352d26; --card:#1e1915;
+    --curve:#ff6f9f; --pairs:#86aef0; --sim:#5fd39a; --fill:#3b1a28; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17.5px/1.6 var(--text)}
+.wrap{max-width:52rem;margin:0 auto;padding:3rem 1rem 4rem}
+.kicker{font:600 .72rem var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--curve)}
+h1{font:400 clamp(2.1rem,6vw,3.6rem)/1.02 var(--serif);margin:.5rem 0 1rem;letter-spacing:-.01em}
+h1 em{color:var(--curve)}
+.dek{font-size:1.15rem;color:var(--ink-2);max-width:40rem}
+.chart{background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:1rem .6rem .4rem;margin:1.8rem 0 .6rem}
+.readout{display:flex;flex-wrap:wrap;gap:.4rem 2rem;align-items:baseline;padding:0 .6rem .4rem}
+.readout .n{font:400 3rem/1 var(--serif)}
+.readout .p{font:400 3rem/1 var(--serif);color:var(--curve)}
+.readout small{display:block;font:.72rem var(--mono);color:var(--ink-2);text-transform:uppercase;letter-spacing:.1em;margin-bottom:.2rem}
+svg{display:block;width:100%;height:auto;touch-action:none}
+svg text{font:11px var(--mono);fill:var(--ink-2)}
+svg .grid{stroke:var(--rule)}
+svg .curve{fill:none;stroke:var(--curve);stroke-width:3}
+svg .approx{fill:none;stroke:var(--ink-2);stroke-width:1.2;stroke-dasharray:3 4}
+svg .pairs{fill:none;stroke:var(--pairs);stroke-width:2}
+svg .area{fill:var(--fill);opacity:.7}
+svg .cursor{stroke:var(--ink);stroke-width:1}
+svg .anno{font:italic 13px var(--text);fill:var(--ink)}
+svg .sim{fill:var(--sim);stroke:var(--card);stroke-width:1.5}
+.controls{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;padding:.6rem .6rem .2rem;font:.85rem var(--mono)}
+.controls input{flex:1 1 12rem;accent-color:var(--curve)}
+.controls button{font:600 .82rem var(--mono);padding:.45rem .8rem;border:1.5px solid var(--sim);color:var(--sim);background:transparent;border-radius:3px;cursor:pointer}
+.legend{display:flex;flex-wrap:wrap;gap:.3rem 1.4rem;font:.78rem var(--mono);color:var(--ink-2);padding:.3rem .6rem .5rem}
+.legend i{display:inline-block;width:1.4rem;height:3px;vertical-align:middle;margin-right:.35rem}
+.room{display:grid;grid-template-columns:repeat(73,1fr);gap:1px;margin:.4rem .6rem .8rem}
+.room i{aspect-ratio:1;background:var(--rule);border-radius:1px}
+.room i.b{background:var(--ink-2)} .room i.x{background:var(--curve)}
+.roomcap{font:.78rem var(--mono);color:var(--ink-2);padding:0 .6rem .4rem}
+.body p{margin:1rem 0}
+.body .big{font:400 1.6rem/1.3 var(--serif);border-left:3px solid var(--curve);padding-left:1rem;margin:1.6rem 0}
+.math{font:.92rem var(--mono);background:var(--card);border:1px solid var(--rule);padding:.8rem 1rem;border-radius:4px;overflow-x:auto;white-space:pre}
+footer{margin-top:2.5rem;font-size:.8rem;color:var(--ink-2);font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Data visualization · probability</div>
+  <h1>In a room of <em>23</em>, a shared birthday is more likely than not</h1>
+  <p class="dek">It feels wrong because we picture <em>our own</em> birthday being matched. But the question is whether <em>any two</em> people match — and the number of pairs grows much faster than the number of people.</p>
+
+  <div class="chart">
+    <div class="readout" aria-live="polite">
+      <div><small>people in the room</small><span class="n" id="rn">23</span></div>
+      <div><small>chance two share a birthday</small><span class="p" id="rp">50.7%</span></div>
+      <div><small>pairs to compare</small><span class="n" id="rpairs" style="color:var(--pairs)">253</span></div>
+    </div>
+    <svg id="svg" viewBox="0 0 720 360" role="img" aria-label="Probability of a shared birthday by number of people, rising steeply to near certainty by 60"></svg>
+    <div class="controls"><label for="n">drag the chart, or set n</label><input id="n" type="range" min="1" max="80" value="23"><button id="sim">Simulate 2,000 rooms</button></div>
+    <div class="legend"><span><i style="background:var(--curve)"></i>exact probability</span><span><i style="background:var(--ink-2)"></i>approximation 1 − e<sup>−pairs/365</sup></span><span><i style="background:var(--pairs)"></i>number of pairs (right axis)</span><span><i style="background:var(--sim);height:8px;width:8px;border-radius:50%"></i>simulated share</span></div>
+    <div class="room" id="room" aria-hidden="true"></div>
+    <div class="roomcap" id="roomcap"></div>
+  </div>
+
+  <div class="body">
+    <p>Each new person must avoid <em>everyone</em> already in the room. The second person dodges one birthday, the third dodges two, the twenty-third dodges twenty-two. Multiply all those small survivals together and the chance that nobody matches decays quickly:</p>
+    <div class="math">P(no match among n) = 365/365 × 364/365 × … × (365 − n + 1)/365
+P(match) = 1 − P(no match)</div>
+    <p class="big">Twenty-three people make 253 pairs. Each pair matches with probability 1/365. That is roughly what the dashed line counts.</p>
+    <p>The approximation treats the 253 pairs as independent, which they are not quite, but it is close: 1 − e<sup>−253/365</sup> ≈ 50.0% against the exact 50.7%. It also explains the shape. Pairs grow like n²/2, so doubling the room roughly quadruples the chances to collide; by 57 people a match is 99% certain, and by 70 the chance of <em>no</em> match is under 1 in 1,000.</p>
+    <p>The same arithmetic governs hash collisions and duplicate random IDs: with <i>N</i> possible values, expect the first collision after roughly √N draws, not N.</p>
+  </div>
+  <footer>Assumes 365 equally likely birthdays and ignores leap days; real birthdays cluster slightly by season, which makes matches a little more likely. Simulations use the browser's random number generator.</footer>
+</div>
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var NS='http://www.w3.org/2000/svg', svg=$('svg'), Wd=720, Ht=360, M={l:48,r:56,t:20,b:36}, NMAX=80;
+  function el(n,a,p){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+  var P=[0]; var q=1; for(var n=1;n<=NMAX;n++){ q*= (365-n+1)/365; P[n]=1-q; }
+  var pairs=function(n){return n*(n-1)/2;};
+  var sx=function(n){return M.l+(n-1)/(NMAX-1)*(Wd-M.l-M.r);}, sy=function(p){return Ht-M.b-p*(Ht-M.t-M.b);}, PMAX=pairs(NMAX), sy2=function(v){return Ht-M.b-v/PMAX*(Ht-M.t-M.b);};
+  [0,.25,.5,.75,1].forEach(function(p){ el('line',{x1:M.l,x2:Wd-M.r,y1:sy(p),y2:sy(p),class:'grid'},svg); el('text',{x:M.l-8,y:sy(p)+4,'text-anchor':'end'},svg).textContent=(p*100)+'%'; });
+  [0,1000,2000,3000].forEach(function(v){ el('text',{x:Wd-M.r+8,y:sy2(v)+4,fill:'var(--pairs)',style:'fill:var(--pairs)'},svg).textContent=v.toLocaleString(); });
+  [1,10,20,30,40,50,60,70,80].forEach(function(n){ el('text',{x:sx(n),y:Ht-M.b+18,'text-anchor':'middle'},svg).textContent=n; });
+  el('text',{x:(Wd-M.r+M.l)/2,y:Ht-4,'text-anchor':'middle'},svg).textContent='people in the room';
+  var dA='M'+sx(1)+' '+sy(0), dC='', dP='', dX='';
+  for(n=1;n<=NMAX;n++){ dC+=(n>1?'L':'M')+sx(n).toFixed(1)+' '+sy(P[n]).toFixed(1); dP+=(n>1?'L':'M')+sx(n).toFixed(1)+' '+sy2(pairs(n)).toFixed(1); dX+=(n>1?'L':'M')+sx(n).toFixed(1)+' '+sy(1-Math.exp(-pairs(n)/365)).toFixed(1); }
+  var area=el('path',{class:'area'},svg);
+  el('path',{d:dP,class:'pairs'},svg); el('path',{d:dX,class:'approx'},svg); el('path',{d:dC,class:'curve'},svg);
+  el('line',{x1:sx(1),x2:sx(23),y1:sy(.507),y2:sy(.507),stroke:'var(--curve)','stroke-dasharray':'2 3',style:'stroke:var(--curve)'},svg);
+  el('text',{x:sx(25),y:sy(.507)+18,class:'anno'},svg).textContent='23 people → 50.7%';
+  el('text',{x:sx(57),y:sy(.86),class:'anno'},svg).textContent='57 people → 99%';
+  var simG=el('g',{},svg), cur=el('line',{y1:M.t,y2:Ht-M.b,class:'cursor'},svg), dot=el('circle',{r:6,fill:'var(--curve)',style:'fill:var(--curve);stroke:var(--card);stroke-width:2'},svg);
+  var sims={};
+  function set(n){
+    n=Math.max(1,Math.min(NMAX,Math.round(n))); $('n').value=n;
+    var a='M'+sx(1)+' '+sy(0); for(var i=1;i<=n;i++) a+='L'+sx(i)+' '+sy(P[i]); a+='L'+sx(n)+' '+sy(0)+'Z'; area.setAttribute('d',a);
+    cur.setAttribute('x1',sx(n)); cur.setAttribute('x2',sx(n)); dot.setAttribute('cx',sx(n)); dot.setAttribute('cy',sy(P[n]));
+    $('rn').textContent=n; $('rp').textContent=(P[n]*100).toFixed(P[n]>.999?2:1)+'%'; $('rpairs').textContent=pairs(n).toLocaleString();
+    room(n);
+  }
+  function room(n){
+    var days=new Array(365).fill(0); for(var i=0;i<n;i++) days[Math.floor(Math.random()*365)]++;
+    var hits=days.filter(function(d){return d>1;}).length;
+    $('room').innerHTML=days.map(function(d){return '<i class="'+(d>1?'x':d?'b':'')+'"></i>';}).join('');
+    $('roomcap').textContent='One random room of '+n+', laid out as 365 days: '+(hits? hits+' shared day'+(hits>1?'s':'')+' (pink).' : 'no shared birthday this time.')+' Move the slider to draw another.';
+  }
+  function simulate(){
+    var Ns=[5,10,15,20,23,30,40,50,60,70]; simG.innerHTML='';
+    Ns.forEach(function(n){ var hit=0; for(var r=0;r<2000;r++){ var seen=new Uint8Array(365), m=false; for(var i=0;i<n;i++){ var d=Math.floor(Math.random()*365); if(seen[d]){m=true;break;} seen[d]=1; } if(m) hit++; }
+      var c=el('circle',{cx:sx(n),cy:sy(hit/2000),r:5,class:'sim'},simG); el('title',{},c).textContent=n+' people: '+(hit/20).toFixed(1)+'% of 2,000 simulated rooms had a match (exact '+(P[n]*100).toFixed(1)+'%)'; });
+    $('sim').textContent='Simulate again';
+  }
+  $('n').addEventListener('input',function(){set(+this.value);});
+  $('sim').addEventListener('click',simulate);
+  function fromEvent(e){ var r=svg.getBoundingClientRect(); var x=(e.clientX-r.left)/r.width*Wd; return 1+(x-M.l)/(Wd-M.l-M.r)*(NMAX-1); }
+  var drag=false;
+  svg.addEventListener('pointerdown',function(e){drag=true; svg.setPointerCapture(e.pointerId); set(fromEvent(e));});
+  svg.addEventListener('pointermove',function(e){ if(drag) set(fromEvent(e)); });
+  svg.addEventListener('pointerup',function(){drag=false;});
+  set(23);
+})();
+</script>
+</body>
+</html>

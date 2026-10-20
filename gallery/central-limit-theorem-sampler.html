@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Central limit theorem sampler</title>
+<meta name="description" content="Draw samples from skewed, bimodal or discrete distributions and watch the histogram of sample means grow into the normal curve the central limit theorem predicts, with small multiples by sample size.">
+<meta name="category" content="data-viz">
+<style>
+:root{
+  --bg:#eef1f4; --panel:#fff; --ink:#0d1b2a; --ink-2:#536273; --rule:#d3dae2;
+  --src:#6d4ab3; --mean:#e07a1f; --norm:#0d1b2a; --soft:#f3eefc;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans: "Avenir Next","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0a0f15; --panel:#111922; --ink:#e3eaf2; --ink-2:#90a0b2; --rule:#25313e;
+    --src:#b394ff; --mean:#ffa552; --norm:#e3eaf2; --soft:#1d1730; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15.5px/1.55 var(--sans)}
+.wrap{max-width:66rem;margin:0 auto;padding:2rem 1rem 3rem}
+.kicker{font:600 .72rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mean)}
+h1{font-size:clamp(1.7rem,4.8vw,2.6rem);line-height:1.08;margin:.35rem 0 .6rem;letter-spacing:-.02em}
+.lede{color:var(--ink-2);max-width:46rem;margin:0 0 1.3rem}
+.top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:1rem}
+@media (max-width:780px){ .top{grid-template-columns:1fr} }
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:.9rem 1rem}
+.card h2{font:600 .72rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);margin:0 0 .5rem;display:flex;justify-content:space-between;gap:.5rem}
+.chips{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.6rem}
+.chips button{font:600 .8rem var(--sans);border:1.5px solid var(--rule);background:var(--panel);color:var(--ink);padding:.35rem .7rem;border-radius:999px;cursor:pointer}
+.chips button[aria-pressed="true"]{border-color:var(--src);background:var(--soft);color:var(--src)}
+svg{display:block;width:100%;height:auto}
+#srcstats{text-transform:none;letter-spacing:.02em}
+svg text{font:10.5px var(--mono);fill:var(--ink-2)}
+svg .ax{stroke:var(--rule)}
+svg .srcbar{fill:var(--src);opacity:.28}
+svg .srcline{fill:none;stroke:var(--src);stroke-width:2}
+svg .draw{stroke:var(--src);stroke-width:2}
+svg .mbar{fill:var(--mean)}
+svg .norm{fill:none;stroke:var(--norm);stroke-width:2;stroke-dasharray:6 4}
+svg .mu{stroke:var(--ink-2);stroke-dasharray:2 3}
+svg .newmean{fill:var(--mean);stroke:var(--panel);stroke-width:2}
+.ctl{display:flex;flex-wrap:wrap;gap:.8rem 1.4rem;align-items:center;margin-top:.7rem;font-size:.88rem}
+.ctl label{display:flex;align-items:center;gap:.5rem}
+.ctl input[type=range]{accent-color:var(--mean);width:10rem}
+.ctl output{font:600 .9rem var(--mono);min-width:2ch}
+.btn{font:600 .85rem var(--sans);padding:.5rem .9rem;border-radius:8px;border:1.5px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink)}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem;margin-top:.7rem}
+.stats div{border-top:2px solid var(--rule);padding-top:.3rem;font-size:.78rem;color:var(--ink-2)}
+.stats b{display:block;font:600 1.05rem var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.multiples{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.8rem;margin-top:1rem}
+@media (max-width:700px){ .multiples{grid-template-columns:repeat(2,minmax(0,1fr))} }
+.multiples figure{margin:0;background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:.5rem}
+.multiples figcaption{font:.75rem var(--mono);color:var(--ink-2);padding:.1rem .2rem .3rem}
+.multiples figcaption b{color:var(--ink)}
+.notes{margin-top:1.6rem;max-width:46rem}
+.notes p{margin:.7rem 0}
+footer{margin-top:2rem;font-size:.8rem;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Data visualization · sampling</div>
+  <h1>Average anything enough times and you get a bell</h1>
+  <p class="lede">Pick a distribution that looks nothing like a bell curve. Draw <i>n</i> values from it, take their mean, drop that mean into the histogram on the right. Repeat. The central limit theorem says the pile of means will approach a normal curve centred on μ with spread σ/√n — whatever shape you started with.</p>
+
+  <div class="top">
+    <div class="card">
+      <h2><span>1 · Source distribution</span><span id="srcstats"></span></h2>
+      <div class="chips" id="chips"></div>
+      <svg id="src" viewBox="0 0 360 200" role="img" aria-label="Source distribution with the most recent sample marked"></svg>
+      <div class="ctl">
+        <label for="n">sample size n <input id="n" type="range" min="1" max="60" value="5"><output id="no">5</output></label>
+      </div>
+    </div>
+    <div class="card">
+      <h2><span>2 · Distribution of sample means</span><span id="count">0 means</span></h2>
+      <svg id="means" viewBox="0 0 560 250" role="img" aria-label="Histogram of sample means with the predicted normal curve"></svg>
+      <div class="ctl">
+        <button class="btn" id="play">Start sampling</button>
+        <button class="btn ghost" id="burst">+1,000 instantly</button>
+        <button class="btn ghost" id="clear">Clear</button>
+        <label for="speed">speed <input id="speed" type="range" min="0" max="3" value="1" style="width:6rem"></label>
+      </div>
+      <div class="stats">
+        <div>mean of means<b id="mm">—</b>theory μ = <span id="mu"></span></div>
+        <div>sd of means<b id="sd">—</b>theory σ/√n = <span id="se"></span></div>
+        <div>within ±1.96 se<b id="cov">—</b>normal says 95.0%</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <h2><span>3 · Small multiples: the same source, four sample sizes (4,000 means each)</span></h2>
+    <div class="multiples" id="mult"></div>
+  </div>
+
+  <div class="notes">
+    <p><b>Watch the skewed source.</b> At n = 1 the "means" are just draws, so the histogram copies the exponential's long right tail. By n = 5 the tail has shrunk, and by n = 30 the histogram and the dashed normal curve are hard to tell apart — but look closely and a faint right skew survives. How fast the bell arrives depends on how lopsided the source is.</p>
+    <p><b>Watch the width.</b> Quadrupling n halves the spread: σ/√n. That square root is why polls need four times the respondents to halve their margin of error.</p>
+    <p><b>What it needs.</b> Independent draws from one distribution with a finite variance. A heavy-tailed source like the Cauchy distribution has no finite variance, and its sample means never settle down at all.</p>
+  </div>
+  <footer>All data are generated in the browser from the named distributions; nothing is loaded. The dashed curve is the normal density N(μ, σ²/n) scaled to the histogram.</footer>
+</div>
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  function gauss(){ var u=Math.random()||1e-12, v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+  var S={
+    expo:{name:'Skewed (exponential)', lo:0, hi:5, mu:1, v:1, draw:function(){return -Math.log(1-Math.random());}, pdf:function(x){return x<0?0:Math.exp(-x);}},
+    unif:{name:'Flat (uniform)', lo:0, hi:1, mu:.5, v:1/12, draw:Math.random, pdf:function(x){return x>=0&&x<=1?1:0;}},
+    bimo:{name:'Two humps', lo:0, hi:1, mu:.5, v:.07*.07+.09, draw:function(){return (Math.random()<.5?.2:.8)+.07*gauss();}, pdf:function(x){var a=function(m){return Math.exp(-(x-m)*(x-m)/(2*.0049))/(.07*Math.sqrt(2*Math.PI));};return .5*a(.2)+.5*a(.8);}},
+    die:{name:'Die roll', lo:.5, hi:6.5, mu:3.5, v:35/12, discrete:true, draw:function(){return 1+Math.floor(Math.random()*6);}, pdf:function(x){return 0;}}
+  };
+  var NS='http://www.w3.org/2000/svg', cur='expo', means=[], last=[], playing=false, BINS=60;
+  function el(n,a,p){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+  function nval(){return +$('n').value;}
+  Object.keys(S).forEach(function(k){ var b=document.createElement('button'); b.textContent=S[k].name; b.dataset.k=k; b.addEventListener('click',function(){ cur=k; means=[]; last=[]; chips(); drawSrc(); drawMeans(); multiples(); }); $('chips').appendChild(b); });
+  function chips(){ document.querySelectorAll('#chips button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.k===cur));}); var s=S[cur]; $('srcstats').textContent='μ '+s.mu.toFixed(2)+' · σ '+Math.sqrt(s.v).toFixed(2); }
+  function drawSrc(){
+    var svg=$('src'), s=S[cur], W=360, H=200, L=10, R=10, T=10, B=26; svg.innerHTML='';
+    var sx=function(x){return L+(x-s.lo)/(s.hi-s.lo)*(W-L-R);};
+    el('line',{x1:L,x2:W-R,y1:H-B,y2:H-B,class:'ax'},svg);
+    if(s.discrete){ for(var f=1;f<=6;f++){ el('rect',{x:sx(f-.4),width:sx(f+.4)-sx(f-.4),y:H-B-(H-B-T)*0.8,height:(H-B-T)*0.8,class:'srcbar'},svg); el('text',{x:sx(f),y:H-B+14,'text-anchor':'middle'},svg).textContent=f; } }
+    else { var mx=0, pts=[], i, x; for(i=0;i<=200;i++){ x=s.lo+i/200*(s.hi-s.lo); var y=s.pdf(x); pts.push([x,y]); if(y>mx) mx=y; }
+      var d='M'+sx(s.lo)+' '+(H-B); pts.forEach(function(p){ d+='L'+sx(p[0]).toFixed(1)+' '+(H-B-p[1]/mx*(H-B-T)*0.9).toFixed(1); }); d+='L'+sx(s.hi)+' '+(H-B)+'Z';
+      el('path',{d:d,class:'srcbar'},svg); el('path',{d:d,class:'srcline'},svg);
+      var ticks=s.hi>2?[0,1,2,3,4,5]:[0,.25,.5,.75,1]; ticks.forEach(function(t){ el('text',{x:sx(t),y:H-B+14,'text-anchor':'middle'},svg).textContent=t; }); }
+    last.forEach(function(v){ var x=sx(Math.max(s.lo,Math.min(s.hi,v))); el('line',{x1:x,x2:x,y1:H-B-14,y2:H-B,class:'draw'},svg); });
+    if(last.length){ var m=last.reduce(function(a,b){return a+b;},0)/last.length; el('circle',{cx:sx(Math.max(s.lo,Math.min(s.hi,m))),cy:H-B-22,r:6,class:'newmean'},svg); el('text',{x:sx(Math.max(s.lo,Math.min(s.hi,m))),y:H-B-32,'text-anchor':'middle',style:'fill:var(--mean)'},svg).textContent='mean '+m.toFixed(2); }
+  }
+  function sample(n){ var s=S[cur], a=[]; for(var i=0;i<n;i++) a.push(s.draw()); return a; }
+  function hist(arr, s, n, svg, W, H, opts){
+    var L=10,R=10,T=10,B=24; svg.innerHTML='';
+    var se=Math.sqrt(s.v/n), lo=s.lo, hi=s.hi;
+    if(opts.zoom){ lo=Math.max(s.lo,s.mu-4.5*se); hi=Math.min(s.hi,s.mu+4.5*se); if(s.discrete){lo=Math.max(.5,lo);hi=Math.min(6.5,hi);} }
+    var bins=opts.bins||BINS;
+    if(s.discrete){ lo=1-0.5/n; hi=6+0.5/n; bins=5*n+1; } // one bin per attainable mean k/n
+    var bw=(hi-lo)/bins, c=new Array(bins).fill(0);
+    arr.forEach(function(v){ var i=Math.floor((v-lo)/bw); if(i>=0&&i<bins) c[i]++; });
+    var sx=function(x){return L+(x-lo)/(hi-lo)*(W-L-R);};
+    var pdfmax = 1/(se*Math.sqrt(2*Math.PI));
+    var ymax=Math.max(Math.max.apply(null,c), arr.length*bw*pdfmax, 1);
+    var sy=function(v){return H-B-v/ymax*(H-B-T);};
+    el('line',{x1:L,x2:W-R,y1:H-B,y2:H-B,class:'ax'},svg);
+    c.forEach(function(v,i){ if(v) el('rect',{x:sx(lo+i*bw)+.4,width:Math.max(.5,sx(lo+(i+1)*bw)-sx(lo+i*bw)-.8),y:sy(v),height:H-B-sy(v),class:'mbar'},svg); });
+    el('line',{x1:sx(s.mu),x2:sx(s.mu),y1:T,y2:H-B,class:'mu'},svg);
+    if(arr.length){ var d=''; for(var k=0;k<=160;k++){ var x=lo+k/160*(hi-lo), y=arr.length*bw*Math.exp(-(x-s.mu)*(x-s.mu)/(2*se*se))*pdfmax; d+=(k?'L':'M')+sx(x).toFixed(1)+' '+sy(y).toFixed(1); } el('path',{d:d,class:'norm'},svg); }
+    var nt=5; for(var t=0;t<=nt;t++){ var x=lo+t/nt*(hi-lo); el('text',{x:sx(x),y:H-B+14,'text-anchor':t===0?'start':t===nt?'end':'middle'},svg).textContent=x.toFixed(hi-lo<1?2:1); }
+    el('text',{x:sx(s.mu)+4,y:T+10},svg).textContent='μ';
+  }
+  function drawMeans(){
+    var s=S[cur], n=nval(); hist(means,s,n,$('means'),560,250,{zoom:false});
+    $('count').textContent=means.length.toLocaleString()+' means';
+    var se=Math.sqrt(s.v/n); $('mu').textContent=s.mu.toFixed(3); $('se').textContent=se.toFixed(3);
+    if(means.length>1){ var m=means.reduce(function(a,b){return a+b;},0)/means.length, v=means.reduce(function(a,b){return a+(b-m)*(b-m);},0)/(means.length-1);
+      var inb=means.filter(function(x){return Math.abs(x-s.mu)<=1.96*se;}).length;
+      $('mm').textContent=m.toFixed(3); $('sd').textContent=Math.sqrt(v).toFixed(3); $('cov').textContent=(100*inb/means.length).toFixed(1)+'%'; }
+    else { $('mm').textContent='—'; $('sd').textContent='—'; $('cov').textContent='—'; }
+  }
+  function multiples(){
+    var box=$('mult'); box.innerHTML=''; var s=S[cur];
+    [1,2,5,30].forEach(function(n){ var arr=[]; for(var r=0;r<4000;r++){ var a=sample(n); arr.push(a.reduce(function(x,y){return x+y;},0)/n); }
+      var fig=document.createElement('figure'), svg=document.createElementNS(NS,'svg'); svg.setAttribute('viewBox','0 0 240 140'); svg.setAttribute('role','img'); svg.setAttribute('aria-label','Means of samples of size '+n);
+      var cap=document.createElement('figcaption'); cap.innerHTML='<b>n = '+n+'</b> · se '+Math.sqrt(s.v/n).toFixed(3);
+      fig.appendChild(cap); fig.appendChild(svg); box.appendChild(fig);
+      hist(arr,s,n,svg,240,140,{zoom:false,bins:40}); });
+  }
+  var SPEEDS=[1,4,25,150];
+  function tick(){ if(!playing) return; var k=SPEEDS[+$('speed').value], n=nval();
+    for(var i=0;i<k;i++){ last=sample(n); means.push(last.reduce(function(a,b){return a+b;},0)/n); }
+    drawSrc(); drawMeans(); setTimeout(function(){requestAnimationFrame(tick);}, k===1?220:30); }
+  $('play').addEventListener('click',function(){ playing=!playing; this.textContent=playing?'Pause':'Start sampling'; if(playing) tick(); });
+  $('burst').addEventListener('click',function(){ var n=nval(); for(var i=0;i<1000;i++){ last=sample(n); means.push(last.reduce(function(a,b){return a+b;},0)/n); } drawSrc(); drawMeans(); });
+  $('clear').addEventListener('click',function(){ means=[]; last=[]; drawSrc(); drawMeans(); });
+  $('n').addEventListener('input',function(){ $('no').textContent=this.value; means=[]; last=[]; drawSrc(); drawMeans(); });
+  chips(); drawSrc(); drawMeans(); multiples();
+})();
+</script>
+</body>
+</html>

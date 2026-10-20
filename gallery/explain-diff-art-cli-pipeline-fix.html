@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why `art rm` printed a Python traceback — an explained diff</title>
+<meta name="description" content="An explain-diff walkthrough of the fix that stopped the art CLI's `call ... | formatter` pipelines from printing a Python traceback after a server error.">
+<meta name="category" content="explain-diff">
+<style>
+:root{
+  --paper:#f6f2ea; --paper-2:#efe9dd; --ink:#1e1b16; --ink-2:#5b5347; --rule:#d9d0bf;
+  --accent:#a93f17; --accent-soft:#f3dccd; --ok:#2f6b3a; --ok-soft:#dcebd9; --bad:#9b2226; --bad-soft:#f6d9d6;
+  --code-bg:#1f1d1a; --code-ink:#ece6da; --code-dim:#9a917f; --add:#1f3a24; --del:#43201f;
+  --serif: "Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --sans: ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --paper:#15130f; --paper-2:#1e1b16; --ink:#ece6da; --ink-2:#b3a894; --rule:#3a342b;
+    --accent:#f0905f; --accent-soft:#3b2418; --ok:#8fd19e; --ok-soft:#1d3322; --bad:#f2a09a; --bad-soft:#3d1d1b;
+    --code-bg:#0d0c0a; }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:18px/1.62 var(--serif)}
+.wrap{max-width:46rem;margin:0 auto;padding:3rem 1.25rem 5rem}
+header .kicker{font:600 .78rem/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+h1{font-weight:600;font-size:clamp(1.9rem,5vw,2.7rem);line-height:1.12;margin:.6rem 0 1rem;letter-spacing:-.01em}
+h2{font-size:1.55rem;margin:3.2rem 0 .6rem;padding-top:1rem;border-top:1px solid var(--rule)}
+h2 .n{font:600 .8rem var(--sans);color:var(--accent);display:block;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.3rem}
+h3{font-size:1.15rem;margin:2rem 0 .4rem}
+p{margin:.8rem 0}
+a{color:var(--accent)}
+.dek{font-size:1.15rem;color:var(--ink-2);font-style:italic}
+.meta{font:.85rem/1.5 var(--sans);color:var(--ink-2);margin-top:1.2rem}
+code{font:.86em var(--mono);background:var(--paper-2);padding:.08em .32em;border-radius:3px}
+pre{font:.82rem/1.55 var(--mono);background:var(--code-bg);color:var(--code-ink);padding:1rem 1.1rem;border-radius:6px;overflow-x:auto;white-space:pre;margin:1rem 0}
+pre .c{color:var(--code-dim)} pre .k{color:#f0a868} pre .s{color:#a9d18e} pre .e{color:#ff9a8f}
+pre .add{background:var(--add);display:block;margin:0 -1.1rem;padding:0 1.1rem}
+pre .del{background:var(--del);display:block;margin:0 -1.1rem;padding:0 1.1rem;color:#d8b3ae}
+.label{font:600 .72rem var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin:1.4rem 0 -.6rem}
+nav.toc{background:var(--paper-2);border-left:3px solid var(--accent);padding:1rem 1.25rem;margin:2rem 0;font:.95rem/1.7 var(--sans)}
+nav.toc b{display:block;font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);margin-bottom:.3rem}
+nav.toc ol{margin:0;padding-left:1.2rem}
+nav.toc a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule)}
+.callout{border:1px solid var(--rule);background:var(--paper-2);border-radius:6px;padding:.9rem 1.1rem;margin:1.4rem 0;font-size:.97rem}
+.callout .t{font:700 .72rem var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:.25rem}
+.callout.def .t{color:var(--ok)} .callout.edge .t{color:var(--bad)}
+.skip{font:.85rem var(--sans);color:var(--ink-2);font-style:normal}
+/* diagrams */
+.diagram{margin:1.6rem 0;padding:1.1rem;border:1px solid var(--rule);border-radius:8px;background:var(--paper);font-family:var(--sans)}
+.diagram .cap{font-size:.8rem;color:var(--ink-2);margin-top:.8rem;font-style:italic;font-family:var(--serif)}
+.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.node{flex:1 1 9rem;border:1.5px solid var(--ink-2);border-radius:6px;padding:.55rem .7rem;background:var(--paper-2);font-size:.82rem;min-width:8.5rem}
+.node h4{margin:0 0 .25rem;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase}
+.node .v{font:.75rem/1.45 var(--mono);white-space:pre-wrap;color:var(--ink-2)}
+.node.bad{border-color:var(--bad);background:var(--bad-soft)} .node.ok{border-color:var(--ok);background:var(--ok-soft)}
+.arrow{flex:0 0 4.2rem;display:flex;flex-direction:column;justify-content:center;align-items:center;font-size:.68rem;color:var(--ink-2);text-align:center;padding:0 .2rem}
+.arrow::after{content:"";display:block;width:100%;height:0;border-top:1.5px solid var(--ink-2);margin-top:.2rem;position:relative}
+.arrow span.h{font-size:1rem;line-height:1;color:var(--ink-2)}
+.lane{display:grid;grid-template-columns:7.5rem 1fr;gap:.5rem .8rem;align-items:start;font-size:.82rem}
+.lane .who{font-weight:600;padding-top:.35rem}
+.lane .steps{display:flex;gap:.35rem;flex-wrap:wrap}
+.step{border:1px solid var(--rule);border-radius:4px;padding:.25rem .45rem;background:var(--paper-2);font:.74rem var(--mono)}
+.step.x{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+.step.g{border-color:var(--ok);color:var(--ok);background:var(--ok-soft)}
+.term{background:var(--code-bg);color:var(--code-ink);font:.78rem/1.5 var(--mono);border-radius:6px;padding:.8rem 1rem;white-space:pre-wrap;margin-top:.6rem}
+.term .err{color:#ff9a8f}.term .dim{color:var(--code-dim)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media (max-width:640px){
+  body{font-size:17px}
+  .cols{grid-template-columns:1fr}
+  .flow{flex-direction:column}
+  .arrow{flex-basis:auto;padding:.3rem 0}
+  .arrow::after{width:0;height:1.2rem;border-top:0;border-left:1.5px solid var(--ink-2)}
+  .lane{grid-template-columns:1fr}
+}
+/* quiz */
+.q{border:1px solid var(--rule);border-radius:8px;padding:1rem 1.1rem;margin:1.2rem 0;background:var(--paper-2)}
+.q p.stem{margin-top:0;font-weight:600}
+.q button{display:block;width:100%;text-align:left;font:.95rem/1.45 var(--sans);color:var(--ink);background:var(--paper);border:1px solid var(--rule);border-radius:6px;padding:.6rem .8rem;margin:.4rem 0;cursor:pointer}
+.q button:hover{border-color:var(--accent)}
+.q button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.q button.right{border-color:var(--ok);background:var(--ok-soft)}
+.q button.wrong{border-color:var(--bad);background:var(--bad-soft)}
+.q .fb{font:.9rem/1.5 var(--sans);margin-top:.5rem;min-height:1px}
+.q .fb.right{color:var(--ok)} .q .fb.wrong{color:var(--bad)}
+#score{font:600 .95rem var(--sans);color:var(--ink-2)}
+footer{margin-top:4rem;padding-top:1rem;border-top:1px solid var(--rule);font:.85rem/1.6 var(--sans);color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="kicker">Explained diff · art CLI</div>
+  <h1>The error that happened twice: why <code>art rm</code> printed a Python traceback</h1>
+  <p class="dek">A four-line helper, <code>fmt()</code>, and the small fact about shell pipelines that made it necessary.</p>
+  <div class="meta">Change: <code>art</code> · Shell: bash with <code>set -euo pipefail</code> · Reading time ≈ 10 min</div>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <b>Contents</b>
+  <ol>
+    <li><a href="#background">Background: pipelines, subshells and <code>set -e</code></a></li>
+    <li><a href="#context">Context: how <code>art</code> talks to the server</a></li>
+    <li><a href="#intuition">Intuition: two processes, one exit</a></li>
+    <li><a href="#code">The code, change by change</a></li>
+    <li><a href="#quiz">Quiz</a></li>
+  </ol>
+</nav>
+
+<p>Suppose you ask the artifact server to trash a page that doesn't exist. The server answers, quite reasonably, with an HTTP 404 and a one-line JSON error. The <code>art</code> command-line tool dutifully prints that error. And then, a heartbeat later, it prints fifteen lines of Python traceback ending in <code>JSONDecodeError</code>. Nothing is actually broken twice — but it looks as if it were, and the useful line is buried under the noise.</p>
+<p>This page explains why that happened and why the fix is a small function that does nothing more exotic than <em>waiting</em>.</p>
+
+<h2 id="background"><span class="n">Part 1</span>Background: pipelines, subshells and <code>set -e</code></h2>
+<p class="skip">If you already know that each stage of a bash pipeline runs in its own subshell, skip to <a href="#context">Part 2</a>.</p>
+<p>When you write <code>a | b</code> in bash, the shell starts <em>both</em> commands at once and connects <code>a</code>'s standard output to <code>b</code>'s standard input. Neither waits for the other to finish before starting. Crucially, when <code>a</code> or <code>b</code> is a shell function rather than an external program, bash runs it in a <strong>subshell</strong>: a forked copy of the current shell, with its own process and its own fate.</p>
+
+<div class="callout def"><span class="t">Definition · subshell</span>A child process that starts as a copy of the parent shell — same variables, same functions — but whose <code>exit</code> ends only itself. The parent learns about it only through an exit status.</div>
+
+<p>That last point matters for scripts written in the defensive style. <code>art</code> begins with <code>set -euo pipefail</code>, which means:</p>
+<ul>
+  <li><code>-e</code> — exit as soon as a command fails;</li>
+  <li><code>-u</code> — treat an unset variable as an error;</li>
+  <li><code>-o pipefail</code> — a pipeline fails if <em>any</em> stage fails, not just the last.</li>
+</ul>
+<p>These are excellent defaults, but they all act <em>after</em> a pipeline has finished. <code>pipefail</code> decides what the pipeline's exit status is; it cannot reach back in time and stop the other stage from running.</p>
+
+<h3>The narrower context: <code>exit</code> inside a function inside a pipe</h3>
+<p>Here is the whole bug in miniature. Paste it into a terminal:</p>
+<pre><span class="k">set</span> -euo pipefail
+fail() { <span class="k">echo</span> <span class="s">"fail: giving up"</span> >&2; <span class="k">exit</span> 1; }
+fail | python3 -c <span class="s">'import json,sys; json.load(sys.stdin)'</span>
+<span class="k">echo</span> <span class="s">"never printed"</span></pre>
+<p>You will see <em>both</em> the message and a traceback. <code>fail</code>'s <code>exit 1</code> ends only the left-hand subshell. Its stdout closes, empty. Python, already running on the right, reads zero bytes and asks <code>json.load</code> to parse them, which raises. Only then does the pipeline finish, <code>pipefail</code> reports failure, and <code>-e</code> stops the script — so the final <code>echo</code> really is never printed. The script fails correctly; it just fails <em>noisily</em>.</p>
+
+<h2 id="context"><span class="n">Part 2</span>Context: how <code>art</code> talks to the server</h2>
+<p><code>art</code> is a thin bash wrapper around <code>curl</code>. Every request goes through one function, <code>call</code>, which runs curl, splits off the HTTP status code that <code>-w '\n%{http_code}'</code> appends, and on any status of 400 or above calls <code>die</code> with the server's JSON <code>error</code> field:</p>
+<pre>call() {
+  <span class="k">local</span> out code
+  out=<span class="s">"$(curl -s -w '\n%{http_code}' "$@")"</span> || die <span class="s">"can't reach $A (is the server running?)"</span>
+  code=<span class="s">"${out##*$'\n'}"</span>; out=<span class="s">"${out%$'\n'*}"</span>
+  <span class="k">if</span> [[ <span class="s">"$code"</span> -ge 400 ]]; <span class="k">then</span>
+    die <span class="s">"$(python3 -c '... print(json.loads(sys.argv[1])["error"])' "$out" ...)"</span>
+  <span class="k">fi</span>
+  printf <span class="s">'%s\n'</span> <span class="s">"$out"</span>
+}
+die() { <span class="k">echo</span> <span class="s">"art: $*"</span> >&2; <span class="k">exit</span> 1; }</pre>
+<p>On success, <code>call</code> prints the JSON body. Most subcommands then want something friendlier than raw JSON — a one-line-per-page listing for <code>art ls</code>, a "published v3: …" line for <code>art put</code> — so each pipes <code>call</code>'s output into a small Python <em>formatter</em>. And there it is: <code>die</code> is an <code>exit</code>, and <code>call</code> was on the left of a pipe.</p>
+
+<div class="callout"><span class="t">Key idea</span>A function that "dies" is only as fatal as the process it runs in. Put it on the left of a pipe and it kills a subshell, not the script.</div>
+
+<h2 id="intuition"><span class="n">Part 3</span>Intuition: two processes, one exit</h2>
+<p>Let's follow a concrete request — <code>art rm missing-page.html</code> — through the old code. The server returns <code>404</code> with body <code>{"error": "no artifact named 'missing-page.html'"}</code>.</p>
+
+<div class="diagram" role="img" aria-label="Before: call and formatter run concurrently; the formatter receives empty input and crashes">
+  <div class="label" style="margin:0 0 .7rem">Before · <code>call … | python3 -c "$FORMATTER"</code></div>
+  <div class="flow">
+    <div class="node"><h4>curl</h4><div class="v">HTTP 404
+{"error":"no artifact
+named 'missing-page.html'"}</div></div>
+    <div class="arrow">body + status<span class="h">→</span></div>
+    <div class="node bad"><h4>call (subshell A)</h4><div class="v">code=404 ≥ 400
+die → stderr:
+"art: no artifact…"
+exit 1   stdout: ""</div></div>
+    <div class="arrow">pipe carries<br>0 bytes<span class="h">→</span></div>
+    <div class="node bad"><h4>formatter (B)</h4><div class="v">json.load("")
+JSONDecodeError
+traceback → stderr
+exit 1</div></div>
+  </div>
+  <div class="term"><span class="dim">$ art rm missing-page.html</span>
+<span class="err">art: no artifact named 'missing-page.html'</span>
+<span class="err">Traceback (most recent call last):
+  File "&lt;string&gt;", line 1, in &lt;module&gt;
+  …
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)</span></div>
+  <div class="cap">Both stages run at once. A's exit cannot stop B; it only starves it. (Error text is illustrative.)</div>
+</div>
+
+<p>The fix changes the <em>shape</em> of the computation, not any one line of it. Instead of streaming, it does the two steps in sequence and checks the first before starting the second:</p>
+
+<div class="diagram" role="img" aria-label="After: the response is captured into a variable first; a failure stops the script before the formatter runs">
+  <div class="label" style="margin:0 0 .7rem">After · <code>fmt FORMATTER call …</code></div>
+  <div class="lane">
+    <div class="who">Error path</div>
+    <div class="steps"><span class="step">json="$(call …)"</span><span class="step x">die → exit 1</span><span class="step x">assignment fails → set -e exits</span><span class="step" style="opacity:.45;text-decoration:line-through">formatter</span></div>
+    <div class="who">Success path</div>
+    <div class="steps"><span class="step">json="$(call …)"</span><span class="step g">status 0, json='[{…}]'</span><span class="step g">printf '%s\n' "$json" | formatter</span></div>
+  </div>
+  <div class="term"><span class="dim">$ art rm missing-page.html</span>
+<span class="err">art: no artifact named 'missing-page.html'</span>
+<span class="dim">$ echo $?</span>
+1</div>
+  <div class="cap">Command substitution waits for <code>call</code> to finish, so its exit status is known before anything reads its output.</div>
+</div>
+
+<p>Command substitution — <code>$( … )</code> — also runs its contents in a subshell, so <code>die</code> still only exits a child. The difference is that the parent is now <em>waiting</em> on that child, and the assignment <code>json="$(…)"</code> takes the child's exit status as its own. Under <code>set -e</code>, a failing assignment ends the script on the spot, before any formatter is started.</p>
+
+<div class="cols">
+  <div class="callout"><span class="t">Streaming (pipe)</span>Producer and consumer overlap. Great for large outputs; failure in the producer is reported only after the consumer has seen whatever was — or wasn't — produced.</div>
+  <div class="callout"><span class="t">Capture, then format</span>Producer finishes first; its status gates the consumer. Costs memory proportional to the output — trivial for a JSON API response.</div>
+</div>
+
+<h2 id="code"><span class="n">Part 4</span>The code, change by change</h2>
+
+<h3>1 · A new helper, <code>fmt</code></h3>
+<p>The heart of the change is one function and the comment explaining why it exists:</p>
+<pre><span class="add"><span class="c"># Run a request to completion before formatting it: in "call | formatter" a failed</span></span><span class="add"><span class="c"># call would only exit the pipe's subshell, and the formatter would choke on nothing.</span></span><span class="add">fmt() { <span class="k">local</span> json; json=<span class="s">"$("${@:2}")"</span>; printf <span class="s">'%s\n'</span> <span class="s">"$json"</span> | $1; }</span></pre>
+<p>Read it as <em>"fmt FORMATTER COMMAND ARGS…"</em>. <code>$1</code> is the formatter; <code>"${@:2}"</code> is everything after it, which is run as a command, quoting preserved. Its output is held in <code>json</code>; only if that succeeded does the formatter get to read it.</p>
+
+<div class="callout edge"><span class="t">Edge case · why <code>local json;</code> is its own statement</span>It would be tempting to write <code>local json="$(…)"</code>. Don't: <code>local</code> is itself a command, and its exit status (0, it declared a variable) <em>replaces</em> the substitution's. <code>set -e</code> would never see the failure, and you'd be back to formatting an empty string. Splitting declaration from assignment is what makes the whole fix work.</div>
+
+<h3>2 · Formatters become named functions</h3>
+<p>The JSON-to-text programs used to sit inline on the right of each pipe. They are now small functions so they can be passed by name as <code>fmt</code>'s first argument:</p>
+<pre><span class="add">summary() { python3 -c <span class="s">"$SUMMARY_PY"</span>; }</span><span class="c">  # inside the put branch:</span><span class="add">    put_fmt() { A=<span class="s">"$A"</span> python3 -c <span class="s">"$PUT_PY"</span>; }</span></pre>
+<p>Passing a name rather than a string avoids having to <code>eval</code> anything, and functions defined inside a <code>case</code> branch can close over that branch's variables — <code>restore_fmt</code> captures the version number <code>n</code> it is about to report.</p>
+
+<h3>3 · Every <code>call … | formatter</code> becomes <code>fmt formatter call …</code></h3>
+<p>The remaining hunks are mechanical. The <em>before</em> lines below are reconstructed from the description of the bug (the original wasn't committed); the <em>after</em> lines are the file as it stands.</p>
+<pre><span class="del">-  ls)   with_auth "$A/api/artifacts?limit=500" | summary ;;</span><span class="add">+  ls)   fmt summary with_auth "$A/api/artifacts?limit=500" ;;</span>
+<span class="del">-  find) … with_auth "$A/api/artifacts?q=$(enc "$*")" | summary ;;</span><span class="add">+  find) … fmt summary with_auth "$A/api/artifacts?q=$(enc "$*")" ;;</span>
+<span class="del">-    call -X PUT --data-binary "@$file" … "$A/api/artifacts/$(enc "$name")" \</span><span class="del">-      | A="$A" python3 -c "$PUT_PY" ;;</span><span class="add">+    fmt put_fmt call -X PUT --data-binary "@$file" … "$A/api/artifacts/$(enc "$name")" ;;</span>
+<span class="del">-    call -X POST … "/versions/$2/restore" | N="$2" python3 -c '…' ;;</span><span class="add">+    fmt restore_fmt call -X POST … "/versions/$2/restore" ;;</span>
+<span class="del">-    call -X DELETE … "$A/api/artifacts/$(enc "$1")$q" | python3 -c '…' ;;</span><span class="add">+    fmt rm_fmt call -X DELETE … "$A/api/artifacts/$(enc "$1")$q" ;;</span></pre>
+<p>Notice what <em>didn't</em> change: <code>art diff</code> and <code>art views</code> print the server's response directly with no formatter, so they never had the bug and still call <code>with_auth</code> bare.</p>
+
+<div class="callout"><span class="t">Why not just check <code>PIPESTATUS</code>?</span>You could inspect <code>${PIPESTATUS[0]}</code> after the pipe, but by then the formatter has already run and printed its traceback. The point is to not start the consumer at all, which needs the producer to finish first.</div>
+
+<h2 id="quiz"><span class="n">Part 5</span>Quiz</h2>
+<p>Five questions; click an answer to see whether it's right and why. <span id="score"></span></p>
+<div id="quizzes"></div>
+
+<footer>
+  Format: this page follows Geoffrey Litt's <a href="https://gist.github.com/geoffreylitt/a29df1b5f9865506e8952488eac3d524">explain-diff</a> prompt — background, intuition with diagrams, a grouped code walkthrough and a five-question quiz, in one self-contained HTML file.<br>
+  The "before" code is a faithful reconstruction; the "after" code is quoted from the current <code>art</code> script.
+</footer>
+</div>
+
+<script>
+(function(){
+  var Q = [
+    {stem:"In the old `call … | summary`, the server returns 404. Which process actually runs `exit 1`?",
+     opts:["The top-level art script itself, which then stops", "The subshell running the left-hand stage of the pipe", "The Python formatter, after reading the error message", "curl, because -s turns HTTP errors into exits"],
+     a:1, why:"`call` (and the `die` inside it) is a shell function on the left of a pipe, so bash runs it in a forked subshell. Its `exit` ends that subshell only."},
+    {stem:"Why does the formatter print a traceback rather than the error?",
+     opts:["It receives the JSON error body and fails on the missing keys", "pipefail sends it a SIGPIPE before it can finish", "It reads the stderr of call and can't parse the text", "Its stdin closes with zero bytes, and json.load('') raises"],
+     a:3, why:"`die` writes to stderr and exits before `call` prints anything to stdout, so the pipe closes empty. Parsing an empty string as JSON raises JSONDecodeError."},
+    {stem:"In `fmt`, why is `local json` on its own, separate from `json=\"$(…)\"`?",
+     opts:["`local`'s own exit status would mask the command's failure", "Bash forbids command substitution inside a local declaration", "It keeps `set -u` from tripping over an unset variable later", "Splitting it makes json global so formatters can read it"],
+     a:0, why:"`local x=\"$(cmd)\"` returns the status of `local` (0), hiding cmd's failure from `set -e`. A plain assignment returns the substitution's status."},
+    {stem:"In the old code with `set -o pipefail`, did `art rm missing-page` still exit non-zero?",
+     opts:["No: the last stage decides, and pipefail can't change that", "No: the subshell's exit status is discarded by the shell", "Yes, but only after the formatter had run and crashed", "Yes, and pipefail stopped the formatter before it ran"],
+     a:2, why:"pipefail makes the pipeline's status non-zero if any stage failed, and -e then stops the script — but both act after every stage has finished. The exit code was right; the output was noisy."},
+    {stem:"After the fix, what does a user see for `art rm missing-page` on a 404?",
+     opts:["The JSON error body, pretty-printed by the rm formatter", "One `art: …` line on stderr and exit status 1", "The art message followed by a shorter Python error", "Nothing on screen, with exit status 0 from the formatter"],
+     a:1, why:"The substitution's failure ends the script before `rm_fmt` starts, so only `die`'s message appears, and the script exits 1."}
+  ];
+  var root = document.getElementById('quizzes'), score = document.getElementById('score'), right = 0, done = 0;
+  function md(s){ return s.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}).replace(/`([^`]+)`/g,'<code>$1</code>'); }
+  Q.forEach(function(q,i){
+    var box = document.createElement('div'); box.className='q';
+    box.innerHTML = '<p class="stem">'+(i+1)+'. '+md(q.stem)+'</p>';
+    var fb = document.createElement('div'); fb.className='fb'; fb.setAttribute('aria-live','polite');
+    var answered = false;
+    q.opts.forEach(function(o,j){
+      var b = document.createElement('button'); b.type='button';
+      b.innerHTML = String.fromCharCode(65+j)+'. '+md(o);
+      b.addEventListener('click',function(){
+        var ok = j===q.a;
+        b.classList.add(ok?'right':'wrong');
+        if(ok) box.querySelectorAll('button')[q.a].classList.add('right');
+        fb.className = 'fb '+(ok?'right':'wrong');
+        fb.innerHTML = (ok?'Correct. ':'Not quite. ')+md(q.why);
+        if(!answered){ answered=true; done++; if(ok) right++; score.textContent = 'Score: '+right+' / '+done+(done===Q.length?' — all answered.':''); }
+      });
+      box.appendChild(b);
+    });
+    box.appendChild(fb); root.appendChild(box);
+  });
+})();
+</script>
+</body>
+</html>

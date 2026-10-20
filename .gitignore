@@ -1,0 +1,8 @@
+# Server data and the local admin token: never commit these.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.token
+node_modules/
+.DS_Store

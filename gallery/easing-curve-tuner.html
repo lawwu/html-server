@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Easing curve tuner</title>
+<meta name="description" content="An animation prototype for tuning a CSS cubic-bezier easing: drag the two handles, set the duration, compare against linear and presets on live previews, and copy the CSS.">
+<meta name="category" content="prototype">
+<style>
+:root{
+  --bg:#f1efe9; --panel:#fbfaf7; --ink:#191714; --ink-2:#6a645a; --rule:#dad5ca; --grid:#e8e4da;
+  --curve:#ff5a1f; --h1:#0a84ff; --h2:#bf5af2; --lin:#9a948a;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans: "Avenir Next","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f0f10; --panel:#18181a; --ink:#f0eee9; --ink-2:#a19c93; --rule:#2e2d30; --grid:#222125;
+    --curve:#ff7a45; --h1:#4aa3ff; --h2:#d38bff; --lin:#77736c; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans)}
+.wrap{max-width:66rem;margin:0 auto;padding:2rem 1rem 3rem}
+.kicker{font:600 .72rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--curve)}
+h1{font-size:clamp(1.6rem,4.5vw,2.4rem);line-height:1.1;margin:.3rem 0 .4rem;letter-spacing:-.02em}
+.lede{color:var(--ink-2);max-width:42rem;margin:0 0 1.2rem}
+.grid{display:grid;grid-template-columns:minmax(0,22rem) minmax(0,1fr);gap:1.2rem;align-items:start}
+@media (max-width:760px){ .grid{grid-template-columns:1fr} }
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:1rem}
+.panel h2{font:600 .72rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);margin:0 0 .6rem}
+#ed{width:100%;max-width:19rem;margin:0 auto;height:auto;display:block;touch-action:none;overflow:hidden}
+#ed .g{stroke:var(--grid)}
+#ed .box{fill:none;stroke:var(--rule)}
+#ed .lin{stroke:var(--lin);stroke-dasharray:3 4}
+#ed .arm{stroke-width:1.5}
+#ed .c{fill:none;stroke:var(--curve);stroke-width:3.5;stroke-linecap:round}
+#ed .h{cursor:grab;stroke:var(--panel);stroke-width:3}
+#ed .h:focus{outline:none;stroke:var(--ink)}
+#ed text{font:10px var(--mono);fill:var(--ink-2)}
+#ed .prog{fill:var(--curve)}
+.code{display:flex;gap:.5rem;align-items:center;margin-top:.8rem}
+.code output{flex:1;min-width:0;font:600 .82rem var(--mono);background:var(--bg);border:1px solid var(--rule);border-radius:8px;padding:.5rem .6rem;overflow-x:auto;white-space:nowrap}
+.btn{font:600 .85rem var(--sans);border:1.5px solid var(--ink);background:var(--ink);color:var(--bg);border-radius:8px;padding:.5rem .8rem;cursor:pointer;white-space:nowrap}
+.btn.ghost{background:transparent;color:var(--ink)}
+.presets{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.8rem}
+.presets button{font:.78rem var(--mono);border:1px solid var(--rule);background:var(--panel);color:var(--ink);border-radius:999px;padding:.25rem .6rem;cursor:pointer}
+.presets button.on{border-color:var(--curve);color:var(--curve)}
+.row{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin:.6rem 0}
+.row label{display:flex;gap:.5rem;align-items:center;font-size:.88rem}
+.row input[type=range]{accent-color:var(--curve);width:11rem}
+.row output{font:600 .85rem var(--mono);min-width:4.5ch}
+.lanes{display:flex;flex-direction:column;gap:.7rem;margin-top:.6rem}
+.lane{display:grid;grid-template-columns:6.5rem 1fr;gap:.6rem;align-items:center}
+.lane .nm{font:.78rem var(--mono);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.track{position:relative;height:2.6rem;background:var(--bg);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.dot{position:absolute;top:50%;left:0;width:2rem;height:2rem;margin-top:-1rem;border-radius:8px;will-change:transform}
+.ui{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem;margin-top:1rem}
+@media (max-width:520px){ .ui{grid-template-columns:1fr} .lane{grid-template-columns:1fr} }
+.demo{background:var(--bg);border:1px solid var(--rule);border-radius:10px;height:7.5rem;position:relative;overflow:hidden}
+.demo small{position:absolute;left:.5rem;bottom:.35rem;font:.7rem var(--mono);color:var(--ink-2)}
+.sheet{position:absolute;left:8%;right:8%;bottom:0;height:70%;background:var(--panel);border:1px solid var(--rule);border-radius:10px 10px 0 0;box-shadow:0 -4px 14px rgba(0,0,0,.12)}
+.sheet::before{content:"";position:absolute;left:50%;top:.4rem;width:2rem;height:.25rem;margin-left:-1rem;border-radius:2px;background:var(--rule)}
+.toggle{position:absolute;left:50%;top:50%;width:4.4rem;height:2.2rem;margin:-1.1rem 0 0 -2.2rem;border-radius:999px;background:var(--rule)}
+.toggle i{position:absolute;top:.2rem;left:.2rem;width:1.8rem;height:1.8rem;border-radius:50%;background:var(--panel);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.toast{position:absolute;left:50%;top:0;transform:translateX(-50%);margin-top:.6rem;background:var(--ink);color:var(--bg);font:.75rem var(--sans);padding:.35rem .7rem;border-radius:999px;white-space:nowrap}
+.tip{font-size:.85rem;color:var(--ink-2);margin-top:1rem}
+footer{margin-top:1.5rem;font-size:.8rem;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Prototype · animation tuning</div>
+  <h1>Tune the curve, not the code</h1>
+  <p class="lede">Arguing about “snappier” in a code review goes nowhere. Drag the two handles until the motion feels right on the previews, then copy one line of CSS. Handles can leave the box vertically for overshoot and anticipation.</p>
+  <div class="grid">
+    <div class="panel">
+      <h2>cubic-bezier editor</h2>
+      <div class="presets" id="presets"></div>
+      <svg id="ed" viewBox="-26 -160 292 560" role="application" aria-label="Easing curve editor; focus a handle and use arrow keys to move it"></svg>
+      <div class="code"><output id="css"></output><button class="btn" id="copy">Copy CSS</button></div>
+    </div>
+    <div class="panel">
+      <h2>preview</h2>
+      <div class="row">
+        <label for="dur">duration <input id="dur" type="range" min="100" max="1500" step="10" value="420"><output id="duro">420ms</output></label>
+        <button class="btn ghost" id="replay">Replay</button>
+        <label><input type="checkbox" id="loop" checked> loop</label>
+      </div>
+      <div class="lanes" id="lanes"></div>
+      <div class="ui">
+        <div class="demo"><div class="sheet" id="sheet"></div><small>bottom sheet</small></div>
+        <div class="demo"><div class="toggle"><i id="knob"></i></div><small>switch</small></div>
+        <div class="demo"><div class="toast" id="toast">Saved</div><small>toast</small></div>
+      </div>
+      <p class="tip">Rules of thumb: things <em>entering</em> should decelerate (fast start, gentle stop: ease-out); things <em>leaving</em> can accelerate away (ease-in); things moving <em>within</em> the screen use ease-in-out. Small UI elements want 150–250 ms; large surfaces 300–450 ms.</p>
+    </div>
+  </div>
+  <footer>Curves are evaluated with the same cubic-bezier model CSS uses (x solved by Newton's method, then y). Copying uses the clipboard if the page is allowed to; otherwise the text is selected for you.</footer>
+</div>
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var PRESETS=[['ease',[.25,.1,.25,1]],['ease-out',[0,0,.58,1]],['ease-in',[.42,0,1,1]],['ease-in-out',[.42,0,.58,1]],['snappy',[.2,.9,.1,1]],['overshoot',[.34,1.56,.64,1]],['anticipate',[.36,-0.4,.6,1]]];
+  var P=[.2,.9,.1,1], S=240, NS='http://www.w3.org/2000/svg', ed=$('ed');
+  function el(n,a,p){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+  function bz(a,b,t){ return 3*a*t*(1-t)*(1-t)+3*b*t*t*(1-t)+t*t*t; }
+  function dbz(a,b,t){ return 3*a*(1-t)*(1-t)+6*(b-a)*t*(1-t)+3*(1-b)*t*t; }
+  function ease(x){ if(x<=0) return 0; if(x>=1) return 1; var t=x; for(var i=0;i<8;i++){ var d=dbz(P[0],P[2],t); if(Math.abs(d)<1e-6) break; t-= (bz(P[0],P[2],t)-x)/d; }
+    if(t<0||t>1||Math.abs(bz(P[0],P[2],t)-x)>1e-4){ var lo=0,hi=1; t=x; for(var j=0;j<30;j++){ var v=bz(P[0],P[2],t); if(v<x) lo=t; else hi=t; t=(lo+hi)/2; } }
+    return bz(P[1],P[3],t); }
+  var X=function(v){return v*S;}, Y=function(v){return S-v*S;};
+  [.25,.5,.75].forEach(function(v){ el('line',{x1:X(v),x2:X(v),y1:Y(0),y2:Y(1),class:'g'},ed); el('line',{x1:0,x2:S,y1:Y(v),y2:Y(v),class:'g'},ed); });
+  el('rect',{x:0,y:0,width:S,height:S,class:'box'},ed);
+  el('line',{x1:X(0),y1:Y(0),x2:X(1),y2:Y(1),class:'lin'},ed);
+  el('text',{x:0,y:S+16},ed).textContent='time →'; var tp=el('text',{x:-6,y:-6,'text-anchor':'end',transform:'rotate(-90 -6 -6)'},ed); tp.textContent='';
+  el('text',{x:-8,y:Y(0)+3,'text-anchor':'end'},ed).textContent='0'; el('text',{x:-8,y:Y(1)+3,'text-anchor':'end'},ed).textContent='1';
+  var a1=el('line',{class:'arm',stroke:'var(--h1)'},ed), a2=el('line',{class:'arm',stroke:'var(--h2)'},ed), cv=el('path',{class:'c'},ed);
+  var prog=el('circle',{r:5,class:'prog'},ed);
+  var h1=el('circle',{r:10,class:'h',fill:'var(--h1)',tabindex:0,'aria-label':'first control point'},ed), h2=el('circle',{r:10,class:'h',fill:'var(--h2)',tabindex:0,'aria-label':'second control point'},ed);
+  function fmt(v){ return (Math.round(v*100)/100).toString(); }
+  function cssText(){ return 'transition: transform '+$('dur').value+'ms cubic-bezier('+P.map(fmt).join(', ')+');'; }
+  function draw(){
+    var d='M'+X(0)+' '+Y(0)+' C'+X(P[0])+' '+Y(P[1])+' '+X(P[2])+' '+Y(P[3])+' '+X(1)+' '+Y(1); cv.setAttribute('d',d);
+    a1.setAttribute('x1',X(0));a1.setAttribute('y1',Y(0));a1.setAttribute('x2',X(P[0]));a1.setAttribute('y2',Y(P[1]));
+    a2.setAttribute('x1',X(1));a2.setAttribute('y1',Y(1));a2.setAttribute('x2',X(P[2]));a2.setAttribute('y2',Y(P[3]));
+    h1.setAttribute('cx',X(P[0]));h1.setAttribute('cy',Y(P[1]));h2.setAttribute('cx',X(P[2]));h2.setAttribute('cy',Y(P[3]));
+    $('css').textContent=cssText();
+    document.querySelectorAll('#presets button').forEach(function(b){ var p=PRESETS[+b.dataset.i][1]; b.classList.toggle('on', p.every(function(v,i){return Math.abs(v-P[i])<.005;})); });
+    $('nm-custom').textContent='cubic-bezier('+P.map(fmt).join(',')+')';
+  }
+  PRESETS.forEach(function(p,i){ var b=document.createElement('button'); b.textContent=p[0]; b.dataset.i=i; b.addEventListener('click',function(){ P=p[1].slice(); draw(); restart(); }); $('presets').appendChild(b); });
+  var drag=null;
+  function pt(e){ var r=ed.getBoundingClientRect(), vb=ed.viewBox.baseVal; return [vb.x+(e.clientX-r.left)/r.width*vb.width, vb.y+(e.clientY-r.top)/r.height*vb.height]; }
+  [[h1,0],[h2,2]].forEach(function(h){ h[0].addEventListener('pointerdown',function(e){ drag=h[1]; h[0].setPointerCapture(e.pointerId); e.preventDefault(); });
+    h[0].addEventListener('keydown',function(e){ var k=h[1], s=e.shiftKey?.1:.01, m={ArrowLeft:[-s,0],ArrowRight:[s,0],ArrowUp:[0,s],ArrowDown:[0,-s]}[e.key]; if(!m) return; e.preventDefault();
+      P[k]=Math.max(0,Math.min(1,P[k]+m[0])); P[k+1]=Math.max(-.6,Math.min(1.6,P[k+1]+m[1])); draw(); }); });
+  ed.addEventListener('pointermove',function(e){ if(drag==null) return; var p=pt(e); P[drag]=Math.max(0,Math.min(1,p[0]/S)); P[drag+1]=Math.max(-.6,Math.min(1.6,(S-p[1])/S)); draw(); });
+  ed.addEventListener('pointerup',function(){ if(drag!=null){ drag=null; restart(); } });
+  var LANES=[['custom',null,'var(--curve)'],['linear',[0,0,1,1],'var(--lin)'],['ease',[.25,.1,.25,1],'var(--ink-2)']];
+  LANES.forEach(function(l){ var d=document.createElement('div'); d.className='lane'; d.innerHTML='<span class="nm" id="nm-'+l[0]+'">'+l[0]+'</span><div class="track"><div class="dot" id="dot-'+l[0]+'" style="background:'+l[2]+'"></div></div>'; $('lanes').appendChild(d); });
+  function easeWith(p,x){ var save=P; P=p; var v=ease(x); P=save; return v; }
+  var t0=null, dir=1;
+  function restart(){ t0=null; dir=1; }
+  function frame(ts){
+    var dur=+$('dur').value, hold=500; if(t0==null) t0=ts; var el_=ts-t0, x=Math.min(1,el_/dur);
+    if(el_>dur+hold){ if($('loop').checked){ t0=ts; dir=-dir; x=0; } else x=1; }
+    LANES.forEach(function(l){ var v = l[1]? easeWith(l[1],x) : ease(x); if(dir<0) v=1-v; var tr=$('dot-'+l[0]).parentNode, pad=Math.min(40,tr.clientWidth*.08), w=tr.clientWidth-32-2*pad; $('dot-'+l[0]).style.transform='translateX('+(pad+v*w)+'px)'; });
+    var e=ease(x), v=dir>0?e:1-e;
+    $('sheet').style.transform='translateY('+((1-v)*100)+'%)';
+    $('knob').style.transform='translateX('+(v*2.2)+'rem)';
+    $('toast').style.transform='translate(-50%,'+((1-v)*-3)+'rem)'; $('toast').style.opacity=Math.max(0,Math.min(1,v));
+    prog.setAttribute('cx',X(x)); prog.setAttribute('cy',Y(e));
+    requestAnimationFrame(frame);
+  }
+  $('dur').addEventListener('input',function(){ $('duro').textContent=this.value+'ms'; $('css').textContent=cssText(); });
+  $('replay').addEventListener('click',restart);
+  $('copy').addEventListener('click',function(){ var txt=cssText(), b=this, sel=window.getSelection(), r=document.createRange(); r.selectNodeContents($('css')); sel.removeAllRanges(); sel.addRange(r);
+    var ok=false; try{ ok=document.execCommand('copy'); }catch(e){}
+    function done(m){ b.textContent=m; setTimeout(function(){b.textContent='Copy CSS';},1800); }
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function(){done('Copied');},function(){done(ok?'Copied':'Selected');}); else done(ok?'Copied':'Selected'); });
+  draw(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

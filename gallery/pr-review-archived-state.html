@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR review: add an archived lifecycle state</title>
+<meta name="description" content="An annotated code review of an illustrative pull request that adds an archived state to the artifact server's lifecycle, with margin notes tagged blocking, nit or nice-to-have and a copy-as-Markdown export.">
+<meta name="category" content="code-review">
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#111827; --ink-2:#556070; --rule:#dfe3e8;
+  --add-bg:#e6f6ea; --add-ink:#14532d; --del-bg:#fde8e8; --del-ink:#7f1d1d; --hunk:#eef2ff;
+  --block:#c81e1e; --nit:#8a6d00; --nice:#1d6fb8; --block-bg:#fdecec; --nit-bg:#fdf6dc; --nice-bg:#e8f2fc;
+  --mono: ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+  --sans: "Inter var","Segoe UI",-apple-system,ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0d1117; --panel:#151b23; --ink:#e6edf3; --ink-2:#9aa6b2; --rule:#2a3340;
+    --add-bg:#0f2e1a; --add-ink:#8ee3a5; --del-bg:#3a1416; --del-ink:#ffb3b3; --hunk:#1a2140;
+    --block:#ff7b72; --nit:#e3b341; --nice:#79c0ff; --block-bg:#3a1517; --nit-bg:#33290b; --nice-bg:#0f2a44; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans)}
+.wrap{max-width:76rem;margin:0 auto;padding:2rem 1rem 3rem}
+.crumbs{font:.8rem var(--mono);color:var(--ink-2)}
+h1{font-size:clamp(1.4rem,3.6vw,2rem);line-height:1.2;margin:.4rem 0 .4rem;letter-spacing:-.01em}
+h1 .num{color:var(--ink-2);font-weight:400}
+.illus{display:inline-block;font:600 .7rem var(--mono);letter-spacing:.08em;text-transform:uppercase;border:1px dashed var(--ink-2);color:var(--ink-2);padding:.1rem .45rem;border-radius:3px;margin-left:.3rem;vertical-align:middle}
+.summary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1rem;align-items:start;background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:1rem 1.2rem;margin:1rem 0 1.2rem}
+@media (max-width:700px){ .summary{grid-template-columns:1fr} }
+.verdict{font:700 .8rem var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--block);border:1.5px solid var(--block);border-radius:4px;padding:.3rem .6rem;display:inline-block;margin-bottom:.4rem}
+.summary p{margin:.3rem 0;color:var(--ink-2)}
+.summary p b{color:var(--ink)}
+.counts{display:flex;gap:.4rem;flex-wrap:wrap}
+.chip{font:600 .78rem var(--mono);border-radius:999px;padding:.3rem .7rem;border:1.5px solid currentColor;background:transparent;cursor:pointer}
+.chip[aria-pressed="false"]{opacity:.45;text-decoration:line-through}
+.chip.blocking{color:var(--block)} .chip.nit{color:var(--nit)} .chip.nice{color:var(--nice)}
+.tools{display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap}
+.tools button{font:600 .82rem var(--sans);border:1px solid var(--rule);background:var(--panel);color:var(--ink);border-radius:6px;padding:.45rem .8rem;cursor:pointer}
+.tools button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+#mdout{display:none;width:100%;min-height:12rem;font:.78rem var(--mono);margin-top:.6rem;border:1px solid var(--rule);border-radius:6px;background:var(--bg);color:var(--ink);padding:.6rem}
+.file{background:var(--panel);border:1px solid var(--rule);border-radius:8px;margin:1rem 0;overflow:hidden}
+.file > header{display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;padding:.55rem .9rem;border-bottom:1px solid var(--rule);font:600 .85rem var(--mono)}
+.file > header .st{font-weight:400;color:var(--ink-2)}
+.file > header .st .a{color:var(--add-ink)} .file > header .st .d{color:var(--del-ink)}
+.diff{display:grid;grid-template-columns:minmax(0,1fr) 21rem;overflow-x:auto}
+.ln{grid-column:1;grid-row:var(--r);align-self:start;display:grid;grid-template-columns:2.6rem 2.6rem 1.2rem minmax(0,1fr);font:.8rem/1.6 var(--mono);white-space:pre;min-width:0}
+.ln span{padding:0 .3rem}
+.ln .o,.ln .n{color:var(--ink-2);text-align:right;user-select:none;opacity:.7}
+.ln .code{overflow-x:auto}
+.ln.add{background:var(--add-bg)} .ln.add .code,.ln.add .s{color:var(--add-ink)}
+.ln.del{background:var(--del-bg)} .ln.del .code,.ln.del .s{color:var(--del-ink)}
+.ln.hunk{background:var(--hunk);color:var(--ink-2)}
+.ln.anchored{box-shadow:inset 3px 0 0 var(--anchor,var(--ink-2))}
+.note{grid-column:2;grid-row:var(--rw) / span var(--rspan,1);margin:.2rem .6rem .5rem;border-radius:6px;border:1px solid var(--rule);border-left:4px solid var(--c);background:var(--cbg);padding:.55rem .7rem;font-size:.86rem;align-self:start}
+.note.blocking{--c:var(--block);--cbg:var(--block-bg)} .note.nit{--c:var(--nit);--cbg:var(--nit-bg)} .note.nice{--c:var(--nice);--cbg:var(--nice-bg)}
+.note .sev{font:700 .68rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--c)}
+.note .who{font:.72rem var(--mono);color:var(--ink-2);float:right}
+.note p{margin:.25rem 0}
+.note code{font:.82em var(--mono);background:var(--panel);padding:0 .25em;border-radius:3px}
+.note pre{font:.75rem/1.5 var(--mono);background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:.4rem .5rem;margin:.35rem 0 0;white-space:pre;overflow-x:auto}
+.note.hidden{display:none}
+@media (max-width:900px){ .diff{grid-template-columns:minmax(0,1fr)} .note{grid-column:1;grid-row:var(--rn);margin:.3rem .6rem .6rem 2.4rem} }
+@media (max-width:520px){ .ln{grid-template-columns:2rem 2rem 1rem minmax(0,1fr);font-size:.74rem} .note{margin-left:.5rem} }
+footer{margin-top:2rem;font-size:.8rem;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumbs">artifact-server · pull request · review</div>
+  <h1>Add an <code>archived</code> lifecycle state <span class="num">#illustrative</span><span class="illus">example PR</span></h1>
+
+  <div class="summary">
+    <div>
+      <div class="verdict">Changes requested</div>
+      <p><b>What the PR does.</b> Adds <code>archived</code> between active and trashed: an archived page stays readable but takes no new versions, and drops out of default listings. Two new routes, three new rows in the transition table.</p>
+      <p><b>Overall.</b> The table-driven design pays off — the change to the state machine itself is three lines, and the existing test that walks every illegal (state, event) pair covers the new state for free. But the read paths were not updated, so archived pages currently 404, which is the opposite of the stated intent.</p>
+    </div>
+    <div>
+      <div class="counts" id="counts" role="group" aria-label="Filter notes by severity"></div>
+      <div class="tools"><button class="primary" id="copy">Copy review as Markdown</button></div>
+    </div>
+  </div>
+  <textarea id="mdout" aria-label="Review as Markdown" readonly></textarea>
+  <div id="files"></div>
+  <footer>This pull request is illustrative: it was written for this gallery against the artifact server's real lifecycle and store code to show what an annotated review page looks like. Nothing here has been merged.</footer>
+</div>
+<script>
+(function(){
+  var FILES = [
+    {path:'src/lifecycle.js', add:4, del:0, lines:[
+      ['@','@@ -9,20 +9,24 @@'],
+      [' ',"export const NONE = 'none';",9],
+      [' ',"export const ACTIVE = 'active';",10],
+      [' ',"export const TRASHED = 'trashed';",11],
+      [' ',"export const PURGED = 'purged';",12],
+      ['+',"export const ARCHIVED = 'archived';",13],
+      [' ','',14],
+      [' ','export const TRANSITIONS = new Map([',15],
+      [' ','  [`${NONE}:create`, ACTIVE],',16],
+      [' ','  [`${ACTIVE}:update`, ACTIVE],',17],
+      [' ','  [`${ACTIVE}:trash`, TRASHED],',18],
+      ['+','  [`${ACTIVE}:archive`, ARCHIVED],',19],
+      ['+','  [`${ARCHIVED}:unarchive`, ACTIVE],',20, {sev:'nit', body:'<p>Every other reverse event in the table is named for what it does to the page (<code>restore</code>), not as an <em>un-</em> verb. <code>reopen</code> or <code>activate</code> would read better in the 409 message: <code>allowed: [\'reopen\', \'trash\']</code>.</p>'}],
+      ['+','  [`${ARCHIVED}:trash`, TRASHED],',21, {sev:'blocking', body:'<p>Trash-then-restore silently un-archives: <code>trashed:restore</code> always goes to <code>active</code>, so an archived page that is trashed and restored comes back <em>accepting new versions</em>. Either drop this row (archived pages must be unarchived before trashing) or record the prior state and restore to it. Dropping the row is one line and keeps the table honest.</p><pre>- [`${ARCHIVED}:trash`, TRASHED],</pre>'}],
+      [' ','  [`${TRASHED}:restore`, ACTIVE],',22],
+      [' ','  [`${TRASHED}:purge`, PURGED],',23],
+      [' ',']);',24]
+    ]},
+    {path:'src/store.js', add:1, del:1, lines:[
+      ['@','@@ -94,4 +94,4 @@ export function visible(a, viewerId) {'],
+      [' ','export function visible(a, viewerId) {',94],
+      [' ','  if (viewerId != null && a.owner_id === viewerId) return true;',95],
+      ['-',"  return a.state === ACTIVE && a.visibility === 'public';",96],
+      ['+',"  return [ACTIVE, ARCHIVED].includes(a.state) && a.visibility === 'public';",96, {sev:'nice', body:'<p>Worth a named helper — <code>isReadable(state)</code> next to the table in <code>lifecycle.js</code> — so the next state added has one place to declare whether it can be read. The blocking note below is this same question asked in two other places.</p>'}],
+      [' ','}',97],
+      ['@','@@ -251,3 +251,3 @@  /** trash / restore / purge */'],
+      [' ','  /** trash / restore / purge */',251, {sev:'nit', body:'<p>Docstring is now stale: <code>apply()</code> also handles <code>archive</code> and <code>unarchive</code>.</p>'}],
+      [' ','  apply(userId, slug, event) {',252],
+      [' ','    const a = this.owned(slug, userId);',253],
+      ['@','@@ -318,6 +318,6 @@  render(slug, n, viewerId, visit) {'],
+      [' ','  render(slug, n, viewerId, visit) {',318],
+      [' ','    const a = this.readable(slug, viewerId);',319],
+      [' ',"    if (a.state !== ACTIVE) throw new ApiError(404, 'no such artifact');",320, {sev:'blocking', body:'<p>Not touched by the PR, and that is the bug: <code>/&lt;name&gt;</code> still requires <code>ACTIVE</code>, so every archived page 404s. Same on line 330 for share links. Use the helper suggested above in both places:</p><pre>if (!isReadable(a.state)) throw new ApiError(404, …);</pre><p>Please add a server test that archives a page and then GETs it.</p>'}],
+      [' ','    const body = this.version(a, n);',321],
+      [' ',"    this.countView(a, n, visit, 'url');",322]
+    ]},
+    {path:'src/server.js', add:4, del:0, lines:[
+      ['@','@@ -53,2 +53,4 @@'],
+      [' ',"  ['POST', `/api/artifacts/${SLUG}/restore`, 'restore', 'owner', 'Take out of the trash'],",53],
+      ['+',"  ['POST', `/api/artifacts/${SLUG}/archive`, 'archive', 'owner', 'Freeze: still readable, no new versions'],",54],
+      ['+',"  ['POST', `/api/artifacts/${SLUG}/unarchive`, 'unarchive', 'owner', 'Accept new versions again'],",55],
+      ['@','@@ -175,1 +177,1 @@'],
+      [' ',"    if (![ACTIVE, TRASHED].includes(state)) throw new ApiError(400, 'state must be active or trashed');",177, {sev:'nice', body:'<p>Owners will want <code>?state=archived</code> to find what they archived; today it is a 400. Small follow-up is fine.</p>'}],
+      ['@','@@ -230,1 +232,3 @@'],
+      [' ',"  restore(c, { slug }) { c.json(200, c.store.apply(c.user().id, slug, 'restore')); },",232],
+      ['+',"  archive(c, { slug }) { c.json(200, c.store.apply(c.user().id, slug, 'archive')); },",233],
+      ['+',"  unarchive(c, { slug }) { c.json(200, c.store.apply(c.user().id, slug, 'unarchive')); },",234]
+    ]}
+  ];
+  var SEV = {blocking:'Blocking', nit:'Nit', nice:'Nice to have'}, show = {blocking:true,nit:true,nice:true};
+  function esc(s){return s.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+  var root=document.getElementById('files'), all=[];
+  FILES.forEach(function(f){
+    var sec=document.createElement('section'); sec.className='file';
+    sec.innerHTML='<header><span>'+f.path+'</span><span class="st"><span class="a">+'+f.add+'</span> <span class="d">−'+f.del+'</span></span></header>';
+    var g=document.createElement('div'); g.className='diff';
+    var r=0;
+    f.lines.forEach(function(l){
+      var row=document.createElement('div'), t=l[0];
+      row.className='ln '+(t==='+'?'add':t==='-'?'del':t==='@'?'hunk':'ctx');
+      var on='', nn='';
+      if(t!=='@'){ nn = t==='-' ? '' : l[2]; on = t==='+' ? '' : l[2]; }
+      row.innerHTML='<span class="o">'+on+'</span><span class="n">'+nn+'</span><span class="s">'+(t==='@'?'':t===' '?'':t==='-'?'−':t)+'</span><span class="code">'+esc(l[1])+'</span>';
+      r++; row.style.setProperty('--r',r); g.appendChild(row);
+      if(l[3]){ var n=l[3], card=document.createElement('aside'); card.className='note '+n.sev; card.dataset.sev=n.sev;
+        row.classList.add('anchored'); row.style.setProperty('--anchor','var(--'+(n.sev==='blocking'?'block':n.sev)+')');
+        card.innerHTML='<span class="who">reviewer · line '+l[2]+'</span><span class="sev">'+SEV[n.sev]+'</span>'+n.body;
+        card.style.setProperty('--rw',r); r++; card.style.setProperty('--rn',r);
+        g.appendChild(card); all.push({file:f.path,line:l[2],sev:n.sev,body:n.body,card:card}); }
+    });
+    var notes=[].slice.call(g.querySelectorAll('.note'));
+    notes.forEach(function(n,i){ var from=+n.style.getPropertyValue('--rw'), to=i+1<notes.length? +notes[i+1].style.getPropertyValue('--rw') : r+1; n.style.setProperty('--rspan', Math.max(1,to-from)); });
+    sec.appendChild(g); root.appendChild(sec);
+  });
+  var counts=document.getElementById('counts');
+  Object.keys(SEV).forEach(function(k){ var n=all.filter(function(a){return a.sev===k;}).length;
+    var b=document.createElement('button'); b.className='chip '+k; b.setAttribute('aria-pressed','true'); b.textContent=n+' '+SEV[k].toLowerCase();
+    b.addEventListener('click',function(){ show[k]=!show[k]; b.setAttribute('aria-pressed',String(show[k])); all.forEach(function(a){ a.card.classList.toggle('hidden',!show[a.sev]); }); });
+    counts.appendChild(b); });
+  function toText(html){ var d=document.createElement('div'); d.innerHTML=html.replace(/<pre>([\s\S]*?)<\/pre>/g,function(_,c){return '\n```\n'+c+'\n```\n';}).replace(/<code>(.*?)<\/code>/g,'`$1`').replace(/<\/p>/g,'\n'); return d.textContent.trim(); }
+  document.getElementById('copy').addEventListener('click',function(){
+    var btn=this, md='## Review: add an `archived` lifecycle state\n\n**Changes requested.**\n\n';
+    all.filter(function(a){return show[a.sev];}).forEach(function(a){ md+='- **'+SEV[a.sev]+'** — `'+a.file+':'+a.line+'`\n  '+toText(a.body).replace(/\n/g,'\n  ')+'\n'; });
+    var ta=document.getElementById('mdout'); ta.value=md; ta.style.display='block'; ta.focus(); ta.select();
+    var ok=false; try{ ok=document.execCommand('copy'); }catch(e){}
+    function done(m){ btn.textContent=m; setTimeout(function(){btn.textContent='Copy review as Markdown';},2200); }
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(md).then(function(){done('Copied');},function(){done(ok?'Copied':'Selected — press ⌘/Ctrl+C');}); }
+    else done(ok?'Copied':'Selected — press ⌘/Ctrl+C');
+  });
+})();
+</script>
+</body>
+</html>

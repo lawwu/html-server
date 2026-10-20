@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket triage board</title>
+<meta name="description" content="A throwaway single-purpose editor: drag a sample artifact-server backlog into Now, Next, Later and Cut, watch the capacity meter, and copy the result as Markdown to hand back to an agent.">
+<meta name="category" content="editor">
+<style>
+:root{
+  --bg:#ecebe6; --col:#f7f6f2; --card:#fff; --ink:#1a1a1a; --ink-2:#5f5e59; --rule:#d6d4cc;
+  --now:#d9480f; --next:#1971c2; --later:#5f3dc4; --cut:#868e96; --over:#c92a2a; --ok:#2b8a3e;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans: "Avenir Next","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#121212; --col:#1b1b1b; --card:#242424; --ink:#ededed; --ink-2:#a3a3a3; --rule:#333;
+    --now:#ff8a4c; --next:#6cb2ff; --later:#b197fc; --cut:#909296; --over:#ff6b6b; --ok:#69db7c; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans)}
+.wrap{max-width:78rem;margin:0 auto;padding:1.8rem 1rem 3rem}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;flex-wrap:wrap;margin-bottom:1.2rem}
+.kicker{font:600 .72rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+h1{margin:.2rem 0 .3rem;font-size:clamp(1.5rem,4vw,2.2rem);letter-spacing:-.02em;line-height:1.1}
+.sub{color:var(--ink-2);margin:0;max-width:40rem}
+.actions{display:flex;gap:.5rem;flex-wrap:wrap}
+.actions button{font:600 .85rem var(--sans);border:1.5px solid var(--ink);background:transparent;color:var(--ink);border-radius:6px;padding:.5rem .9rem;cursor:pointer}
+.actions button.primary{background:var(--ink);color:var(--bg)}
+.cap{display:flex;align-items:center;gap:.8rem;margin:0 0 1rem;font:.85rem var(--mono);flex-wrap:wrap}
+.meter{flex:1 1 14rem;height:.6rem;background:var(--col);border:1px solid var(--rule);border-radius:999px;overflow:hidden;max-width:24rem}
+.meter i{display:block;height:100%;background:var(--ok);transition:width .25s,background .25s}
+.meter.over i{background:var(--over)}
+.cap input{width:3.5rem;font:inherit;padding:.15rem .3rem;border:1px solid var(--rule);border-radius:4px;background:var(--card);color:var(--ink)}
+.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.8rem;align-items:start}
+@media (max-width:980px){ .board{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:560px){ .board{grid-template-columns:1fr} }
+.col{background:var(--col);border:1px solid var(--rule);border-radius:10px;padding:.6rem;min-height:9rem;transition:outline-color .15s;outline:2px dashed transparent;outline-offset:-4px}
+.col.drop{outline-color:var(--c)}
+.col h2{display:flex;justify-content:space-between;align-items:center;margin:.1rem .2rem .6rem;font:700 .8rem var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--c)}
+.col h2 span{font-weight:500;color:var(--ink-2);letter-spacing:0}
+.col[data-k=now]{--c:var(--now)} .col[data-k=next]{--c:var(--next)} .col[data-k=later]{--c:var(--later)} .col[data-k=cut]{--c:var(--cut)}
+.card{background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--c);border-radius:6px;padding:.55rem .65rem;margin-bottom:.5rem;cursor:grab;box-shadow:0 1px 0 rgba(0,0,0,.04)}
+.card.dragging{opacity:.4}
+.col[data-k=cut] .card .t{text-decoration:line-through;color:var(--ink-2)}
+.card .t{font-weight:600;font-size:.92rem;line-height:1.3}
+.card .d{font-size:.8rem;color:var(--ink-2);margin:.2rem 0 .35rem}
+.card .meta{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap}
+.size{font:700 .7rem var(--mono);border:1px solid var(--rule);border-radius:4px;padding:0 .35rem;cursor:pointer;background:transparent;color:var(--ink)}
+.tag{font:.68rem var(--mono);color:var(--ink-2);background:var(--col);border-radius:3px;padding:0 .3rem}
+.mv{margin-left:auto;display:flex;gap:.2rem}
+.mv button{font:600 .8rem var(--mono);width:1.7rem;height:1.5rem;border:1px solid var(--rule);background:transparent;color:var(--ink-2);border-radius:4px;cursor:pointer;padding:0}
+.mv button:hover,.size:hover{border-color:var(--ink)}
+button:focus-visible,.card:focus-visible{outline:2px solid var(--next);outline-offset:2px}
+.add{display:flex;gap:.4rem;margin-top:.3rem}
+.add input{flex:1;min-width:0;font:.85rem var(--sans);border:1px dashed var(--rule);border-radius:6px;padding:.4rem .5rem;background:transparent;color:var(--ink)}
+#out{display:none;width:100%;min-height:13rem;margin-top:1rem;font:.8rem/1.5 var(--mono);background:var(--card);color:var(--ink);border:1px solid var(--rule);border-radius:8px;padding:.7rem}
+.foot{margin-top:1.4rem;font-size:.8rem;color:var(--ink-2)}
+.toast{position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);background:var(--ink);color:var(--bg);font:600 .85rem var(--sans);padding:.5rem 1rem;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="kicker">Custom editor · single-purpose tool</div>
+      <h1>Triage the artifact-server backlog</h1>
+      <p class="sub">Drag cards between columns (or use the arrows), click a size to change it, then copy the result as Markdown and paste it back into the agent session. Sample backlog — edit freely; nothing is saved.</p>
+    </div>
+    <div class="actions"><button class="primary" id="copy">Copy as Markdown</button><button id="reset">Reset</button></div>
+  </div>
+  <div class="cap"><span>Now: <b id="used">0</b> / <input id="capacity" type="number" min="1" max="40" value="8" aria-label="capacity in points"> points</span><div class="meter" id="meter"><i></i></div><span id="capmsg"></span></div>
+  <div class="board" id="board"></div>
+  <textarea id="out" readonly aria-label="Markdown export"></textarea>
+  <div class="foot">Sizes are points: S = 1, M = 3, L = 8. The backlog is a sample built from the server README's “not built yet” list plus a few plausible ideas.</div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script>
+(function(){
+  var COLS=[{k:'now',n:'Now'},{k:'next',n:'Next'},{k:'later',n:'Later'},{k:'cut',n:'Cut'}];
+  var PTS={S:1,M:3,L:8}, SIZES=['S','M','L'];
+  var SEED=[
+    ['Rotate a share link','Issue a new /v/<id> and retire the old one for a private page.','M','security','next'],
+    ['Per-version deletion','Remove one bad upload without purging the whole artifact.','M','storage','later'],
+    ['MCP server','Expose put / list / search as MCP tools; the CLI and skill cover most of it today.','L','integration','later'],
+    ['Per-user folders','/alice/x.html if one shared namespace gets crowded.','L','routing','later'],
+    ['Keyboard shortcuts on review','j / k between comments, [ and ] between versions on /review.','S','ui','now'],
+    ['Archived state','Read-only pages that drop out of listings. Lifecycle table + read paths.','M','lifecycle','next'],
+    ['Feed of new pages','An Atom feed of the newest public artifacts.','S','ui','later'],
+    ['Upload size limit message','Clear 413 text that says the limit and how to shrink a page.','S','api','now'],
+    ['Backup command','One command that snapshots the SQLite file safely while serving.','S','ops','now'],
+    ['Comment notifications','Tell the owner when someone comments.','M','comments','later'],
+    ['Thumbnail previews','Headless-browser screenshots for the index grid.','L','ui','cut']
+  ];
+  var items, uid=0;
+  function load(){ items=SEED.map(function(s){return {id:++uid,t:s[0],d:s[1],size:s[2],tag:s[3],col:s[4]};}); }
+  var board=document.getElementById('board'), dragId=null;
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function render(){
+    board.innerHTML='';
+    COLS.forEach(function(c,ci){
+      var col=document.createElement('section'); col.className='col'; col.dataset.k=c.k;
+      var list=items.filter(function(i){return i.col===c.k;}), pts=list.reduce(function(s,i){return s+PTS[i.size];},0);
+      col.innerHTML='<h2>'+c.n+' <span>'+list.length+' · '+pts+' pt</span></h2>';
+      list.forEach(function(it){
+        var el=document.createElement('article'); el.className='card'; el.draggable=true; el.tabIndex=0; el.dataset.id=it.id;
+        el.innerHTML='<div class="t">'+esc(it.t)+'</div>'+(it.d?'<div class="d">'+esc(it.d)+'</div>':'')+
+          '<div class="meta"><button class="size" title="Change size">'+it.size+'</button><span class="tag">'+esc(it.tag)+'</span><span class="mv">'+
+          (ci>0?'<button data-dir="-1" aria-label="Move to '+COLS[ci-1].n+'">←</button>':'')+(ci<COLS.length-1?'<button data-dir="1" aria-label="Move to '+COLS[ci+1].n+'">→</button>':'')+'</span></div>';
+        el.addEventListener('dragstart',function(e){ dragId=it.id; el.classList.add('dragging'); try{e.dataTransfer.setData('text/plain',String(it.id)); e.dataTransfer.effectAllowed='move';}catch(_){} });
+        el.addEventListener('dragend',function(){ el.classList.remove('dragging'); });
+        el.querySelector('.size').addEventListener('click',function(){ it.size=SIZES[(SIZES.indexOf(it.size)+1)%3]; render(); });
+        el.querySelectorAll('.mv button').forEach(function(b){ b.addEventListener('click',function(){ it.col=COLS[ci+(+b.dataset.dir)].k; render(); focusCard(it.id); }); });
+        el.addEventListener('keydown',function(e){ if(e.target!==el) return; if(e.key==='ArrowRight'&&ci<3){it.col=COLS[ci+1].k;render();focusCard(it.id);} if(e.key==='ArrowLeft'&&ci>0){it.col=COLS[ci-1].k;render();focusCard(it.id);} });
+        col.appendChild(el);
+      });
+      var add=document.createElement('form'); add.className='add'; add.innerHTML='<input placeholder="+ add a ticket" aria-label="Add a ticket to '+c.n+'">';
+      add.addEventListener('submit',function(e){ e.preventDefault(); var v=add.querySelector('input').value.trim(); if(!v) return; items.push({id:++uid,t:v,d:'',size:'S',tag:'new',col:c.k}); render(); });
+      col.appendChild(add);
+      col.addEventListener('dragover',function(e){ e.preventDefault(); col.classList.add('drop'); });
+      col.addEventListener('dragleave',function(e){ if(!col.contains(e.relatedTarget)) col.classList.remove('drop'); });
+      col.addEventListener('drop',function(e){ e.preventDefault(); col.classList.remove('drop'); var it=items.filter(function(i){return i.id===dragId;})[0]; if(!it) return;
+        var cards=[].slice.call(col.querySelectorAll('.card')), after=null; cards.forEach(function(cd){ var r=cd.getBoundingClientRect(); if(e.clientY>r.top+r.height/2) after=+cd.dataset.id; });
+        items.splice(items.indexOf(it),1); it.col=c.k;
+        var idx = after==null ? (function(){ var first=items.findIndex(function(i){return i.col===c.k;}); return first<0?items.length:first; })() : items.findIndex(function(i){return i.id===after;})+1;
+        items.splice(idx,0,it); dragId=null; render(); });
+      board.appendChild(col);
+    });
+    var used=items.filter(function(i){return i.col==='now';}).reduce(function(s,i){return s+PTS[i.size];},0), cap=Math.max(1,+document.getElementById('capacity').value||1);
+    document.getElementById('used').textContent=used;
+    var m=document.getElementById('meter'); m.classList.toggle('over',used>cap); m.firstChild.style.width=Math.min(100,used/cap*100)+'%';
+    document.getElementById('capmsg').textContent = used>cap ? 'over by '+(used-cap)+' — move something to Next' : (cap-used)+' pt free';
+  }
+  function focusCard(id){ var c=board.querySelector('.card[data-id="'+id+'"]'); if(c) c.focus(); }
+  function toast(m){ var t=document.getElementById('toast'); t.textContent=m; t.classList.add('on'); setTimeout(function(){t.classList.remove('on');},2000); }
+  document.getElementById('copy').addEventListener('click',function(){
+    var md='# Artifact server — triage\n';
+    COLS.forEach(function(c){ var l=items.filter(function(i){return i.col===c.k;}); md+='\n## '+c.n+' ('+l.reduce(function(s,i){return s+PTS[i.size];},0)+' pt)\n'; if(!l.length) md+='- (none)\n';
+      l.forEach(function(i){ md+='- '+(c.k==='cut'?'~~'+i.t+'~~':i.t)+' · '+i.size+' · `'+i.tag+'`'+(i.d?' — '+i.d:'')+'\n'; }); });
+    var ta=document.getElementById('out'); ta.value=md; ta.style.display='block'; ta.select();
+    var ok=false; try{ ok=document.execCommand('copy'); }catch(e){}
+    if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(md).then(function(){toast('Copied as Markdown');},function(){toast(ok?'Copied as Markdown':'Selected below — press ⌘/Ctrl+C');}); }
+    else toast(ok?'Copied as Markdown':'Selected below — press ⌘/Ctrl+C');
+  });
+  document.getElementById('reset').addEventListener('click',function(){ uid=0; load(); document.getElementById('out').style.display='none'; render(); });
+  document.getElementById('capacity').addEventListener('input',render);
+  load(); render();
+})();
+</script>
+</body>
+</html>

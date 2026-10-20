@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# art — publish and manage pages on the artifact server. A thin wrapper over curl.
+#
+#   art put FILE [NOTE] [--private]   upload; the page lives at /<file name>
+#   art ls                            your pages and everyone's public ones
+#   art find WORDS...                 search (typos are fine)
+#   art open NAME                     open the page in a browser
+#   art review NAME                   open the review page (comments, versions)
+#   art diff NAME [FROM TO]           what changed (default: previous vs latest)
+#   art restore NAME N                make version N current again
+#   art views NAME                    page views report
+#   art rm NAME [--purge]             trash; --purge deletes for good (must be trashed first)
+#
+# Settings: ARTIFACT_SERVER (default http://127.0.0.1:8765), and ARTIFACT_TOKEN, or
+# else the .token file next to this script.
+set -euo pipefail
+
+A="${ARTIFACT_SERVER:-http://127.0.0.1:8765}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOKEN="${ARTIFACT_TOKEN:-$(cat "$HERE/.token" 2>/dev/null || true)}"
+
+die() { echo "art: $*" >&2; exit 1; }
+need_token() { [[ -n "$TOKEN" ]] || die "no token: set ARTIFACT_TOKEN or create $HERE/.token"; }
+enc() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"; }
+# Fail on HTTP errors but still print the server's JSON error message.
+call() {
+  local out code
+  out="$(curl -s -w '\n%{http_code}' "$@")" || die "can't reach $A (is the server running?)"
+  code="${out##*$'\n'}"; out="${out%$'\n'*}"
+  if [[ "$code" -ge 400 ]]; then
+    die "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["error"])' "$out" 2>/dev/null || echo "HTTP $code")"
+  fi
+  printf '%s\n' "$out"
+}
+auth() { [[ -n "$TOKEN" ]] && printf -- '-H\nAuthorization: Bearer %s\n' "$TOKEN"; }
+with_auth() { local args=(); while IFS= read -r l; do args+=("$l"); done < <(auth); call "${args[@]}" "$@"; }
+# Output formatters (stdin: the server's JSON).
+read -r -d '' SUMMARY_PY <<'PY' || true
+import json, sys, time
+for a in json.load(sys.stdin):
+    d = time.strftime("%Y-%m-%d", time.localtime(a["updated_at"]))
+    lock = " [private]" if a["visibility"] == "private" else ""
+    print(f"{a['slug']:32} v{a['latest_version']:<3} {a['views']:>5} views  {d}  {a['owner']}{lock}  {a['title']}")
+    if a.get("snippet"):
+        print(" " * 34 + a["snippet"])
+PY
+read -r -d '' PUT_PY <<'PY' || true
+import json, os, sys
+a = json.load(sys.stdin); A = os.environ["A"]
+print(f"published v{a['latest_version']}: {A}{a['url']}")
+print(f"review:       {A}/review/{a['slug']}")
+if a["visibility"] == "private":
+    print(f"share link:   {A}{a['share_url']}")
+PY
+summary() { python3 -c "$SUMMARY_PY"; }
+# Run a request to completion before formatting it: in "call | formatter" a failed
+# call would only exit the pipe's subshell, and the formatter would choke on nothing.
+fmt() { local json; json="$("${@:2}")"; printf '%s\n' "$json" | $1; }
+open_url() { if command -v open >/dev/null; then open "$1"; else echo "$1"; fi; }
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  put)
+    need_token
+    file="${1:-}"; [[ -f "$file" ]] || die "usage: art put FILE [NOTE] [--private]"; shift
+    note=""; vis=()
+    for arg in "$@"; do
+      if [[ "$arg" == "--private" ]]; then vis=(-H "X-Visibility: private"); else note="$arg"; fi
+    done
+    # Upload to the file's base name explicitly, so a path like out/page.html works too.
+    name="$(basename "$file")"
+    put_fmt() { A="$A" python3 -c "$PUT_PY"; }
+    fmt put_fmt call -X PUT --data-binary "@$file" -H "Authorization: Bearer $TOKEN" -H "X-Note: $note" \
+      ${vis[@]+"${vis[@]}"} "$A/api/artifacts/$(enc "$name")" ;;
+  ls)      fmt summary with_auth "$A/api/artifacts?limit=500" ;;
+  find)    [[ $# -gt 0 ]] || die "usage: art find WORDS..."; fmt summary with_auth "$A/api/artifacts?q=$(enc "$*")" ;;
+  open)    [[ -n "${1:-}" ]] || die "usage: art open NAME"; open_url "$A/$(enc "$1")" ;;
+  review)  [[ -n "${1:-}" ]] || die "usage: art review NAME"; open_url "$A/review/$(enc "$1")" ;;
+  diff)
+    [[ -n "${1:-}" ]] || die "usage: art diff NAME [FROM TO]"
+    q=""; [[ $# -ge 3 ]] && q="?from=$2&to=$3"
+    with_auth "$A/api/artifacts/$(enc "$1")/diff$q" ;;
+  restore)
+    need_token; [[ $# -eq 2 ]] || die "usage: art restore NAME N"
+    n="$2"; restore_fmt() { N="$n" python3 -c 'import json,os,sys; a=json.load(sys.stdin); print("v%s is now a copy of v%s" % (a["latest_version"], os.environ["N"]))'; }
+    fmt restore_fmt call -X POST -H "Authorization: Bearer $TOKEN" "$A/api/artifacts/$(enc "$1")/versions/$2/restore" ;;
+  views)   need_token; [[ -n "${1:-}" ]] || die "usage: art views NAME"; with_auth "$A/api/artifacts/$(enc "$1")/views" ;;
+  rm)
+    need_token; [[ -n "${1:-}" ]] || die "usage: art rm NAME [--purge]"
+    q=""; [[ "${2:-}" == "--purge" ]] && q="?purge=1"
+    rm_fmt() { python3 -c 'import json,sys; a=json.load(sys.stdin); print(a["slug"], "→", a["state"])'; }
+    fmt rm_fmt call -X DELETE -H "Authorization: Bearer $TOKEN" "$A/api/artifacts/$(enc "$1")$q" ;;
+  help|-h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command '$cmd' (try: art help)" ;;
+esac

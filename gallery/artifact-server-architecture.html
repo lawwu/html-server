@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Artifact server — architecture</title>
+<meta name="description" content="An interactive architecture diagram of the self-hosted artifact server: clients, HTTP routes, SQLite tables and the sandboxed renderer, with four request paths you can trace.">
+<meta name="category" content="architecture">
+<style>
+:root{
+  --bg:#f3f5f7; --panel:#ffffff; --ink:#0f1c2b; --ink-2:#4a5a6c; --rule:#cfd8e2; --grid:#e3e9ef;
+  --write:#c2410c; --read:#1d5fd1; --page:#7c3aed; --store:#0f766e; --gate:#a16207;
+  --write-bg:#fff1e8; --read-bg:#eaf1ff; --page-bg:#f3edff; --store-bg:#e6f5f2; --gate-bg:#fdf6e3;
+  --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans: "Avenir Next","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0c131b; --panel:#121c27; --ink:#e4ecf4; --ink-2:#97a8ba; --rule:#2b3a4b; --grid:#16212d;
+    --write:#ff9a62; --read:#7fb0ff; --page:#c4a5ff; --store:#5fd4bf; --gate:#e8c060;
+    --write-bg:#2a1a10; --read-bg:#122036; --page-bg:#1f1733; --store-bg:#0f2622; --gate-bg:#2a2210; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:68rem;margin:0 auto;padding:2.5rem 1rem 4rem}
+.eyebrow{font:600 .75rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--store)}
+h1{font-size:clamp(1.7rem,4.5vw,2.5rem);line-height:1.1;margin:.4rem 0 .6rem;letter-spacing:-.02em}
+.lede{max-width:44rem;color:var(--ink-2);font-size:1.05rem;margin:0 0 1.5rem}
+.controls{display:flex;flex-wrap:wrap;gap:.5rem;margin:1rem 0}
+.controls button{font:600 .85rem var(--sans);border:1.5px solid var(--rule);background:var(--panel);color:var(--ink);border-radius:999px;padding:.45rem .9rem;cursor:pointer}
+.controls button[aria-pressed="true"]{border-color:currentColor}
+.controls button[data-f="publish"][aria-pressed="true"]{color:var(--write);background:var(--write-bg)}
+.controls button[data-f="view"][aria-pressed="true"]{color:var(--page);background:var(--page-bg)}
+.controls button[data-f="search"][aria-pressed="true"]{color:var(--read);background:var(--read-bg)}
+.controls button[data-f="review"][aria-pressed="true"]{color:var(--store);background:var(--store-bg)}
+.controls button[data-f="all"][aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.stage{background:var(--panel);border:1px solid var(--rule);border-radius:12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.stage svg{display:block;min-width:720px;width:100%;height:auto}
+.narr{min-height:3.2rem;margin:.9rem 0 0;padding:.8rem 1rem;border-left:3px solid var(--rule);background:var(--panel);border-radius:0 8px 8px 0;font-size:.95rem}
+.narr b{font-family:var(--mono);font-size:.85rem}
+/* svg styling */
+svg text{font-family:var(--sans);fill:var(--ink)}
+svg .mono{font-family:var(--mono)}
+svg .t-col{font:700 11px var(--mono);letter-spacing:.14em;fill:var(--ink-2)}
+svg .t-h{font-weight:700;font-size:14px}
+svg .t-s{font-size:11.5px;fill:var(--ink-2)}
+svg .t-r{font:11.5px var(--mono)}
+svg .box{fill:var(--panel);stroke:var(--rule);stroke-width:1.5}
+svg .client{fill:var(--bg);stroke:var(--ink-2);stroke-width:1.5}
+svg .g-write{fill:var(--write-bg);stroke:var(--write)}
+svg .g-read{fill:var(--read-bg);stroke:var(--read)}
+svg .g-page{fill:var(--page-bg);stroke:var(--page)}
+svg .g-store{fill:var(--store-bg);stroke:var(--store)}
+svg .g-gate{fill:var(--gate-bg);stroke:var(--gate)}
+svg .g-write,svg .g-read,svg .g-page,svg .g-store,svg .g-gate{stroke-width:1.5}
+svg .region{fill:none;stroke:var(--rule);stroke-dasharray:4 4;stroke-width:1.2}
+svg .bgrid{stroke:var(--grid);stroke-width:1}
+svg .edge{fill:none;stroke:var(--ink-2);stroke-width:1.6;transition:opacity .25s,stroke-width .25s}
+svg .edge.write{stroke:var(--write)} svg .edge.read{stroke:var(--read)} svg .edge.page{stroke:var(--page)} svg .edge.store{stroke:var(--store)}
+svg .elabel{font:10.5px var(--mono);fill:var(--ink-2)}
+svg [data-flows]{transition:opacity .25s}
+body.focus svg [data-flows]{opacity:.12}
+body.focus svg [data-flows].on{opacity:1}
+body.focus svg .edge.on{stroke-width:2.6}
+svg .tbl-key{font:600 11.5px var(--mono)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:1rem;margin-top:2rem}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem}
+.card h3{margin:0 0 .3rem;font-size:1rem}
+.card p{margin:.3rem 0;font-size:.92rem;color:var(--ink-2)}
+.card code,.narr code,p code{font:.85em var(--mono);background:var(--bg);padding:.05em .3em;border-radius:3px;color:var(--ink)}
+.swatch{display:inline-block;width:.7rem;height:.7rem;border-radius:2px;margin-right:.35rem;vertical-align:-.05rem}
+footer{margin-top:2.5rem;font-size:.82rem;color:var(--ink-2)}
+@media (max-width:520px){ .wrap{padding-top:1.5rem} .stage::after{content:"← scroll the diagram →";display:block;text-align:center;font-size:.75rem;color:var(--ink-2);padding:.3rem} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Architecture · artifact server</div>
+  <h1>One process, one SQLite file, every page sandboxed</h1>
+  <p class="lede">The artifact server stores single-file HTML pages, keeps every upload as an immutable version, searches them with full-text search, and renders each page in an opaque-origin sandbox. Pick a request below to trace its path.</p>
+
+  <div class="controls" role="group" aria-label="Trace a request">
+    <button data-f="all" aria-pressed="true">Everything</button>
+    <button data-f="publish" aria-pressed="false">Publish a page</button>
+    <button data-f="view" aria-pressed="false">Open a page</button>
+    <button data-f="search" aria-pressed="false">Search</button>
+    <button data-f="review" aria-pressed="false">Review &amp; comment</button>
+  </div>
+
+  <div class="stage">
+<svg viewBox="0 0 1000 690" role="img" aria-labelledby="svgt svgd">
+<title id="svgt">Artifact server architecture</title>
+<desc id="svgd">Clients (curl, the art CLI, a Claude skill, and a browser) call HTTP routes on a single server. Writes pass a token check and a lifecycle transition table, then reach SQLite tables: users, artifacts, versions, views, comments, and an FTS5 index. Pages are rendered under a sandbox Content-Security-Policy.</desc>
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
+  <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" class="bgrid"/></pattern>
+</defs>
+<rect width="1000" height="690" fill="url(#grid)"/>
+
+<!-- column headers -->
+<text x="24" y="32" class="t-col">CLIENTS</text>
+<text x="272" y="32" class="t-col">HTTP SERVER · ROUTE TABLE</text>
+<text x="706" y="32" class="t-col">SQLITE · ONE FILE</text>
+<rect x="258" y="44" width="400" height="538" rx="14" class="region"/>
+<rect x="692" y="44" width="292" height="538" rx="14" class="region"/>
+
+<!-- clients -->
+<g data-flows="publish search">
+  <rect x="20" y="62" width="196" height="58" rx="8" class="client"/>
+  <text x="34" y="86" class="t-h">curl</text>
+  <text x="34" y="105" class="t-s mono">curl -T page.html …</text>
+</g>
+<g data-flows="publish search">
+  <rect x="20" y="136" width="196" height="58" rx="8" class="client"/>
+  <text x="34" y="160" class="t-h">art CLI</text>
+  <text x="34" y="179" class="t-s mono">art put · ls · find · rm</text>
+</g>
+<g data-flows="publish">
+  <rect x="20" y="210" width="196" height="64" rx="8" class="client"/>
+  <text x="34" y="234" class="t-h">Claude skill</text>
+  <text x="34" y="252" class="t-s">publish-artifact: privacy check,</text>
+  <text x="34" y="266" class="t-s">then runs <tspan class="mono">art put</tspan></text>
+</g>
+<g data-flows="view search review">
+  <rect x="20" y="380" width="196" height="76" rx="8" class="client"/>
+  <text x="34" y="404" class="t-h">Browser</text>
+  <text x="34" y="423" class="t-s">readers, reviewers;</text>
+  <text x="34" y="439" class="t-s">token saved per browser</text>
+</g>
+
+<!-- gate -->
+<g data-flows="publish review">
+  <rect x="276" y="62" width="364" height="54" rx="8" class="g-gate"/>
+  <text x="290" y="84" class="t-h">Auth gate</text>
+  <text x="290" y="103" class="t-s"><tspan class="mono">Authorization: Bearer …</tspan> → sha256 → users.token_hash</text>
+</g>
+
+<!-- write api -->
+<g data-flows="publish">
+  <rect x="276" y="132" width="364" height="102" rx="8" class="g-write"/>
+  <text x="290" y="154" class="t-h">Write API · owner only</text>
+  <text x="290" y="175" class="t-r">PUT    /api/artifacts/&lt;name&gt;   new version</text>
+  <text x="290" y="192" class="t-r">DELETE /api/artifacts/&lt;name&gt;   trash · ?purge=1</text>
+  <text x="290" y="209" class="t-r">POST   …/restore · …/versions/n/restore</text>
+  <text x="290" y="226" class="t-r">POST   …/visibility?to=private</text>
+</g>
+<!-- transition table -->
+<g data-flows="publish">
+  <rect x="470" y="246" width="170" height="44" rx="8" class="box"/>
+  <text x="482" y="265" class="t-h" style="font-size:12.5px">transition(state, event)</text>
+  <text x="482" y="281" class="t-s">missing pair → 409</text>
+</g>
+
+<!-- read api -->
+<g data-flows="search">
+  <rect x="276" y="304" width="364" height="86" rx="8" class="g-read"/>
+  <text x="290" y="326" class="t-h">Read API · anyone (public pages)</text>
+  <text x="290" y="347" class="t-r">GET /api/artifacts?q=…    fuzzy search</text>
+  <text x="290" y="364" class="t-r">GET …/&lt;name&gt;/diff · /versions/n</text>
+  <text x="290" y="381" class="t-r">GET …/&lt;name&gt;/views   owner only</text>
+</g>
+
+<!-- comments -->
+<g data-flows="review">
+  <rect x="276" y="404" width="364" height="52" rx="8" class="g-store"/>
+  <text x="290" y="425" class="t-h">Comments</text>
+  <text x="290" y="444" class="t-r">GET/POST …/comments · /api/comments/id/resolve</text>
+</g>
+
+<!-- pages -->
+<g data-flows="view review search">
+  <rect x="276" y="470" width="364" height="100" rx="8" class="g-page"/>
+  <text x="290" y="492" class="t-h">HTML pages</text>
+  <text x="290" y="513" class="t-r">GET /                 browse, live search</text>
+  <text x="290" y="530" class="t-r">GET /&lt;name&gt;  ·  /v/&lt;share-id&gt;   render ?v=n</text>
+  <text x="290" y="547" class="t-r">GET /review/&lt;name&gt;    page + comments,</text>
+  <text x="290" y="563" class="t-r">                      versions, Show changes</text>
+</g>
+
+<!-- tables -->
+<g data-flows="publish review">
+  <rect x="708" y="62" width="260" height="46" rx="8" class="g-store"/>
+  <text x="722" y="82" class="tbl-key">users</text>
+  <text x="722" y="99" class="t-s">name · token_hash · is_admin</text>
+</g>
+<g data-flows="publish view search">
+  <rect x="708" y="122" width="260" height="62" rx="8" class="g-store"/>
+  <text x="722" y="142" class="tbl-key">artifacts</text>
+  <text x="722" y="159" class="t-s">slug (unique) · state · visibility</text>
+  <text x="722" y="175" class="t-s">share_id · latest_version · owner_id</text>
+</g>
+<g data-flows="publish view review">
+  <rect x="708" y="198" width="260" height="62" rx="8" class="g-store"/>
+  <text x="722" y="218" class="tbl-key">versions</text>
+  <text x="722" y="235" class="t-s">(artifact_id, n) · html · sha256</text>
+  <text x="722" y="251" class="t-s">size · note — immutable</text>
+</g>
+<g data-flows="view">
+  <rect x="708" y="274" width="260" height="62" rx="8" class="g-store"/>
+  <text x="722" y="294" class="tbl-key">views</text>
+  <text x="722" y="311" class="t-s">version shown · via url|share</text>
+  <text x="722" y="327" class="t-s">visitor = daily-salted hash</text>
+</g>
+<g data-flows="review">
+  <rect x="708" y="350" width="260" height="62" rx="8" class="g-store"/>
+  <text x="722" y="370" class="tbl-key">comments</text>
+  <text x="722" y="387" class="t-s">version n · parent_id (1 level)</text>
+  <text x="722" y="403" class="t-s">author_id · resolved_at</text>
+</g>
+<g data-flows="publish search">
+  <rect x="708" y="426" width="260" height="78" rx="8" class="g-store"/>
+  <text x="722" y="446" class="tbl-key">artifacts_fts  <tspan class="t-s" style="font-family:var(--sans)">FTS5</tspan></text>
+  <text x="722" y="463" class="t-s">title + visible text of latest version</text>
+  <text x="722" y="479" class="tbl-key">artifacts_vocab</text>
+  <text x="722" y="496" class="t-s">word list for typo-tolerant matching</text>
+</g>
+<g>
+  <rect x="708" y="518" width="260" height="46" rx="8" class="box"/>
+  <text x="722" y="538" class="tbl-key">meta</text>
+  <text x="722" y="555" class="t-s">server secret for visitor hashes</text>
+</g>
+
+<!-- sandbox -->
+<g data-flows="view review">
+  <rect x="258" y="606" width="726" height="66" rx="10" class="g-page" style="stroke-dasharray:6 4"/>
+  <text x="276" y="630" class="t-h">Sandboxed render</text>
+  <text x="276" y="650" class="t-r">Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-modals</text>
+  <text x="276" y="665" class="t-s">Opaque origin: the page's JavaScript runs, but it can't read this site's storage or call the API as the viewer.</text>
+</g>
+
+<!-- edges: clients to server -->
+<path data-flows="publish search" class="edge write" d="M216 91 C246 91 250 89 276 89" marker-end="url(#ah)"/>
+<path data-flows="publish search" class="edge write" d="M216 165 C246 165 248 100 276 96" marker-end="url(#ah)"/>
+<path data-flows="publish" class="edge write" d="M216 242 C250 242 250 106 276 104" marker-end="url(#ah)"/>
+<text data-flows="publish" x="222" y="128" class="elabel">token</text>
+<path data-flows="publish" class="edge write" d="M458 116 L458 132" marker-end="url(#ah)"/>
+<path data-flows="publish" class="edge write" d="M555 234 L555 246" marker-end="url(#ah)"/>
+<path data-flows="search" class="edge read" d="M216 172 C250 180 252 330 276 336" marker-end="url(#ah)"/>
+<text data-flows="search" x="232" y="296" class="elabel" text-anchor="end">art find</text>
+<path data-flows="view search review" class="edge page" d="M216 430 C248 430 248 505 276 505" marker-end="url(#ah)"/>
+<path data-flows="review" class="edge store" d="M216 420 C248 420 250 432 276 432" marker-end="url(#ah)"/>
+<path data-flows="review" class="edge store" d="M216 398 C244 380 248 120 276 112" marker-end="url(#ah)"/>
+<text data-flows="review" x="24" y="368" class="elabel">comment → token</text>
+
+<!-- edges: server to tables -->
+<path data-flows="publish" class="edge write" d="M640 268 C672 268 676 150 708 150" marker-end="url(#ah)"/>
+<path data-flows="publish" class="edge write" d="M640 276 C676 276 676 228 708 228" marker-end="url(#ah)"/>
+<path data-flows="publish" class="edge write" d="M640 284 C680 284 676 460 708 460" marker-end="url(#ah)"/>
+<text data-flows="publish" x="646" y="300" class="elabel">reindex</text>
+<path data-flows="publish review" class="edge" d="M640 84 L708 84" marker-end="url(#ah)"/>
+<text data-flows="publish review" x="650" y="78" class="elabel">lookup</text>
+<path data-flows="search" class="edge read" d="M640 344 C676 344 676 470 708 470" marker-end="url(#ah)"/>
+<path data-flows="search" class="edge read" d="M640 512 C674 512 676 486 708 486" marker-end="url(#ah)"/>
+<text data-flows="search" x="646" y="526" class="elabel">/ ?q=</text>
+<path data-flows="review" class="edge store" d="M640 430 C672 430 676 382 708 382" marker-end="url(#ah)"/>
+<path data-flows="view" class="edge page" d="M640 528 C676 528 672 168 708 166" marker-end="url(#ah)"/>
+<path data-flows="view review" class="edge page" d="M640 536 C684 536 672 244 708 244" marker-end="url(#ah)"/>
+<path data-flows="view" class="edge page" d="M640 540 C690 540 676 318 708 318" marker-end="url(#ah)"/>
+<path data-flows="view review" class="edge page" d="M458 570 L458 606" marker-end="url(#ah)"/>
+<path data-flows="view review" class="edge page" d="M258 640 C150 640 118 520 118 456" marker-end="url(#ah)"/>
+<text data-flows="view review" x="120" y="600" class="elabel">HTML + CSP header</text>
+</svg>
+  </div>
+  <div class="narr" id="narr" aria-live="polite"></div>
+
+  <div class="cards">
+    <div class="card"><h3><span class="swatch" style="background:var(--write)"></span>Writes go through one table</h3><p>Every mutation asks <code>transition(state, event)</code> for the next lifecycle state. A pair missing from the table is a 409 that lists the allowed events, so a trashed page can't take a new version and an active one can't be purged by accident.</p></div>
+    <div class="card"><h3><span class="swatch" style="background:var(--store)"></span>Versions are immutable</h3><p>Each upload appends a row with its sha256 and an optional note. "Make this version current" appends a copy rather than rewriting history; only purge removes rows.</p></div>
+    <div class="card"><h3><span class="swatch" style="background:var(--read)"></span>Search sees only the latest</h3><p>The FTS5 index holds the title and visible text (script and style stripped) of each page's latest version. Every word must match as a prefix or as a close misspelling found through the vocabulary table.</p></div>
+    <div class="card"><h3><span class="swatch" style="background:var(--page)"></span>The URL is the file name</h3><p><code>curl -T trip-plan.html</code> serves at <code>/trip-plan.html</code>. Names are global and first-come; <code>api</code>, <code>v</code>, <code>review</code> are reserved. Private pages are reached only through a random <code>/v/&lt;id&gt;</code> share link.</p></div>
+  </div>
+  <footer>Drawn from the server's README and schema. The routes shown are a summary; the live reference is served at <code>/api</code>, generated from the route table.</footer>
+</div>
+<script>
+(function(){
+  var N = {
+    all:"All four request paths at once. Choose one above to isolate it.",
+    publish:"<b>Publish.</b> curl, <code>art put</code> or the Claude skill sends <code>PUT /api/artifacts/&lt;name&gt;</code> with a bearer token. The token's sha256 is looked up in <code>users</code>; the lifecycle table approves <code>create</code> or <code>update</code>; a new row lands in <code>versions</code>, <code>artifacts.latest_version</code> moves, and the FTS index is rebuilt from the new page's visible text.",
+    view:"<b>Open a page.</b> <code>GET /&lt;name&gt;</code> (or a private page's <code>/v/&lt;share-id&gt;</code>) reads the latest — or <code>?v=n</code> — row from <code>versions</code>, records a view with a daily-salted visitor hash (bots and curl are skipped), and returns the HTML with a sandbox CSP so it runs in an opaque origin.",
+    search:"<b>Search.</b> The home page and <code>art find</code> query <code>artifacts_fts</code>. Each word must match as a prefix or, via <code>artifacts_vocab</code>, as a near-miss spelling — <code>sheling</code> still finds “shelling”.",
+    review:"<b>Review.</b> <code>/review/&lt;name&gt;</code> shows the sandboxed page beside its comments, with a version picker and a side-by-side diff. Reading comments is open for public pages; posting one sends the reviewer's token through the auth gate."
+  };
+  var btns = document.querySelectorAll('.controls button'), narr = document.getElementById('narr');
+  var els = document.querySelectorAll('svg [data-flows]');
+  function set(f){
+    btns.forEach(function(b){ b.setAttribute('aria-pressed', String(b.dataset.f===f)); });
+    document.body.classList.toggle('focus', f!=='all');
+    els.forEach(function(e){ e.classList.toggle('on', f!=='all' && e.getAttribute('data-flows').split(' ').indexOf(f)>=0); });
+    narr.innerHTML = N[f];
+  }
+  btns.forEach(function(b){ b.addEventListener('click', function(){ set(b.dataset.f); }); });
+  set('all');
+})();
+</script>
+</body>
+</html>
