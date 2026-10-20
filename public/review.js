@@ -52,7 +52,7 @@ async function load(n) {
     `<option value=${v.n} ${v.n === cur ? 'selected' : ''}>v${v.n}${v.n === meta.latest_version ? ' (current)' : ''}${v.note ? ` · ${esc(v.note)}` : ''}</option>`).join('');
   $('restore').hidden = cur === meta.latest_version;
   $('changes').disabled = cur === 1;
-  $('open').href = `/${S}${cur === meta.latest_version ? '' : `?v=${cur}`}`;
+  $('open').href = `/pages/${S}${cur === meta.latest_version ? '' : `?v=${cur}`}`;
   history.replaceState(null, '', `?v=${cur}`);
   showPage();
   loadComments();

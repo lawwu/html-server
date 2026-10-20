@@ -11,7 +11,7 @@ file.
 ```bash
 npm install -g github:lawwu/html-server   # puts `html-server` on your PATH
 html-server serve                         # first run: makes you an admin and signs the CLI in
-html-server put page.html "first draft"   # → http://127.0.0.1:8765/page.html
+html-server put page.html "first draft"   # → http://127.0.0.1:8765/pages/page.html
 ```
 
 | File | What |
@@ -159,6 +159,37 @@ diffs and search never include it. To turn it off for a page, add
 have a `<nav class="toc">` are left alone. To get the pinned version, write pages
 with a centred content column (`max-width` around 40–48rem) and `h2` sections.
 
+## Replacing an existing page service
+
+If pages are already being served at `/pages/{slug}` by another service, this server
+can take over without breaking any links:
+
+1. **Import the existing pages.** Point `import` at a folder of the current `.html`
+   files. Each keeps its file name, so `/pages/showstopper-timeline` serves
+   `showstopper-timeline.html` exactly as before. Re-running is safe: unchanged files
+   are skipped and changed ones become new versions, so you can import once to test
+   and again just before switching over.
+
+   ```bash
+   html-server import /path/to/current/pages
+   ```
+
+2. **Try it on a spare port** while the current service keeps running, and check a
+   few old links (`http://HOST:8766/pages/<slug>`):
+
+   ```bash
+   html-server serve --host 0.0.0.0 --port 8766
+   ```
+
+3. **Switch over.** Stop the current service, then start this one on the same host
+   and port it used, e.g. `html-server serve --host 0.0.0.0 --port 8080`. Use
+   `--host 127.0.0.1` instead if a reverse proxy in front of it forwards to that
+   port; the proxy config doesn't change.
+
+New uploads land at the same `/pages/{slug}` URLs. Pages are rendered sandboxed, so
+a page that relied on reading cookies or local storage, or on calling its old
+service's API, will need a look. Plain HTML, CSS and JavaScript pages behave the same.
+
 ## Reviewing: `/review/<name>`
 
 The page fills the width at the top, and its comments for that version sit underneath.
@@ -181,7 +212,8 @@ search without a token. Writes need a token, and only the owner can change or de
 an artifact.
 
 **The URL is the file name.** `curl -T trip-plan.html $A/api/artifacts/` serves the
-page at `$A/trip-plan.html` (`$A/trip-plan` works too). Names are shared across the
+page at `$A/pages/trip-plan.html`; `$A/pages/trip-plan` works too, and so does the short
+alias `$A/trip-plan.html`. API responses give the `/pages/` form as `url`. Names are shared across the
 whole server, so the first user to upload a name owns it, and a second user gets
 a 409 and has to pick another name.
 
@@ -191,7 +223,7 @@ a 409 and has to pick another name.
 | Add a version note | add `-H "X-Note: drop rental car"` |
 | Upload under a different name | `curl -T page.html -H "$H" $A/api/artifacts/other-name.html` |
 | Upload as private | add `-H "X-Visibility: private"` |
-| View | `$A/trip-plan.html` in a browser · an old version: `$A/trip-plan.html?v=1` |
+| View | `$A/pages/trip-plan` in a browser · an old version: `$A/pages/trip-plan?v=1` |
 | Browse and search in a browser | `$A/` |
 | List or search | `curl $A/api/artifacts` · `curl "$A/api/artifacts?q=beach+shelling"` · `&owner=alice` |
 | Metadata and version history | `curl $A/api/artifacts/trip-plan.html` |
@@ -236,7 +268,7 @@ a 409 and has to pick another name.
   the URL ends in `/`, so `.../api/artifacts/?note=x` arrives without a name and gets
   a 400 that explains this. Query parameters still work when the name is spelled out
   in the URL.
-- **Page views** count each time a page is opened at `/<name>` or its share link.
+- **Page views** count each time a page is opened at `/pages/<name>`, its `/<name>` alias, or its share link.
   Reading the source through the API doesn't count, and neither do crawlers,
   link-preview bots (iMessage, Slack) or `curl`. A visitor is a hash of a server
   secret, the day, the IP address and the browser, so one person counts once per

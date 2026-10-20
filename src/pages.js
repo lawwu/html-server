@@ -129,12 +129,12 @@ curl -T trip-plan.html -H "$H" -H "X-Note: first draft" $A/api/artifacts/
 html-server put trip-plan.html "first draft"
 
 # view it, search, trash, then delete for good
-open $A/trip-plan.html
+open $A/pages/trip-plan
 curl "$A/api/artifacts?q=shelling"
 curl -X DELETE -H "$H" $A/api/artifacts/trip-plan.html
 curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"</pre>
 <h2>Rules</h2><ul>
-<li><b>The URL is the file name</b>, and names are shared across the whole server: the first user to upload a name owns it.</li>
+<li><b>The URL is the file name</b>: <code>trip-plan.html</code> is served at <code>/pages/trip-plan.html</code>, and <code>/pages/trip-plan</code> works too. Names are shared across the whole server: the first user to upload a name owns it.</li>
 <li><b>Everything is public</b> unless uploaded with <code>X-Visibility: private</code>. <b>anyone*</b> below means
 anyone for public pages, and only the owner (by token) for private or trashed ones.</li>
 <li><b>Gallery:</b> a page's <code>&lt;meta name="description"&gt;</code> and <code>&lt;meta name="category"&gt;</code>

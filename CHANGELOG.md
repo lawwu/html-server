@@ -7,6 +7,14 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **`/pages/{slug}` is the canonical page URL**, so this server can replace a service
+  that already served pages there without breaking links. `.html` is optional
+  (`/pages/showstopper-timeline` finds `showstopper-timeline.html`), `?v=n` works, and
+  the gallery, the review page, `open` and the API's `url` field all use it. The short
+  `/{slug}` form still works as an alias. `pages` is now a reserved name.
+- **`html-server import DIR`** uploads every `.html` file in a folder under its own
+  name. Re-running it skips unchanged files and adds a new version for changed ones.
+
 ## 0.1.0 (2026-10-20)
 
 The first tagged release.

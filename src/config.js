@@ -29,7 +29,7 @@ export const DEFAULT_USERNAMES = 'name';
 // gallery never publishes anyone's address. Signed-in users see them in full.
 export const MASK_EMAILS_FOR_ANONYMOUS = true;
 // Top-level paths the server itself uses, so no page may take these names.
-export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'favicon.ico', 'robots.txt']);
+export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'favicon.ico', 'robots.txt']);
 
 export const VISIBILITIES = ['public', 'private'];
 export const DEFAULT_VISIBILITY = 'public'; // everything visible unless an upload says private
