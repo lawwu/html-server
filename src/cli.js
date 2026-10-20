@@ -4,10 +4,11 @@
 // Server commands work on the database directly (no token needed; you need shell
 // access to the machine). Client commands talk to a running server over HTTP.
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { createInterface } from 'node:readline/promises';
-import { basename, dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
@@ -42,7 +43,8 @@ Sign this CLI in to a server (saved, so there's nothing to add to your shell pro
   logout
 
 Use a running server:
-  put FILE [NOTE] [--private] [--name NAME]   upload; the page lives at /<file name>
+  put FILE [NOTE] [--private] [--name NAME]   upload; the page lives at /pages/<file name>
+  import DIR [--private]                upload every .html file in DIR (re-runnable: unchanged files are skipped)
   ls                                    your pages and everyone's public ones
   find WORDS...                         search (typos are fine)
   open NAME | review NAME               open the page, or its review page, in a browser
@@ -235,12 +237,45 @@ const clientCommands = {
     console.log(`review:       ${SERVER}/review/${enc(a.slug)}`);
     if (a.visibility === 'private') console.log(`share link:   ${SERVER}${a.share_url}`);
   },
+  /**
+   * Bring over an existing folder of pages, e.g. from a service this replaces.
+   * Each file keeps its name, so /pages/<name> (with or without .html) keeps
+   * working. Safe to re-run: a file identical to the page's latest version is
+   * skipped, and a changed one becomes a new version.
+   */
+  async import([dir], opts) {
+    if (!dir || !existsSync(dir) || !statSync(dir).isDirectory()) fail('usage: import DIR [--private]');
+    const files = readdirSync(dir).filter((f) => /\.html$/i.test(f) && statSync(join(dir, f)).isFile()).sort();
+    if (!files.length) fail(`no .html files in ${dir}`);
+    const count = { imported: 0, updated: 0, unchanged: 0, failed: 0 };
+    for (const f of files) {
+      const body = readFileSync(join(dir, f));
+      const sha = createHash('sha256').update(body).digest('hex');
+      try {
+        let latest = null;
+        try { latest = (await api('GET', `/api/artifacts/${enc(f)}`)).versions.at(-1); } catch (e) {
+          if (e.message !== 'no such artifact') throw e;
+        }
+        if (latest?.sha256 === sha) { count.unchanged++; continue; }
+        const q = new URLSearchParams({ note: latest ? 'imported (changed)' : 'imported' });
+        if (opts.private) q.set('visibility', 'private');
+        const a = await api('PUT', `/api/artifacts/${enc(f)}?${q}`, { body, auth: 'required' });
+        count[latest ? 'updated' : 'imported']++;
+        console.log(`${latest ? 'updated ' : 'imported'}  ${SERVER}${a.url}`);
+      } catch (e) {
+        count.failed++;
+        console.error(`failed    ${f}: ${e.message}`);
+      }
+    }
+    console.log(Object.entries(count).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', '));
+    if (count.failed) process.exitCode = 1;
+  },
   async ls() { printList(await api('GET', '/api/artifacts?limit=500')); },
   async find(words) {
     if (!words.length) fail('usage: find WORDS...');
     printList(await api('GET', `/api/artifacts?q=${enc(words.join(' '))}`));
   },
-  async open([name]) { if (!name) fail('usage: open NAME'); openInBrowser(`${SERVER}/${enc(name)}`); },
+  async open([name]) { if (!name) fail('usage: open NAME'); openInBrowser(`${SERVER}/pages/${enc(name)}`); },
   async review([name]) { if (!name) fail('usage: review NAME'); openInBrowser(`${SERVER}/review/${enc(name)}`); },
   async diff([name, from, to], opts) {
     if (!name) fail('usage: diff NAME [FROM TO] [--source]');

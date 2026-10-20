@@ -3,7 +3,7 @@
 // own ~/.html-server is never touched.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -151,4 +151,31 @@ test('first serve on an empty database makes an admin and signs the CLI in', asy
   } finally {
     child.kill();
   }
+});
+
+test('import: a folder of existing pages is served at /pages/{slug}; re-running is safe', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('importer') };
+  const src = join(dir, 'old-pages');
+  mkdirSync(src);
+  writeFileSync(join(src, 'showstopper-timeline.html'), '<title>Showstopper</title><p>from the old service</p>');
+  writeFileSync(join(src, 'launch-notes.html'), '<p>launch</p>');
+  writeFileSync(join(src, 'README.txt'), 'not a page'); // ignored
+
+  let r = await cli(['import', src], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /imported +http.*\/pages\/showstopper-timeline\.html/);
+  assert.match(r.out, /2 imported$/m);
+  const page = await fetch(`${url}/pages/showstopper-timeline`, { headers: { 'User-Agent': 'Mozilla/5.0 test' } });
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /from the old service/);
+
+  r = await cli(['import', src], env); // nothing changed
+  assert.match(r.out, /^2 unchanged$/m);
+  writeFileSync(join(src, 'launch-notes.html'), '<p>launch, revised</p>');
+  r = await cli(['import', src], env);
+  assert.match(r.out, /updated +http.*launch-notes\.html/);
+  assert.match(r.out, /1 updated, 1 unchanged/);
+  assert.equal(store.describe('launch-notes.html', null).latest_version, 2);
+
+  assert.match((await cli(['import', join(dir, 'missing')], env)).err, /usage: import DIR/);
 });

@@ -106,7 +106,7 @@ export function displayName(name, viewerId) {
 export function summary(a, viewerId = null) {
   return {
     slug: a.slug,
-    url: `/${a.slug}`,
+    url: `/pages/${a.slug}`, // the canonical, stable page URL; /<slug> is an alias
     owner: displayName(a.owner, viewerId),
     title: a.title,
     description: a.description,

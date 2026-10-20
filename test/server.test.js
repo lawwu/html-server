@@ -40,7 +40,7 @@ const slugs = (items) => items.map((i) => i.slug);
 
 test('versions, rendering, search and the lifecycle', async () => {
   let [s, a] = await put('trip.html', '<title>Trip Plan</title><p>shelling at low tide</p>', admin, '?note=first');
-  assert.deepEqual([s, a.latest_version, a.title, a.url, a.visibility], [201, 1, 'Trip Plan', '/trip.html', 'public']);
+  assert.deepEqual([s, a.latest_version, a.title, a.url, a.visibility], [201, 1, 'Trip Plan', '/pages/trip.html', 'public']);
   [s, a] = await put('trip.html', '<title>Trip Plan</title><p>uber xl every leg</p>');
   assert.deepEqual([s, a.latest_version], [200, 2]);
 
@@ -57,7 +57,7 @@ test('versions, rendering, search and the lifecycle', async () => {
     assert.deepEqual(slugs((await req('GET', `/api/artifacts?q=${typo}`))[1]), ['trip.html'], typo);
   }
   assert.deepEqual((await req('GET', '/api/artifacts?q=zebra'))[1], []);
-  assert.match((await req('GET', '/?q=uber'))[1], /href="\/trip.html"/);
+  assert.match((await req('GET', '/?q=uber'))[1], /href="\/pages\/trip.html"/);
 
   [s, a] = await req('DELETE', '/api/artifacts/trip.html', { token: admin });
   assert.equal(a.state, TRASHED);
@@ -280,4 +280,40 @@ test('email usernames: a per-deployment setting, masked for anonymous visitors',
   assert.equal((await req('POST', '/api/users/Bob@Example.com/token', { token: admin }))[0], 200);
   assert.equal((await req('DELETE', '/api/users/bob@example.com', { token: admin }))[0], 200);
   assert.throws(() => store.setUsernames('phone'), /usernames must be one of/);
+});
+
+test('legacy /pages/{slug} URLs: new uploads, with or without .html', async () => {
+  const doc = '<title>Showstopper timeline</title><h1>Showstopper timeline</h1><p>v1</p>';
+  const [s, a] = await put('showstopper-timeline.html', doc);
+  assert.equal(s, 201);
+  assert.equal(a.url, '/pages/showstopper-timeline.html'); // canonical URL is under /pages/
+
+  for (const path of ['/pages/showstopper-timeline', '/pages/showstopper-timeline.html', '/showstopper-timeline']) {
+    const [code, body, h] = await req('GET', path);
+    assert.equal(code, 200, path);
+    assert.match(body, /Showstopper timeline/, path);
+    assert.match(h.get('content-security-policy'), /sandbox/, path); // same sandbox as every page
+  }
+  // A page stored without an extension resolves exactly (and isn't confused with a .html one).
+  await put('roadmap', '<p>no extension</p>');
+  assert.match((await req('GET', '/pages/roadmap'))[1], /no extension/);
+  assert.equal((await req('GET', '/pages/roadmap.html'))[0], 404);
+
+  // Versions, views and visibility behave the same at the legacy path.
+  await put('showstopper-timeline.html', doc.replace('v1', 'v2'));
+  assert.match((await req('GET', '/pages/showstopper-timeline?v=1'))[1], /v1/);
+  assert.match((await req('GET', '/pages/showstopper-timeline'))[1], /v2/);
+  assert.equal((await req('GET', '/api/artifacts/showstopper-timeline.html/views', { token: admin }))[1].views, 5); // 3 paths + ?v=1 + latest
+  await put('secret.html', '<p>x</p>', admin, '?visibility=private');
+  assert.equal((await req('GET', '/pages/secret'))[0], 404);
+  assert.equal((await req('GET', '/pages/secret', { token: admin }))[0], 200);
+  await req('DELETE', '/api/artifacts/showstopper-timeline.html', { token: admin });
+  assert.equal((await req('GET', '/pages/showstopper-timeline'))[0], 404); // trashed
+  assert.equal((await req('GET', '/pages/nope'))[0], 404);
+  assert.equal((await req('GET', '/pages/'))[0], 404);
+  assert.equal((await put('pages', '<p>x</p>'))[0], 400); // reserved name
+
+  // The gallery and the review page link to the /pages/ form.
+  assert.match((await req('GET', '/'))[1], /href="\/pages\/roadmap"/);
+  assert.match((await req('GET', '/_static/review.js'))[1], /\/pages\/\$\{S\}/);
 });
