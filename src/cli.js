@@ -12,6 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
 
+// The version comes from package.json, so the two can never drift.
+export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+
 // --- who and where: env vars win, then credentials.json, then the local default ---
 function readCredentials() {
   try { return JSON.parse(readFileSync(CREDENTIALS_FILE, 'utf8')); } catch { return {}; }
@@ -26,7 +29,7 @@ function saveCredentials(url, tok) {
   chmodSync(CREDENTIALS_FILE, 0o600);
 }
 
-const USAGE = `html-server — store, version, search and render HTML pages
+const USAGE = `html-server ${VERSION} — store, version, search and render HTML pages
 
 Run the server (on this machine, straight to the database):
   serve [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--db PATH]
@@ -48,6 +51,7 @@ Use a running server:
   views NAME                            page views report
   rm NAME [--purge]                     trash; --purge deletes for good (trash first)
   whoami
+  --version                             print the version
 
 Data lives in ${HOME_DIR} (HTML_SERVER_HOME moves it).
 Client commands use the server and token saved by login (or by the first serve on
@@ -105,7 +109,7 @@ const serverCommands = {
     bootstrap(store, opts);
     const { makeServer } = await import('./server.js');
     makeServer(store).listen(Number(opts.port), opts.host, () =>
-      console.error(`html-server on http://${opts.host}:${opts.port}  (db: ${opts.db})`));
+      console.error(`html-server ${VERSION} on http://${opts.host}:${opts.port}  (db: ${opts.db})`));
   },
   async 'create-user'([name], opts) {
     if (!name) fail('usage: create-user NAME [--admin] [--save]');
@@ -282,9 +286,11 @@ export async function main(argv) {
       url: { type: 'string' },
       token: { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
+      version: { type: 'boolean', short: 'v', default: false },
     },
   });
   const [cmd, ...args] = positionals;
+  if (opts.version || cmd === 'version') return console.log(VERSION);
   const run = serverCommands[cmd] || accountCommands[cmd] || clientCommands[cmd];
   if (!run || opts.help) {
     console.log(USAGE);

@@ -25,6 +25,7 @@ html-server put page.html "first draft"   # → http://127.0.0.1:8765/page.html
 | `src/config.js` | Every tunable constant, with the reason for its value |
 | `public/` | Browser code and styles: `gallery.js` (live search), `review.js`, `toc.js` (contents sidebar, added to pages), `style.css` |
 | `gallery/` | Seed pages for the gallery (explain-diff, architecture, data science, ML, data viz, featured) |
+| `CHANGELOG.md` | What each release changed |
 | `test/` | `npm test`: unit tests for lifecycle, fuzzy matching, extraction and diffs, plus the HTTP API end to end with a fresh database per test |
 | `~/.html-server/artifacts.db` | All data, created on first run, outside the code so reinstalling or `npx` can't lose it. `HTML_SERVER_HOME` moves the folder; `--db` uses another file. Back it up separately |
 | `~/.html-server/credentials.json` | Which server the CLI uses and its token. Written by `login`, or by the first `serve`; only you can read it |
@@ -259,6 +260,20 @@ a 409 and has to pick another name.
 Per-version deletion, rotating a share link, an MCP server (the CLI covers
 this for coding agents), and per-user
 folders (`/alice/x.html`) if one shared namespace for names gets crowded. Each of these is small to add on top of the store.
+
+## Versioning
+
+Releases are git tags, `vX.Y.Z`, following semantic versioning; [`CHANGELOG.md`](CHANGELOG.md)
+says what each one changed, and `html-server --version` says which one you're on.
+Install a specific release with `npm install -g github:lawwu/html-server#v0.1.0`;
+without the `#…` you get the latest `main`.
+
+To cut a release, add its notes to the changelog's "Unreleased" section, then:
+
+```bash
+npm version minor          # or patch / major: bumps package.json, commits, tags
+git push --follow-tags
+```
 
 ## License
 

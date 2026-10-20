@@ -85,6 +85,14 @@ test('client commands: put, ls, find, diff, restore, views, rm, whoami', async (
   assert.match((await cli(['rm', 'notes.html', '--purge'], env)).out, /notes\.html → purged/);
 });
 
+test('--version prints the package.json version', async () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const flag of ['--version', '-v', 'version']) {
+    assert.equal((await cli([flag])).out.trim(), pkg.version, flag);
+  }
+  assert.match((await cli(['help'])).out, new RegExp(`^html-server ${pkg.version.replace(/\./g, '\\.')} — `));
+});
+
 test('errors are one line with a non-zero exit', async () => {
   let r = (await cli(['put', '/nope.html']));
   assert.deepEqual([r.code, r.err.trim()], [1, 'error: usage: put FILE [NOTE] [--private] [--name NAME]']);
@@ -97,7 +105,7 @@ test('errors are one line with a non-zero exit', async () => {
   assert.deepEqual([r.code, r.err.trim()], [1, 'error: no such artifact']);
   r = (await cli(['frobnicate']));
   assert.equal(r.code, 2);
-  assert.match(r.out, /html-server — store, version/);
+  assert.match(r.out, /^html-server \S+ — store, version/);
   assert.match((await cli(['--bogus'])).err, /^error: Unknown option/);
 });
 
@@ -134,7 +142,7 @@ test('first serve on an empty database makes an admin and signs the CLI in', asy
   let err = '';
   child.stderr.on('data', (d) => { err += d; });
   try {
-    for (let i = 0; i < 100 && !err.includes('html-server on'); i++) await new Promise((r) => setTimeout(r, 50));
+    for (let i = 0; i < 100 && !/html-server \S+ on http/.test(err); i++) await new Promise((r) => setTimeout(r, 50));
     assert.match(err, new RegExp(`first run: created admin '${defaultAdminName()}' and signed this CLI in`));
     const saved = JSON.parse(readFileSync(join(h, 'credentials.json'), 'utf8'));
     assert.equal(saved.url, `http://127.0.0.1:${port}`);
