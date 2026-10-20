@@ -52,6 +52,50 @@ Save the token as `ARTIFACT_TOKEN` in your shell profile. The server binds to
 
 In Claude Code, `.claude/launch.json` has an `html-server` entry that starts it in the browser pane.
 
+## Users and admins
+
+Every user has one bearer token. It is shown once, at creation or reset, and the
+server stores only its hash.
+
+| Who | Can |
+| --- | --- |
+| Anyone (no token) | Browse, search and read public pages, their history and their comments |
+| User | Upload pages, then change, trash or delete **their own**; comment; rotate their own token |
+| Admin | Everything a user can, plus create, list and delete users and reset their tokens |
+| Shell access to the server | `node src/server.js create-user NAME [--admin]` and `reset-token NAME`, with no token needed. This is how the first admin is made, and how a lost admin token is recovered |
+
+**Usernames: handles or emails, per deployment.** By default usernames are short
+handles (`alice`). For a deployment where they should be email addresses, run
+`node src/server.js config usernames email` once (add `--db` if needed). From then
+on, new users must be valid addresses. Addresses are trimmed and lowercased, and
+user routes accept them (`/api/users/bob@example.com/token`). Existing users keep
+their names. `config` alone shows the current setting.
+
+Because pages and comments are public by default, **email addresses are masked for
+anyone not signed in**. Gallery cards, page metadata and comment authors show
+`bob@…`; signed-in users see the full address. Turn this off with
+`MASK_EMAILS_FOR_ANONYMOUS` in `src/config.js`.
+
+**Signing in.** There are no passwords or login screen; the token is the credential.
+- **curl, `art`, scripts and agents** send it as `Authorization: Bearer <token>`
+  (`art` reads `ARTIFACT_TOKEN`, or a `.token` file next to it).
+- **In a browser,** reading needs no sign-in. To comment, a reviewer opens a page's
+  review screen, clicks **Sign in to comment** and pastes their token once. It is
+  kept in that browser's local storage for this site only; sandboxed pages can't
+  read it.
+- **Giving someone access:** an admin creates their user and sends them the token
+  over a private channel. If it leaks, `POST /api/me/token` replaces it; if it's
+  lost, an admin resets it.
+
+Admin is a user-management role only: admins can't edit, delete or see other people's
+private pages. A new admin is made by an existing admin (`"admin": true` when
+creating) or from the shell. There is no way yet to promote or demote an existing
+user, and there is no admin UI; user management goes through the API (table below).
+
+**A lost token:** an admin runs `POST /api/users/NAME/token`, or anyone with shell
+access runs `reset-token NAME`. Both issue a new token and keep the user's pages.
+Deleting the user instead would delete their pages too.
+
 ## Publishing from an AI agent
 
 Coding agents are good at writing single-file HTML pages, and `art` gives them a
@@ -146,6 +190,8 @@ a 409 and has to pick another name.
 | Purge (permanent, trashed only) | `curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"` |
 | Who am I | `curl -H "$H" $A/api/me` |
 | Add a user (admin) | `curl -X POST -H "$H" -d '{"name":"bob"}' $A/api/users` |
+| Reset a user's lost token (admin) | `curl -X POST -H "$H" $A/api/users/bob/token` |
+| Replace your own token | `curl -X POST -H "$H" $A/api/me/token` |
 | List or delete users (admin) | `curl -H "$H" $A/api/users` · `curl -X DELETE -H "$H" $A/api/users/bob`. Deleting a user also deletes all of their artifacts |
 
 ## Design notes

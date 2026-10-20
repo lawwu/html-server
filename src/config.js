@@ -8,7 +8,16 @@ export const MAX_BODY_BYTES = 16 * 1024 * 1024; // 16 MB per version
 
 // A page's name is its uploaded file name: no slashes, starts with a letter or digit.
 export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-export const USERNAME_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+// Usernames are a per-deployment setting, stored in the database
+// (`node src/server.js config usernames email`): short handles by default, or emails.
+export const USERNAME_RULES = {
+  name: { re: /^[a-z0-9][a-z0-9_-]{0,39}$/, hint: 'lowercase letters, digits, - and _ (up to 40)' },
+  email: { re: /^[^\s@/]{1,64}@[^\s@/.]+(\.[^\s@/.]+)+$/, hint: 'an email address, like alice@example.com' },
+};
+export const DEFAULT_USERNAMES = 'name';
+// Email usernames are shown to anonymous visitors only as "alice@…", so a public
+// gallery never publishes anyone's address. Signed-in users see them in full.
+export const MASK_EMAILS_FOR_ANONYMOUS = true;
 // Top-level paths the server itself uses, so no page may take these names.
 export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'favicon.ico', 'robots.txt']);
 

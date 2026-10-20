@@ -239,3 +239,45 @@ test('table of contents is added at render time only, for pages with headings', 
   await put('guide.html', long.replace('Two A', 'Two B'));
   assert.doesNotMatch((await req('GET', '/api/artifacts/guide.html/diff'))[1], /toc/i);
 });
+
+test('token reset: admin resets a lost token, users rotate their own, pages survive', async () => {
+  const bob = (await req('POST', '/api/users', { body: JSON.stringify({ name: 'bob' }), token: admin }))[1].token;
+  await put('bobs.html', '<p>bob wrote this</p>', bob);
+
+  assert.equal((await req('POST', '/api/users/bob/token', { token: bob }))[0], 403); // admins only
+  const [s, r] = await req('POST', '/api/users/bob/token', { token: admin });
+  assert.equal(s, 200);
+  assert.equal((await req('GET', '/api/me', { token: bob }))[0], 401); // old token dead
+  assert.equal((await req('GET', '/api/me', { token: r.token }))[1].name, 'bob');
+  assert.equal((await put('bobs.html', '<p>v2</p>', r.token))[1].latest_version, 2); // still owns the page
+
+  const [, own] = await req('POST', '/api/me/token', { token: r.token });
+  assert.equal((await req('GET', '/api/me', { token: r.token }))[0], 401);
+  assert.equal((await req('GET', '/api/me', { token: own.token }))[1].name, 'bob');
+  assert.equal((await req('POST', '/api/users/nobody/token', { token: admin }))[0], 404);
+  assert.equal(store.resetToken('admin').length, 46); // the CLI path, for a lost admin token
+});
+
+test('email usernames: a per-deployment setting, masked for anonymous visitors', async () => {
+  assert.equal((await req('POST', '/api/users', { body: '{"name":"bob@example.com"}', token: admin }))[0], 400); // default: handles
+  store.setUsernames('email'); // what `node src/server.js config usernames email` does
+  assert.equal(store.usernames, 'email');
+  assert.equal((await req('POST', '/api/users', { body: '{"name":"bob"}', token: admin }))[0], 400);
+  const [s, u] = await req('POST', '/api/users', { body: '{"name":" Bob@Example.com "}', token: admin });
+  assert.deepEqual([s, u.name], [201, 'bob@example.com']); // trimmed and lowercased
+
+  await put('bobs.html', '<p>hello</p>', u.token);
+  await req('POST', '/api/artifacts/bobs.html/comments', { body: '{"body":"nice"}', token: u.token });
+  // Anonymous: masked everywhere a name shows.
+  assert.equal((await req('GET', '/api/artifacts/bobs.html'))[1].owner, 'bob@…');
+  assert.equal((await req('GET', '/api/artifacts/bobs.html/comments'))[1][0].author, 'bob@…');
+  const [, page] = await req('GET', '/');
+  assert.match(page, /bob@…/);
+  assert.doesNotMatch(page, /example\.com/);
+  // Signed in: full address. Routes accept addresses, any case.
+  assert.equal((await req('GET', '/api/artifacts/bobs.html', { token: admin }))[1].owner, 'bob@example.com');
+  assert.equal((await req('GET', '/api/artifacts?owner=BOB@example.com', { token: admin }))[1].length, 1);
+  assert.equal((await req('POST', '/api/users/Bob@Example.com/token', { token: admin }))[0], 200);
+  assert.equal((await req('DELETE', '/api/users/bob@example.com', { token: admin }))[0], 200);
+  assert.throws(() => store.setUsernames('phone'), /usernames must be one of/);
+});

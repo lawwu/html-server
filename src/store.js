@@ -4,7 +4,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  BOT_UA_RE, DEFAULT_VISIBILITY, MAX_COMMENT_CHARS, RESERVED_SLUGS, SLUG_RE, USERNAME_RE,
+  BOT_UA_RE, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
+  SLUG_RE, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
 import { ACTIVE, NONE, PURGED, TRASHED, transition } from './lifecycle.js';
@@ -96,11 +97,17 @@ export function visible(a, viewerId) {
   return a.state === ACTIVE && a.visibility === 'public';
 }
 
-export function summary(a) {
+/** "alice@example.com" → "alice@…" for viewers who aren't signed in. */
+export function displayName(name, viewerId) {
+  if (!MASK_EMAILS_FOR_ANONYMOUS || viewerId != null || !name.includes('@')) return name;
+  return `${name.split('@')[0]}@…`;
+}
+
+export function summary(a, viewerId = null) {
   return {
     slug: a.slug,
     url: `/${a.slug}`,
-    owner: a.owner,
+    owner: displayName(a.owner, viewerId),
     title: a.title,
     description: a.description,
     category: a.category,
@@ -146,8 +153,26 @@ export class Store {
   run(sql, ...args) { return this.db.prepare(sql).run(...args); }
 
   // --- users ---------------------------------------------------------------------
+  // --- settings (per deployment, in the meta table) -----------------------------
+  setting(key, fallback) { return this.one('SELECT value FROM meta WHERE key = ?', key)?.value ?? fallback; }
+  setSetting(key, value) { this.run('INSERT INTO meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, value); }
+
+  get usernames() { return this.setting('usernames', DEFAULT_USERNAMES); }
+  setUsernames(mode) {
+    if (!USERNAME_RULES[mode]) throw new ApiError(400, `usernames must be one of ${Object.keys(USERNAME_RULES).join(', ')}`);
+    this.setSetting('usernames', mode);
+  }
+
+  /** Lowercase, then check against this deployment's rule. */
+  normalizeUsername(name) {
+    const n = String(name ?? '').trim().toLowerCase();
+    const rule = USERNAME_RULES[this.usernames];
+    if (!rule.re.test(n)) throw new ApiError(400, `username must be ${rule.hint}`);
+    return n;
+  }
+
   createUser(name, isAdmin = false) {
-    if (!USERNAME_RE.test(name || '')) throw new ApiError(400, `username must match ${USERNAME_RE.source}`);
+    name = this.normalizeUsername(name);
     const token = 'ak_' + randomBytes(32).toString('base64url');
     try {
       this.run('INSERT INTO users (name, token_hash, is_admin, created_at) VALUES (?,?,?,?)',
@@ -159,6 +184,15 @@ export class Store {
     return token;
   }
 
+  /** Issue a new token for an existing user; the old one stops working at once. Pages are untouched. */
+  resetToken(name) {
+    name = String(name ?? '').trim().toLowerCase();
+    const token = 'ak_' + randomBytes(32).toString('base64url');
+    const { changes } = this.run('UPDATE users SET token_hash = ? WHERE name = ?', hashToken(token), name);
+    if (!changes) throw new ApiError(404, 'no such user');
+    return token;
+  }
+
   userForToken(token) { return this.one('SELECT * FROM users WHERE token_hash = ?', hashToken(token)); }
 
   listUsers() {
@@ -167,6 +201,7 @@ export class Store {
   }
 
   deleteUser(name) {
+    name = String(name ?? '').trim().toLowerCase();
     this.tx(() => {
       const u = this.one('SELECT id FROM users WHERE name = ?', name);
       if (!u) throw new ApiError(404, 'no such user');
@@ -274,7 +309,7 @@ export class Store {
   describe(slug, viewerId) {
     const a = this.readable(slug, viewerId);
     const versions = this.all('SELECT n, sha256, size, note, created_at FROM versions WHERE artifact_id = ? ORDER BY n', a.id);
-    return { ...summary(a), versions: versions.map((v) => ({ ...v })) };
+    return { ...summary(a, viewerId), versions: versions.map((v) => ({ ...v })) };
   }
 
   /** Active: every public artifact plus the viewer's own. Trashed: the viewer's own only. */
@@ -282,7 +317,7 @@ export class Store {
     let where, args;
     if (state === TRASHED) [where, args] = ['a.state = ? AND a.owner_id = ?', [TRASHED, viewerId ?? -1]];
     else [where, args] = ["a.state = ? AND (a.visibility = 'public' OR a.owner_id = ?)", [ACTIVE, viewerId ?? -1]];
-    if (owner) { where += ' AND u.name = ?'; args.push(owner); }
+    if (owner) { where += ' AND u.name = ?'; args.push(owner.toLowerCase()); }
     if (category) { where += ' AND a.category = ?'; args.push(category); }
     const rows = q
       ? this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, snippet(artifacts_fts, 1, '[', ']', '…', 12) AS snippet`
@@ -291,7 +326,7 @@ export class Store {
       : this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, NULL AS snippet FROM artifacts a`
         + ` JOIN users u ON u.id = a.owner_id WHERE ${where}`
         + " ORDER BY a.category = 'featured' DESC, a.updated_at DESC LIMIT ?", ...args, limit);
-    return rows.map((r) => (r.snippet ? { ...summary(r), snippet: r.snippet } : summary(r)));
+    return rows.map((r) => (r.snippet ? { ...summary(r, viewerId), snippet: r.snippet } : summary(r, viewerId)));
   }
 
   /** Categories in use among pages this viewer can see, with counts. */
@@ -381,7 +416,8 @@ export class Store {
     const a = this.readable(slug, viewerId);
     return (n
       ? this.all(`${COMMENT_SELECT} WHERE c.artifact_id = ? AND c.n = ? ORDER BY c.id`, a.id, n)
-      : this.all(`${COMMENT_SELECT} WHERE c.artifact_id = ? ORDER BY c.id`, a.id)).map((c) => ({ ...c }));
+      : this.all(`${COMMENT_SELECT} WHERE c.artifact_id = ? ORDER BY c.id`, a.id))
+      .map((c) => ({ ...c, author: displayName(c.author, viewerId) }));
   }
 
   addComment(userId, slug, body, n, parentId) {

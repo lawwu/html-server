@@ -2,6 +2,8 @@
 // Artifact server: store, version, search, review and render HTML artifacts over curl.
 //
 //   node src/server.js create-user alice --admin   # prints the token once
+//   node src/server.js reset-token alice             # new token if it was lost; pages kept
+//   node src/server.js config usernames email        # this deployment's users are email addresses
 //   node src/server.js serve [--port 8765] [--host 127.0.0.1] [--db path]
 //
 // See README.md for the model; the API reference is served at /api.
@@ -62,7 +64,11 @@ export const ROUTES = [
   ['GET', '/api/users', 'listUsers', 'admin', 'List users'],
   ['POST', '/api/users', 'createUser', 'admin',
     'Create a user: body `{"name": "bob"}`, add `"admin": true` for an admin. Returns the token once'],
-  ['DELETE', '/api/users/(?<name>[\\w-]+)', 'deleteUser', 'admin', 'Delete a user and all of their pages'],
+  ['POST', '/api/me/token', 'rotateOwnToken', 'token',
+    'Replace your own token, e.g. if it leaked. Returns the new one once; the old one stops working'],
+  ['POST', '/api/users/(?<name>[^/]+)/token', 'resetToken', 'admin',
+    'Issue a new token for a user who lost theirs. Their pages are untouched; the old token stops working'],
+  ['DELETE', '/api/users/(?<name>[^/]+)', 'deleteUser', 'admin', 'Delete a user and all of their pages'],
 ].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`) }))
   .sort((a, b) => (a.handler === 'render') - (b.handler === 'render'));
 
@@ -198,11 +204,20 @@ const handlers = {
   async createUser(c) {
     c.user({ admin: true });
     const data = await c.jsonBody();
-    const token = c.store.createUser(data.name, !!data.admin);
-    c.json(201, { name: data.name, token, note: 'shown once; store it' });
+    const name = c.store.normalizeUsername(data.name);
+    const token = c.store.createUser(name, !!data.admin);
+    c.json(201, { name, token, note: 'shown once; store it' });
+  },
+  rotateOwnToken(c) {
+    const u = c.user();
+    c.json(200, { name: u.name, token: c.store.resetToken(u.name), note: 'shown once; the old token no longer works' });
+  },
+  resetToken(c, { name }) {
+    c.user({ admin: true });
+    c.json(200, { name, token: c.store.resetToken(name), note: 'shown once; the old token no longer works' });
   },
   deleteUser(c, { name }) {
-    if (name === c.user({ admin: true }).name) throw new ApiError(400, 'refusing to delete yourself');
+    if (name.toLowerCase() === c.user({ admin: true }).name) throw new ApiError(400, 'refusing to delete yourself');
     c.store.deleteUser(name);
     c.json(200, { deleted: name });
   },
@@ -283,13 +298,28 @@ function main(argv) {
   });
   const [cmd, name] = positionals;
   const store = new Store(values.db);
+  if (cmd === 'config') {
+    // Per-deployment settings, stored in the database: `config` shows them,
+    // `config usernames email` (or `name`) sets the username rule for new users.
+    const [, key, value] = positionals;
+    if (key === 'usernames' && value) store.setUsernames(value);
+    else if (key) throw new Error('usage: config [usernames name|email]');
+    console.log(`usernames: ${store.usernames}`);
+    return;
+  }
+  if (cmd === 'reset-token') {
+    // For a lost token, including the last admin's: anyone with shell access to the server can do this.
+    if (!name) throw new Error('usage: reset-token NAME');
+    console.log(store.resetToken(name));
+    return;
+  }
   if (cmd === 'create-user') {
     if (!name) throw new Error('usage: create-user NAME [--admin]');
     console.log(store.createUser(name, values.admin));
     return;
   }
   if (cmd !== 'serve') {
-    console.error('usage: server.js serve [--port N] [--host H] [--db PATH] | create-user NAME [--admin]');
+    console.error('usage: server.js serve [--port N] [--host H] [--db PATH] | create-user NAME [--admin] | reset-token NAME | config [usernames name|email]');
     process.exit(2);
   }
   const server = makeServer(store);
@@ -297,4 +327,11 @@ function main(argv) {
     console.error(`artifact server on http://${values.host}:${values.port}  (db: ${values.db})`));
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main(process.argv.slice(2));
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  try {
+    main(process.argv.slice(2));
+  } catch (e) {
+    console.error(`error: ${e.message}`); // CLI mistakes get one line, not a stack trace
+    process.exit(1);
+  }
+}
