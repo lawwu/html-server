@@ -7,6 +7,8 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.2.0 (2026-10-20)
+
 - **`/pages/{slug}` is the canonical page URL**, so this server can replace a service
   that already served pages there without breaking links. `.html` is optional
   (`/pages/showstopper-timeline` finds `showstopper-timeline.html`), `?v=n` works, and
