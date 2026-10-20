@@ -1,18 +1,9 @@
-#!/usr/bin/env node
-// Artifact server: store, version, search, review and render HTML artifacts over curl.
-//
-//   node src/server.js create-user alice --admin   # prints the token once
-//   node src/server.js reset-token alice             # new token if it was lost; pages kept
-//   node src/server.js config usernames email        # this deployment's users are email addresses
-//   node src/server.js serve [--port 8765] [--host 127.0.0.1] [--db path]
-//
-// See README.md for the model; the API reference is served at /api.
+// The HTTP server: the route table (which also generates the /api docs page) and
+// its handlers. The command line (serve, create-user, put, ls, ...) is src/cli.js.
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
 import {
-  DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, MAX_BODY_BYTES, RENDER_CSP, TOC_MIN_HEADINGS,
+  MAX_BODY_BYTES, RENDER_CSP, TOC_MIN_HEADINGS,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { VIEWS, diffPage, docsPage, galleryCards, galleryPage, reviewPage } from './pages.js';
@@ -283,55 +274,4 @@ export function makeServer(store) {
       process.stderr.write(`${req.method} ${url.pathname}\n`); // never log tokens or query strings
     }
   });
-}
-
-function main(argv) {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    allowPositionals: true,
-    options: {
-      db: { type: 'string', default: DEFAULT_DB },
-      host: { type: 'string', default: DEFAULT_HOST },
-      port: { type: 'string', default: String(DEFAULT_PORT) },
-      admin: { type: 'boolean', default: false },
-    },
-  });
-  const [cmd, name] = positionals;
-  const store = new Store(values.db);
-  if (cmd === 'config') {
-    // Per-deployment settings, stored in the database: `config` shows them,
-    // `config usernames email` (or `name`) sets the username rule for new users.
-    const [, key, value] = positionals;
-    if (key === 'usernames' && value) store.setUsernames(value);
-    else if (key) throw new Error('usage: config [usernames name|email]');
-    console.log(`usernames: ${store.usernames}`);
-    return;
-  }
-  if (cmd === 'reset-token') {
-    // For a lost token, including the last admin's: anyone with shell access to the server can do this.
-    if (!name) throw new Error('usage: reset-token NAME');
-    console.log(store.resetToken(name));
-    return;
-  }
-  if (cmd === 'create-user') {
-    if (!name) throw new Error('usage: create-user NAME [--admin]');
-    console.log(store.createUser(name, values.admin));
-    return;
-  }
-  if (cmd !== 'serve') {
-    console.error('usage: server.js serve [--port N] [--host H] [--db PATH] | create-user NAME [--admin] | reset-token NAME | config [usernames name|email]');
-    process.exit(2);
-  }
-  const server = makeServer(store);
-  server.listen(Number(values.port), values.host, () =>
-    console.error(`artifact server on http://${values.host}:${values.port}  (db: ${values.db})`));
-}
-
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  try {
-    main(process.argv.slice(2));
-  } catch (e) {
-    console.error(`error: ${e.message}`); // CLI mistakes get one line, not a stack trace
-    process.exit(1);
-  }
 }

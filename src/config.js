@@ -1,7 +1,17 @@
 // Every tunable in one place, with the reason for its value.
-import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
-export const DEFAULT_DB = fileURLToPath(new URL('../artifacts.db', import.meta.url)); // gitignored
+// Everything this machine keeps lives in one private folder in the user's home,
+// never next to the code (an npx or npm install puts code in a throwaway cache).
+// HTML_SERVER_HOME moves it; --db points the server at a different database file.
+export const HOME_DIR = process.env.HTML_SERVER_HOME || join(homedir(), '.html-server');
+export const DEFAULT_DB = join(HOME_DIR, 'artifacts.db');
+// Which server the CLI talks to, and as whom: written by `login` (or by the first
+// `serve` on this machine), readable only by you. HTML_SERVER_URL and
+// HTML_SERVER_TOKEN override it for one shell or script.
+export const CREDENTIALS_FILE = join(HOME_DIR, 'credentials.json');
+export const FALLBACK_URL = 'http://127.0.0.1:8765';
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 8765;
 export const MAX_BODY_BYTES = 16 * 1024 * 1024; // 16 MB per version

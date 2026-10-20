@@ -9,15 +9,15 @@ file name. The home page is a gallery, filterable by category. It runs on Node.j
 file.
 
 ```bash
-node src/server.js create-user alice --admin    # prints alice's token once
-node src/server.js serve                        # http://127.0.0.1:8765
-export ARTIFACT_TOKEN=...                       # the token from create-user
-./art put page.html "first draft"               # → http://127.0.0.1:8765/page.html
+npm install -g github:lawwu/html-server   # puts `html-server` on your PATH
+html-server serve                         # first run: makes you an admin and signs the CLI in
+html-server put page.html "first draft"   # → http://127.0.0.1:8765/page.html
 ```
 
 | File | What |
 | --- | --- |
-| `src/server.js` | HTTP routes (the table that also generates `/api` docs), handlers, and the `serve` / `create-user` CLI |
+| `src/cli.js` | The `html-server` command: `serve`, `create-user`, `reset-token`, `config`, plus `put`, `ls`, `find`, `diff`, `restore`, `views`, `rm`, `open`, `review`, `whoami`. Run `html-server help` |
+| `src/server.js` | HTTP routes (the table that also generates `/api` docs) and their handlers |
 | `src/store.js` | All database access, with the schema |
 | `src/lifecycle.js` | The active → trashed → purged state machine |
 | `src/text.js` | HTML to text, fuzzy matching (the same similarity measure as Python's difflib), search query building, line diffs |
@@ -25,30 +25,43 @@ export ARTIFACT_TOKEN=...                       # the token from create-user
 | `src/config.js` | Every tunable constant, with the reason for its value |
 | `public/` | Browser code and styles: `gallery.js` (live search), `review.js`, `toc.js` (contents sidebar, added to pages), `style.css` |
 | `gallery/` | Seed pages for the gallery (explain-diff, architecture, data science, ML, data viz, featured) |
-| `art` | The CLI: `art put page.html "note"`, `ls`, `find`, `diff`, `restore`, `views`, `rm`, `review`. Run `art help` |
 | `test/` | `npm test`: unit tests for lifecycle, fuzzy matching, extraction and diffs, plus the HTTP API end to end with a fresh database per test |
-| `artifacts.db` | All data, created on first run (or wherever `--db` points). Gitignored, so back it up separately |
-| `.token` | Optional: `art` reads the token from here if `ARTIFACT_TOKEN` isn't set. Gitignored |
+| `~/.html-server/artifacts.db` | All data, created on first run, outside the code so reinstalling or `npx` can't lose it. `HTML_SERVER_HOME` moves the folder; `--db` uses another file. Back it up separately |
+| `~/.html-server/credentials.json` | Which server the CLI uses and its token. Written by `login`, or by the first `serve`; only you can read it |
 
-## Run
+## Install and run
 
-Requires Node.js 22.13 or newer. There is nothing to install.
-
-```bash
-node src/server.js create-user alice --admin
-```
+Requires Node.js 22.13 or newer. There are no dependencies to install.
 
 ```bash
-node src/server.js serve --port 8765 --db /path/to/artifacts.db
+npm install -g github:lawwu/html-server
 ```
+
+From a clone, `npm link` does the same. While the GitHub repo is private, installing
+from it needs your GitHub SSH access.
+
+**On the machine that runs the server**, start it:
 
 ```bash
-npm test
+html-server serve
 ```
 
-The `create-user` command prints the token **once**, and only its hash is stored.
-Save the token as `ARTIFACT_TOKEN` in your shell profile. The server binds to
-127.0.0.1 by default; pass `--host 0.0.0.0` only behind something like Tailscale.
+The first time, with an empty database, it creates an admin named after your
+computer account and signs the CLI in, so `html-server put page.html` works right
+away. Nothing goes in your shell profile. The server binds to 127.0.0.1 by default;
+pass `--host 0.0.0.0` only behind something like Tailscale.
+
+**On any other machine,** or as another user, sign in once:
+
+```bash
+html-server login
+```
+
+It asks for the server's URL and your token (typing is hidden), checks them against
+the server and saves them to `~/.html-server/credentials.json`, readable only by you.
+`html-server logout` forgets them. For scripts and CI, `login --url URL --token TOKEN`
+skips the questions, or `HTML_SERVER_URL` and `HTML_SERVER_TOKEN` override the saved
+login for one shell. Run the tests with `npm test`.
 
 In Claude Code, `.claude/launch.json` has an `html-server` entry that starts it in the browser pane.
 
@@ -62,11 +75,11 @@ server stores only its hash.
 | Anyone (no token) | Browse, search and read public pages, their history and their comments |
 | User | Upload pages, then change, trash or delete **their own**; comment; rotate their own token |
 | Admin | Everything a user can, plus create, list and delete users and reset their tokens |
-| Shell access to the server | `node src/server.js create-user NAME [--admin]` and `reset-token NAME`, with no token needed. This is how the first admin is made, and how a lost admin token is recovered |
+| Shell access to the server | `html-server create-user NAME [--admin]` and `reset-token NAME`, with no token needed. This is how the first admin is made, and how a lost admin token is recovered |
 
 **Usernames: handles or emails, per deployment.** By default usernames are short
 handles (`alice`). For a deployment where they should be email addresses, run
-`node src/server.js config usernames email` once (add `--db` if needed). From then
+`html-server config usernames email` once (add `--db` if needed). From then
 on, new users must be valid addresses. Addresses are trimmed and lowercased, and
 user routes accept them (`/api/users/bob@example.com/token`). Existing users keep
 their names. `config` alone shows the current setting.
@@ -77,8 +90,9 @@ anyone not signed in**. Gallery cards, page metadata and comment authors show
 `MASK_EMAILS_FOR_ANONYMOUS` in `src/config.js`.
 
 **Signing in.** There are no passwords or login screen; the token is the credential.
-- **curl, `art`, scripts and agents** send it as `Authorization: Bearer <token>`
-  (`art` reads `ARTIFACT_TOKEN`, or a `.token` file next to it).
+- **The CLI** keeps it in `~/.html-server/credentials.json` after `login` (or after
+  the first `serve` on the server's own machine).
+- **curl, scripts and agents** send it as `Authorization: Bearer <token>`.
 - **In a browser,** reading needs no sign-in. To comment, a reviewer opens a page's
   review screen, clicks **Sign in to comment** and pastes their token once. It is
   kept in that browser's local storage for this site only; sandboxed pages can't
@@ -92,16 +106,19 @@ private pages. A new admin is made by an existing admin (`"admin": true` when
 creating) or from the shell. There is no way yet to promote or demote an existing
 user, and there is no admin UI; user management goes through the API (table below).
 
+**A new user:** an admin runs `html-server create-user bob` (on the server) or
+`POST /api/users`, and sends bob the token; bob runs `html-server login` once.
+
 **A lost token:** an admin runs `POST /api/users/NAME/token`, or anyone with shell
 access runs `reset-token NAME`. Both issue a new token and keep the user's pages.
 Deleting the user instead would delete their pages too.
 
 ## Publishing from an AI agent
 
-Coding agents are good at writing single-file HTML pages, and `art` gives them a
-one-line way to publish one: `./art put report.html "what changed"` prints the page
+Coding agents are good at writing single-file HTML pages, and the CLI gives them a
+one-line way to publish one: `html-server put report.html "what changed"` prints the page
 link and its review link. A Claude Code skill or a line in your `CLAUDE.md` that says
-"publish HTML pages with `./art put`" is enough to wire it up. Decide there which
+"publish HTML pages with `html-server put`" is enough to wire it up. Decide there which
 kinds of content the agent may publish publicly, and which only with `--private`.
 
 ## Gallery
@@ -119,7 +136,7 @@ itself:
 The categories in use are `featured`, `explain-diff`, `architecture`, `data-science`,
 `machine-learning`, `data-viz`, `code-review`, `editor` and `prototype`. Any other kebab-case value creates a new chip.
 Descriptions are searchable. The seed pages live in `gallery/`; publish them with
-`for f in gallery/*.html; do ./art put "$f" "gallery seed"; done`.
+`for f in gallery/*.html; do html-server put "$f" "gallery seed"; done`.
 
 ## Contents sidebar
 
@@ -156,7 +173,7 @@ go one level deep.
 The full API reference is served at **`/api`**. It is generated from the route table
 in `src/server.js`, so it stays current; the table below is a summary.
 
-The examples below assume `A=http://127.0.0.1:8765` and `H="Authorization: Bearer $ARTIFACT_TOKEN"`.
+The examples below assume `A=http://127.0.0.1:8765` and `H="Authorization: Bearer $HTML_SERVER_TOKEN"`.
 
 **Everything is public by default.** Anyone can browse `$A/`, open pages, list and
 search without a token. Writes need a token, and only the owner can change or delete

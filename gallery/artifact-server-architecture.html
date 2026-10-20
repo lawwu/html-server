@@ -89,7 +89,7 @@ footer{margin-top:2.5rem;font-size:.82rem;color:var(--ink-2)}
   <div class="stage">
 <svg viewBox="0 0 1000 690" role="img" aria-labelledby="svgt svgd">
 <title id="svgt">Artifact server architecture</title>
-<desc id="svgd">Clients (curl, the art CLI, a Claude skill, and a browser) call HTTP routes on a single server. Writes pass a token check and a lifecycle transition table, then reach SQLite tables: users, artifacts, versions, views, comments, and an FTS5 index. Pages are rendered under a sandbox Content-Security-Policy.</desc>
+<desc id="svgd">Clients (curl, the html-server CLI, a Claude skill, and a browser) call HTTP routes on a single server. Writes pass a token check and a lifecycle transition table, then reach SQLite tables: users, artifacts, versions, views, comments, and an FTS5 index. Pages are rendered under a sandbox Content-Security-Policy.</desc>
 <defs>
   <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
   <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" class="bgrid"/></pattern>
@@ -111,14 +111,14 @@ footer{margin-top:2.5rem;font-size:.82rem;color:var(--ink-2)}
 </g>
 <g data-flows="publish search">
   <rect x="20" y="136" width="196" height="58" rx="8" class="client"/>
-  <text x="34" y="160" class="t-h">art CLI</text>
-  <text x="34" y="179" class="t-s mono">art put · ls · find · rm</text>
+  <text x="34" y="160" class="t-h">html-server CLI</text>
+  <text x="34" y="179" class="t-s mono">put · ls · find · rm</text>
 </g>
 <g data-flows="publish">
   <rect x="20" y="210" width="196" height="64" rx="8" class="client"/>
   <text x="34" y="234" class="t-h">Claude skill</text>
   <text x="34" y="252" class="t-s">publish-artifact: privacy check,</text>
-  <text x="34" y="266" class="t-s">then runs <tspan class="mono">art put</tspan></text>
+  <text x="34" y="266" class="t-s">then runs <tspan class="mono">put</tspan></text>
 </g>
 <g data-flows="view search review">
   <rect x="20" y="380" width="196" height="76" rx="8" class="client"/>
@@ -274,7 +274,7 @@ footer{margin-top:2.5rem;font-size:.82rem;color:var(--ink-2)}
 (function(){
   var N = {
     all:"All four request paths at once. Choose one above to isolate it.",
-    publish:"<b>Publish.</b> curl, <code>art put</code> or the Claude skill sends <code>PUT /api/artifacts/&lt;name&gt;</code> with a bearer token. The token's sha256 is looked up in <code>users</code>; the lifecycle table approves <code>create</code> or <code>update</code>; a new row lands in <code>versions</code>, <code>artifacts.latest_version</code> moves, and the FTS index is rebuilt from the new page's visible text.",
+    publish:"<b>Publish.</b> curl, <code>html-server put</code> or the Claude skill sends <code>PUT /api/artifacts/&lt;name&gt;</code> with a bearer token. The token's sha256 is looked up in <code>users</code>; the lifecycle table approves <code>create</code> or <code>update</code>; a new row lands in <code>versions</code>, <code>artifacts.latest_version</code> moves, and the FTS index is rebuilt from the new page's visible text.",
     view:"<b>Open a page.</b> <code>GET /&lt;name&gt;</code> (or a private page's <code>/v/&lt;share-id&gt;</code>) reads the latest — or <code>?v=n</code> — row from <code>versions</code>, records a view with a daily-salted visitor hash (bots and curl are skipped), and returns the HTML with a sandbox CSP so it runs in an opaque origin.",
     search:"<b>Search.</b> The home page and <code>art find</code> query <code>artifacts_fts</code>. Each word must match as a prefix or, via <code>artifacts_vocab</code>, as a near-miss spelling — <code>sheling</code> still finds “shelling”.",
     review:"<b>Review.</b> <code>/review/&lt;name&gt;</code> shows the sandboxed page beside its comments, with a version picker and a side-by-side diff. Reading comments is open for public pages; posting one sends the reviewer's token through the auth gate."
