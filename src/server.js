@@ -6,7 +6,7 @@ import {
   MAX_BODY_BYTES, RENDER_CSP, TOC_MIN_HEADINGS,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, diffPage, docsPage, galleryCards, galleryPage, reviewPage } from './pages.js';
+import { VIEWS, diffPage, docsPage, galleryCards, galleryPage, historyPage, reviewPage } from './pages.js';
 import { Store } from './store.js';
 import { ApiError, unifiedDiff } from './text.js';
 
@@ -27,13 +27,16 @@ export const ROUTES = [
     'A page by its `share_url`; works for private pages. `?v=n` for an old version'],
   ['GET', `/review/${SLUG}`, 'review', 'anyone*',
     'Review page in a browser: the page with its comments underneath, a version picker, changes and restore'],
+  ['GET', `/history/${SLUG}`, 'history', 'anyone*',
+    'Every version of a page with its date, author and note; view any version, or compare any two'],
   ['GET', `/review/${SLUG}/changes`, 'reviewChanges', 'anyone*',
     'Side-by-side changes page. `?from=1&to=3` (default: previous vs latest), `?of=source` for HTML'],
   ['GET', '/api/artifacts/?', 'list', 'anyone*',
     'List newest first. `?q=` search, `?category=`, `?owner=`, `?limit=`, `?state=trashed` (your own trash, token required)'],
   ['GET', '/api/categories', 'categories', 'anyone', 'Gallery categories in use, with counts'],
   ['PUT', `/api/artifacts/${SLUG}`, 'put', 'token',
-    'Upload a page, or add a version if you own the name. Headers: `X-Note`, `X-Title`, `X-Visibility: private`'],
+    'Upload a page, or add a version (yours, or anyone\'s public page under open editing). `?note=` / `X-Note`,'
+    + ' `X-Title`, `X-Visibility: private`; `?base=n` refuses if the page has moved past version n'],
   ['PUT', '/api/artifacts/?', 'putNoName', 'token', null],
   ['POST', `/api/artifacts/${SLUG}`, 'put', 'token', 'Same as PUT'],
   ['GET', `/api/artifacts/${SLUG}`, 'describe', 'anyone*', 'Metadata and version history'],
@@ -165,9 +168,10 @@ const handlers = {
   // Always the shell: the script loads the page with the viewer's saved token, so
   // private pages work and missing ones show "not found" in place.
   review(c, { slug }) { c.html(reviewPage(slug)); },
+  history(c, { slug }) { c.html(historyPage(c.store.describe(slug, c.viewerId()))); },
   reviewChanges(c, { slug }) {
     const [from, to, a, b] = c.store.diff(slug, c.viewerId(), c.int('from'), c.int('to'), c.query.get('of') || 'text');
-    c.page(diffPage(from, to, a, b));
+    c.page(diffPage(from, to, a, b, { back: c.query.get('back') ? `/history/${encodeURIComponent(slug)}` : null }));
   },
   list(c) {
     const viewer = c.viewerId();
@@ -225,6 +229,7 @@ const handlers = {
       title: c.query.get('title') || h['x-title'],
       note: c.query.get('note') || h['x-note'] || '',
       visibility: c.query.get('visibility') || h['x-visibility'],
+      base: c.int('base') ?? (h['x-base'] && /^\d+$/.test(h['x-base']) ? Number(h['x-base']) : null),
     });
     c.json(res.latest_version === 1 ? 201 : 200, res);
   },

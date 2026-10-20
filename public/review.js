@@ -49,8 +49,9 @@ async function load(n) {
   document.title = `Review: ${meta.title}`;
   $('title').textContent = meta.title;
   $('ver').innerHTML = meta.versions.slice().reverse().map((v) =>
-    `<option value=${v.n} ${v.n === cur ? 'selected' : ''}>v${v.n}${v.n === meta.latest_version ? ' (current)' : ''}${v.note ? ` · ${esc(v.note)}` : ''}</option>`).join('');
-  $('restore').hidden = cur === meta.latest_version;
+    `<option value=${v.n} ${v.n === cur ? 'selected' : ''}>v${v.n}${v.n === meta.latest_version ? ' (current)' : ''} · ${esc(v.author)}${v.note ? ` · ${esc(v.note)}` : ''}</option>`).join('');
+  $('restore').hidden = cur === meta.latest_version || !meta.can_edit;
+  $('hist').href = `/history/${S}`;
   $('changes').disabled = cur === 1;
   $('open').href = `/pages/${S}${cur === meta.latest_version ? '' : `?v=${cur}`}`;
   history.replaceState(null, '', `?v=${cur}`);

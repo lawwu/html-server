@@ -66,6 +66,35 @@ login for one shell. Run the tests with `npm test`.
 
 In Claude Code, `.claude/launch.json` has an `html-server` entry that starts it in the browser pane.
 
+## Backups and updating
+
+**Back up** with one command. It's safe while the server is running, because
+SQLite takes a consistent snapshot without writing to the live file, and the copy is
+checked before it reports success:
+
+```bash
+html-server backup                  # → ~/.html-server/backups/artifacts-<date-time>.db
+html-server backup /mnt/nas/        # or any folder or file path; never overwrites
+html-server backup --keep 14        # then keep only the newest 14 in the backups folder
+```
+
+Backups are readable only by you. `--keep` deletes only its own timestamped files.
+For a nightly backup, run `html-server backup --keep 14` from cron or launchd.
+**Restore** by stopping the server, copying a backup over `~/.html-server/artifacts.db`,
+and starting it again.
+
+**Update a deployment:**
+
+1. `html-server backup`
+2. `npm install -g github:lawwu/html-server#vX.Y.Z` (or `git checkout vX.Y.Z` in an
+   `npm link`ed clone).
+3. Restart the server with the same flags. On startup it upgrades the database in
+   place; so far every change has only added columns.
+4. `html-server --version`, then open a few pages.
+
+To roll back, reinstall the previous tag and restart. Older versions ignore columns
+they don't know about. Restore the backup only if the data itself went wrong.
+
 ## Users and admins
 
 Every user has one bearer token. It is shown once, at creation or reset, and the
@@ -74,7 +103,7 @@ server stores only its hash.
 | Who | Can |
 | --- | --- |
 | Anyone (no token) | Browse, search and read public pages, their history and their comments |
-| User | Upload pages, then change, trash or delete **their own**; comment; rotate their own token |
+| User | Upload pages, then change, trash or delete **their own**; comment; rotate their own token. Under open editing, also add versions to anyone's public pages |
 | Admin | Everything a user can, plus create, list and delete users and reset their tokens |
 | Shell access to the server | `html-server create-user NAME [--admin]` and `reset-token NAME`, with no token needed. This is how the first admin is made, and how a lost admin token is recovered |
 
@@ -189,6 +218,40 @@ can take over without breaking any links:
 New uploads land at the same `/pages/{slug}` URLs. Pages are rendered sandboxed, so
 a page that relied on reading cookies or local storage, or on calling its old
 service's API, will need a look. Plain HTML, CSS and JavaScript pages behave the same.
+
+## Open editing
+
+By default only a page's owner can upload new versions of it. To let any signed-in
+user add versions to public pages, like a wiki:
+
+```bash
+html-server config editing open
+```
+
+`config editing owner` turns it back off; `config` shows the current setting.
+
+- **Who can do what:** with editing open, anyone signed in can upload a new version
+  of a **public, active** page, or restore an old one. Only the owner can trash or
+  delete a page, change its visibility, or touch a private page.
+- **Every version records who uploaded it**, shown in the history, the review
+  page's version picker and `html-server history`. Versions from before 0.3.0 are
+  credited to the page's owner, since nobody else could have made them.
+- **Nothing is ever overwritten.** A bad edit is undone by restoring the previous
+  version, which appends a copy.
+- **To avoid stepping on someone else's edit,** upload with `--base N`, the version
+  you started from (`?base=N` or `X-Base: N` over the API). If someone added a version
+  since, the upload is refused with "at v5 now, but you started from v4", so you can
+  look at what changed and redo yours on top.
+
+## History: `/history/<name>`
+
+Every version of a page, newest first, with its date, author, note and size. Each
+row links to that version (`/pages/<name>?v=n`), its changes from the previous
+version, and the review page at that version. The **Compare** picker diffs any
+two versions side by side, as visible text or, with "HTML source" ticked, as raw
+HTML. Gallery cards and the review page link here. In the terminal,
+`html-server history NAME` lists the same versions, and `html-server diff NAME FROM TO`
+shows a diff.
 
 ## Reviewing: `/review/<name>`
 

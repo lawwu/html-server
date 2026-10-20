@@ -34,7 +34,7 @@ export function galleryCards(items, q) {
   <h2><a href="${esc(i.url)}">${esc(i.title)}</a></h2>
   ${snippet ? `<p class="desc">${snippet}</p>` : ''}
   <p class="meta">${esc(i.slug)} · ${esc(i.owner)} · v${i.latest_version} · ${day(i.updated_at)} · ${plural(i.views, 'view')}${i.visibility === 'private' ? ' · private' : ''}
-    · <a href="/review/${encodeURIComponent(i.slug)}">review</a></p>
+    · <a href="/review/${encodeURIComponent(i.slug)}">review</a> · <a href="/history/${encodeURIComponent(i.slug)}">history</a></p>
 </article>`;
   }).join('\n');
 }
@@ -64,11 +64,39 @@ ${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : '
 <section id="results" class="${view}">${galleryCards(items, q)}</section></main>`, { scripts: ['gallery.js'] });
 }
 
+/** Every version, newest first: view it, see what it changed, or compare any two. */
+export function historyPage(a) {
+  const S = encodeURIComponent(a.slug);
+  const when = (t) => { // "2026-10-20 07:12": short, sortable, never wraps
+    const d = new Date(t * 1000);
+    return `${d.toLocaleDateString('en-CA')} ${d.toTimeString().slice(0, 5)}`;
+  };
+  const kb = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
+  const rows = a.versions.slice().reverse().map((v) => `<tr>
+  <td class="vn"><a href="/pages/${S}?v=${v.n}">v${v.n}</a>${v.n === a.latest_version ? ' <span class="cur">current</span>' : ''}</td>
+  <td class="nw">${esc(when(v.created_at))}</td><td class="nw">${esc(v.author)}</td><td>${esc(v.note)}</td><td class="num">${kb(v.size)}</td>
+  <td class="acts">${v.n > 1 ? `<a href="/review/${S}/changes?from=${v.n - 1}&amp;to=${v.n}&amp;back=1">changes</a>` : '<span class="meta">first</span>'}
+    · <a href="/review/${S}?v=${v.n}">review</a></td></tr>`).join('');
+  const opts = (sel) => a.versions.slice().reverse()
+    .map((v) => `<option value="${v.n}"${v.n === sel ? ' selected' : ''}>v${v.n}</option>`).join('');
+  return shell(`History: ${a.title}`, `<main class="wrap history">
+<p class="meta"><a href="/">Artifacts</a> / <a href="/pages/${S}">${esc(a.title)}</a></p>
+<h1>History</h1>
+<p class="meta">${esc(a.slug)} · ${a.versions.length} version${a.versions.length === 1 ? '' : 's'} · owned by ${esc(a.owner)}</p>
+${a.versions.length > 1 ? `<form class="compare" action="/review/${S}/changes" method="get">
+  Compare <select name="from" aria-label="From version">${opts(a.latest_version - 1)}</select>
+  with <select name="to" aria-label="To version">${opts(a.latest_version)}</select>
+  <label><input type="checkbox" name="of" value="source"> HTML source</label> <input type="hidden" name="back" value="1">
+  <button>Show changes</button></form>` : ''}
+<div class="scroll"><table class="versions"><thead><tr><th>Version</th><th>Uploaded</th><th>By</th><th>Note</th><th class="num">Size</th><th></th></tr></thead>
+<tbody>${rows}</tbody></table></div></main>`);
+}
+
 export function reviewPage(slug) {
   return shell('Review', `<header class="bar"><h1><a href="/">Artifacts</a> / <span id="title"></span></h1>
 <select id="ver" aria-label="Version"></select>
 <button id="changes">Show changes</button><button id="restore" hidden>Make this version current</button>
-<a id="open" target="_blank">Open page</a> <a id="jump" href="#comments">Comments</a></header>
+<a id="open" target="_blank">Open page</a> <a id="hist">History</a> <a id="jump" href="#comments">Comments</a></header>
 <div class="review"><div id="frame-slot"><iframe id="frame" title="Page"></iframe></div><aside id="comments">
 <h2 id="ctitle">Comments</h2><p id="who" class="meta"></p>
 <details id="signin"><summary>Sign in to comment</summary>
@@ -80,7 +108,8 @@ export function reviewPage(slug) {
 }
 
 /** Side-by-side changes. Served sandboxed (it shows page content), so styles are inline. */
-export function diffPage(fromN, toN, a, b) {
+/** `back`: when opened full-page from History (not framed in the review page), link back to it. */
+export function diffPage(fromN, toN, a, b, { back } = {}) {
   const groups = groupedOpcodes(a, b);
   const cell = (n, text, cls) => (n == null ? '<td class="n"></td><td class="x"></td>'
     : `<td class="n">${n}</td><td class="${cls}">${esc(text)}</td>`);
@@ -108,8 +137,9 @@ table{width:100%;border-collapse:collapse;table-layout:fixed}th{position:sticky;
 padding:.5rem .75rem;border-bottom:1px solid var(--line);font-weight:600}td{vertical-align:top;padding:.2rem .5rem;
 white-space:pre-wrap;overflow-wrap:anywhere}col.cn{width:2.75rem}td.n{color:var(--mute);text-align:right;font:12px ui-monospace,monospace;user-select:none}
 td.del{background:var(--del);color:var(--deltx)}td.ins{background:var(--ins);color:var(--instx)}
-.gap td{text-align:center;color:var(--mute);padding:.4rem}.same{padding:1.5rem;color:var(--mute)}
-</style></head><body>${body}</body></html>`;
+.gap td{text-align:center;color:var(--mute);padding:.4rem}
+.back{display:block;padding:.6rem .75rem;border-bottom:1px solid var(--line);color:inherit;font-size:13px}.same{padding:1.5rem;color:var(--mute)}
+</style></head><body>${back ? `<a class="back" href="${esc(back)}" target="_top">← History</a>` : ''}${body}</body></html>`;
 }
 
 export function docsPage(base, routes) {
@@ -139,6 +169,10 @@ curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"</pre>
 anyone for public pages, and only the owner (by token) for private or trashed ones.</li>
 <li><b>Gallery:</b> a page's <code>&lt;meta name="description"&gt;</code> and <code>&lt;meta name="category"&gt;</code>
 become its card text and category on <a href="/">the home page</a>.</li>
+<li><b>Editing:</b> by default only a page's owner adds versions. On a server with open editing
+(<code>html-server config editing open</code>), anyone signed in can add or restore versions of public pages; only the
+owner trashes, deletes or changes visibility. Every version records who uploaded it, and <code>?base=n</code> refuses an
+upload if the page has moved past version n. Each page's versions are listed at <code>/history/&lt;name&gt;</code>.</li>
 <li><b>Lifecycle:</b> active → trashed → purged, or trashed → active again. A trashed page can't take new
 versions, and only trashed pages can be purged; anything else returns 409 with the allowed actions.</li>
 <li>Pages run in a sandbox: their JavaScript works, but it can't use browser storage or call this API.</li>

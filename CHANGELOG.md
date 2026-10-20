@@ -7,6 +7,23 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Open editing:** `html-server config editing open` lets any signed-in user upload
+  new versions of, or restore old versions of, public pages. Only the owner can still
+  trash, delete, change visibility or edit private pages. Off by default.
+- **Version authors:** every version records who uploaded it, shown in the history,
+  the review page and `html-server history`. On upgrade, existing versions are
+  credited to their page's owner.
+- **History page** at `/history/<name>`: every version with its date, author, note
+  and size, links to view each one and its changes, and a picker to compare any two
+  (visible text or HTML source). Linked from gallery cards and the review page.
+- **Overwrite guard:** `put --base N` (or `?base=N` / `X-Base`) refuses the upload if
+  someone added a version after vN.
+- `html-server history NAME` lists a page's versions.
+- **`html-server backup [PATH] [--keep N]`:** a checked snapshot of the database, safe
+  while the server is running, written to `~/.html-server/backups/` by default and
+  readable only by you. `--keep N` prunes older timestamped backups. The README
+  now has steps for updating a deployment.
+
 ## 0.2.0 (2026-10-20)
 
 - **`/pages/{slug}` is the canonical page URL**, so this server can replace a service

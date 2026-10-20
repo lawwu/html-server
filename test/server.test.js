@@ -317,3 +317,75 @@ test('legacy /pages/{slug} URLs: new uploads, with or without .html', async () =
   assert.match((await req('GET', '/'))[1], /href="\/pages\/roadmap"/);
   assert.match((await req('GET', '/_static/review.js'))[1], /\/pages\/\$\{S\}/);
 });
+
+test('open editing: others add versions to public pages; the owner keeps control', async () => {
+  const bob = (await req('POST', '/api/users', { body: '{"name":"bob"}', token: admin }))[1].token;
+  await put('plan.html', '<p>v1 by admin</p>');
+  await put('mine.html', '<p>private</p>', admin, '?visibility=private');
+
+  assert.equal((await put('plan.html', '<p>bob</p>', bob))[0], 409); // default: owner-only
+  store.setEditing('open'); // what `html-server config editing open` does
+
+  let [s, a] = await put('plan.html', '<p>v2 by bob</p>', bob, '?note=tightened');
+  assert.deepEqual([s, a.latest_version, a.owner], [200, 2, 'admin']); // still admin's page
+  assert.deepEqual(a.versions.map((v) => v.author), ['admin', 'bob']);
+  assert.equal(a.can_edit, true);
+  assert.equal((await req('GET', '/api/artifacts/plan.html'))[1].can_edit, false); // anonymous
+
+  // Bob can restore an old version; it is credited to him.
+  [s, a] = await req('POST', '/api/artifacts/plan.html/versions/1/restore', { token: bob });
+  assert.deepEqual([a.latest_version, a.versions.at(-1).author, a.versions.at(-1).note], [3, 'bob', 'restored from v1']);
+
+  // Only the owner trashes, deletes or changes visibility; private pages stay off-limits.
+  assert.equal((await req('DELETE', '/api/artifacts/plan.html', { token: bob }))[0], 403);
+  assert.equal((await req('POST', '/api/artifacts/plan.html/visibility?to=private', { token: bob }))[0], 403);
+  assert.equal((await put('plan.html', '<p>x</p>', bob, '?visibility=private'))[0], 403);
+  assert.equal((await put('mine.html', '<p>x</p>', bob))[0], 409);
+  await req('DELETE', '/api/artifacts/plan.html', { token: admin });
+  assert.equal((await put('plan.html', '<p>x</p>', bob))[0], 409); // trashed: nobody adds versions
+});
+
+test('base guard: an upload started from an old version is refused', async () => {
+  await put('doc.html', '<p>1</p>');
+  await put('doc.html', '<p>2</p>');
+  const [s, e] = await put('doc.html', '<p>3</p>', admin, '?base=1');
+  assert.equal(s, 409);
+  assert.match(e.error, /at v2 now, but you started from v1/);
+  assert.equal((await put('doc.html', '<p>3</p>', admin, '?base=2'))[1].latest_version, 3);
+  const r = await fetch(`${base}/api/artifacts/doc.html`, { method: 'PUT', body: '<p>4</p>',
+    headers: { Authorization: `Bearer ${admin}`, 'X-Base': '2' } });
+  assert.equal(r.status, 409); // the header form works too
+});
+
+test('older databases: existing versions are credited to the page owner', async () => {
+  await put('old.html', '<p>before authors existed</p>');
+  store.db.exec('ALTER TABLE versions DROP COLUMN author_id'); // what a 0.2.0 database looks like
+  store.close();
+  store = new Store(join(dir, 't.db'));
+  server.close();
+  server = makeServer(store);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}`;
+  assert.deepEqual((await req('GET', '/api/artifacts/old.html'))[1].versions.map((v) => v.author), ['admin']);
+});
+
+test('history page: every version, view links, and compare any two', async () => {
+  await put('guide.html', '<title>Guide</title><p>one</p>', admin, '?note=first');
+  await put('guide.html', '<title>Guide</title><p>two</p>', admin, '?note=second');
+  await put('guide.html', '<title>Guide</title><p>three</p>');
+  const [s, page] = await req('GET', '/history/guide');
+  assert.equal(s, 200);
+  assert.match(page, /3 versions/);
+  assert.match(page, /href="\/pages\/guide.html\?v=1">v1<\/a>/);
+  assert.match(page, /v3<\/a> <span class="cur">current<\/span>/);
+  assert.match(page, /href="\/review\/guide.html\/changes\?from=2&amp;to=3&amp;back=1">changes/);
+  assert.match((await req('GET', '/review/guide/changes?from=2&to=3&back=1'))[1], /href="\/history\/guide" target="_top">← History/);
+  assert.doesNotMatch((await req('GET', '/review/guide/changes?from=2&to=3'))[1], /← History/); // framed in review: no link
+  assert.match(page, /<td>second<\/td>/);
+  assert.match(page, /<select name="from"[^>]*>.*<option value="2" selected>/s); // compare defaults: previous vs latest
+  assert.match((await req('GET', '/review/guide/changes?from=1&to=3'))[1], /one/); // what the compare form opens
+  assert.match((await req('GET', '/'))[1], /href="\/history\/guide.html">history/);
+  await put('hidden.html', '<p>x</p>', admin, '?visibility=private');
+  assert.equal((await req('GET', '/history/hidden'))[0], 404);
+  assert.equal((await req('GET', '/history/hidden', { token: admin }))[0], 200);
+});
