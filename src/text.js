@@ -42,6 +42,38 @@ export function extractText(doc) {
   return { title, body: visibleText(doc).replace(/\s+/g, ' ').trim() };
 }
 
+/** The content of <meta name="NAME" content="...">, or ''. */
+export function metaContent(doc, name) {
+  for (const tag of doc.match(/<meta\b[^>]*>/gi) || []) {
+    if (new RegExp(`\\bname\\s*=\\s*["']?${name}["'\\s>/]`, 'i').test(tag)) {
+      const m = tag.match(/\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+      if (m) return (m[1] ?? m[2]).trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * The pages a page links to on this server: href values like "/pages/x.html",
+ * "/x.html" or a bare relative "x.html" / "./x". Returns candidate slugs (deduplicated);
+ * whether each one exists is decided when the graph is drawn, so a link to a page
+ * uploaded later starts counting then.
+ */
+export function extractLinks(doc, { isSlug = () => true } = {}) {
+  const out = new Set();
+  for (const m of doc.matchAll(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
+    let href = (m[1] ?? m[2] ?? m[3] ?? '').trim().replace(/[?#].*$/, '');
+    if (!href || /^[a-z][a-z0-9+.-]*:|^\/\//i.test(href)) continue; // other sites, mailto:, data:, …
+    try { href = decodeURIComponent(href); } catch { continue; }
+    let slug;
+    if (href.startsWith('/pages/')) slug = href.slice(7);
+    else if (href.startsWith('/')) slug = href.slice(1);
+    else slug = href.replace(/^\.\//, '');
+    if (slug && !slug.includes('/') && isSlug(slug)) out.add(slug);
+  }
+  return [...out];
+}
+
 /** Visible text, one line per block element: what a reader would call "the content". */
 export function extractLines(doc) {
   return visibleText(doc).split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
@@ -201,6 +233,13 @@ export function unifiedDiff(a, b, fromLabel, toLabel, n = DIFF_CONTEXT_LINES) {
   }
   return out.length ? out.join('\n') + '\n' : '';
 }
+
+// Search highlighting. SQLite marks matched words with \u0001…\u0002 (characters that
+// never appear in page text), and cards turn them into <mark>, so a title like
+// "[Draft] plan" can't be mistaken for a highlight. The API spells them [ and ].
+export const HIT = Symbol('search hits'); // on a search result: { title, snippet } with raw markers
+export const markHits = (escaped) => escaped.replace(/\u0001/g, '<mark>').replace(/\u0002/g, '</mark>');
+export const bracketHits = (s) => s.replace(/\u0001/g, '[').replace(/\u0002/g, ']');
 
 export const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);

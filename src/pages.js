@@ -1,7 +1,7 @@
-// Server-rendered pages: the gallery at /, the API docs, the review shell, and the
-// side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
-import { MAX_BODY_BYTES, RESERVED_SLUGS } from './config.js';
-import { escapeHtml as esc, groupedOpcodes } from './text.js';
+// Server-rendered pages: your pages at /, the example gallery at /gallery, history,
+// the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
+import { MAX_BODY_BYTES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, VERSION } from './config.js';
+import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
 
 const CATEGORY_LABELS = {
   featured: 'Featured',
@@ -16,36 +16,65 @@ const CATEGORY_LABELS = {
 };
 export const categoryLabel = (c) => CATEGORY_LABELS[c] || c.replace(/-/g, ' ').replace(/^./, (x) => x.toUpperCase());
 
+/** On every page the server draws itself (never on uploaded pages): which version is running, and where it lives. */
+export const footer = () => `<footer class="site-foot"><a href="${RELEASE_URL}">HTML Server v${esc(VERSION)}</a>
+  · <a href="${REPO_URL}">Source on GitHub</a> · <a href="/api">API</a></footer>`;
+
 const shell = (title, body, { scripts = [], bodyAttrs = '' } = {}) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title><link rel="stylesheet" href="/_static/style.css"></head>
-<body ${bodyAttrs}>${body}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
+<body ${bodyAttrs}>${body}${footer()}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
 
 const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
-/** The cards for a result set: also served alone as the live-search fragment. */
-export function galleryCards(items, q) {
+/** The bar at the top of the server's own pages. */
+export function siteNav(active) {
+  const item = (href, label, key) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a>`;
+  return `<header class="site"><a class="brand" href="/">HTML Server</a>
+<nav>${item('/', 'Pages', 'pages')}${item('/graph', 'Graph', 'graph')}${item('/gallery', 'Gallery', 'gallery')}${item('/api', 'API', 'api')}</nav></header>`;
+}
+
+/**
+ * The cards for a result set: also served alone as the live-search fragment.
+ * Each card leads with a live, scaled-down preview of the page (?preview=1: not
+ * counted as a view, no sidebar), loaded only when it scrolls into view. The frame
+ * needs no sandbox attribute: the page itself is served with a sandbox CSP header.
+ */
+export function galleryCards(items, q, { base = '/' } = {}) {
   if (!items.length) return `<p class="empty">${q ? 'No matches.' : 'Nothing here yet.'}</p>`;
   return items.map((i) => {
-    const snippet = i.snippet ? esc(i.snippet).replace(/\[/g, '<mark>').replace(/\]/g, '</mark>') : esc(i.description);
+    const hits = i[HIT];
+    const title = hits?.title ? markHits(esc(hits.title)) : esc(i.title);
+    const snippet = hits?.snippet ? markHits(esc(hits.snippet)) : esc(i.description);
+    const S = encodeURIComponent(i.slug);
+    const meta = i.example
+      ? `example page · ${esc(i.slug)}`
+      : `${esc(i.slug)} · ${esc(i.owner)} · v${i.latest_version} · ${day(i.updated_at)} · ${plural(i.views, 'view')}${i.visibility === 'private' ? ' · private' : ''}
+    · <a href="/review/${S}">review</a> · <a href="/history/${S}">history</a>`;
     return `<article class="card">
-  ${i.category ? `<a class="tag" href="/?category=${encodeURIComponent(i.category)}">${esc(categoryLabel(i.category))}</a>` : ''}
-  <h2><a href="${esc(i.url)}">${esc(i.title)}</a></h2>
+  <a class="thumb" href="${esc(i.url)}" tabindex="-1" aria-hidden="true"><iframe src="${esc(i.url)}?preview=1" loading="lazy"
+    scrolling="no" title="" tabindex="-1"></iframe></a>
+  <div class="head"><h2><a href="${esc(i.url)}">${title}</a></h2>
+  ${i.category ? `<a class="tag" href="${base}?category=${encodeURIComponent(i.category)}">${esc(categoryLabel(i.category))}</a>` : ''}</div>
   ${snippet ? `<p class="desc">${snippet}</p>` : ''}
-  <p class="meta">${esc(i.slug)} · ${esc(i.owner)} · v${i.latest_version} · ${day(i.updated_at)} · ${plural(i.views, 'view')}${i.visibility === 'private' ? ' · private' : ''}
-    · <a href="/review/${encodeURIComponent(i.slug)}">review</a> · <a href="/history/${encodeURIComponent(i.slug)}">history</a></p>
+  <p class="meta">${meta}</p>
 </article>`;
   }).join('\n');
 }
 
 export const VIEWS = ['grid', 'list'];
 
-export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid' }) {
+/**
+ * A browsable set of pages: your pages at / ("pages"), or the bundled examples at
+ * /gallery ("gallery"). Category chips, search, grid/list and previews.
+ */
+export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages' }) {
+  const base = section === 'gallery' ? '/gallery' : '/';
   // Links keep the other settings, so the page works fully without JS.
   const link = (over) => {
     const p = new URLSearchParams(Object.entries({ q, category, view, ...over }).filter(([k, v]) => v && !(k === 'view' && v === 'grid')));
-    return `/${p.size ? `?${p}` : ''}`;
+    return `${base}${p.size ? `?${p}` : ''}`;
   };
   const chip = (value, label, count) => `<a class="chip${value === category ? ' on' : ''}" data-category="${esc(value)}"
     href="${esc(link({ category: value, q: '' }))}">${esc(label)}${count != null ? ` <span>${count}</span>` : ''}</a>`;
@@ -53,15 +82,41 @@ export function galleryPage(items, { q = '', category = '', categories = [], vie
     aria-label="${label}" aria-pressed="${v === view}" title="${label}">${icon}</a>`;
   const grid = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>';
   const list = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="2" width="14" height="2.5" rx="1.2"/><rect x="1" y="6.75" width="14" height="2.5" rx="1.2"/><rect x="1" y="11.5" width="14" height="2.5" rx="1.2"/></svg>';
-  return shell('Artifacts', `<main class="wrap">
-<header class="top"><h1>Artifacts</h1><nav><a href="/api">API</a></nav></header>
-<form id="search" role="search"><input id="q" name="q" value="${esc(q)}" placeholder="Search — typos are fine" autocomplete="off" autofocus>
+  const intro = section === 'gallery'
+    ? '<p class="intro">Example pages that ship with HTML Server: what single-file HTML can do, from explainers and diagrams to small tools. Open one, or use it as a starting point for your own.</p>'
+    : '';
+  return shell(section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section)}<main class="wrap">
+${intro}<form id="search" role="search" data-base="${base}"><input id="q" name="q" value="${esc(q)}" placeholder="${section === 'gallery' ? 'Search examples' : 'Search pages'}" autocomplete="off" autofocus>
 ${category ? `<input type="hidden" name="category" value="${esc(category)}">` : ''}
 ${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : ''}</form>
 <div class="bar2"><nav class="chips" aria-label="Categories">${chip('', 'All')}${categories.map((c) => chip(c.category, categoryLabel(c.category), c.count)).join('')}</nav>
 <div class="views" role="group" aria-label="Layout">${toggle('grid', 'Grid view', grid)}${toggle('list', 'List view', list)}</div></div>
 <p id="count" class="meta"></p>
-<section id="results" class="${view}">${galleryCards(items, q)}</section></main>`, { scripts: ['gallery.js'] });
+<section id="results" class="${view}">${galleryCards(items, q, { base })}</section></main>`, { scripts: ['gallery.js'] });
+}
+
+/**
+ * Pages and the links between them, drawn by public/graph.js. The data is embedded
+ * (it's the same as /api/graph), so the page draws without a second request.
+ */
+export function graphPage(data) {
+  const cats = [...new Set(data.nodes.map((n) => n.category).filter(Boolean))].sort();
+  const json = JSON.stringify({ ...data, labels: Object.fromEntries(cats.map((c) => [c, categoryLabel(c)])) })
+    .replace(/</g, '\\u003c');
+  const linked = new Set(data.edges.flatMap((e) => [e.source, e.target])).size;
+  const focus = data.focus != null ? data.nodes.find((n) => n.id === data.focus) : null;
+  const intro = focus
+    ? `<p class="intro">Pages linked to or from <a href="${esc(focus.url)}">${esc(focus.title)}</a> (ringed).
+<a href="/graph">See all pages</a> · <a href="/history/${encodeURIComponent(focus.slug)}">History</a></p>`
+    : `<p class="intro">Your pages, and the links between them. A dot is a page, sized by how many links it has; a line is
+a link from one page to another (<code>/pages/x</code>, <code>/x</code> or a relative <code>x.html</code>). Hover to see a
+page's neighbours, click to open it, drag a dot or the background, scroll to zoom: labels appear as you zoom in.</p>`;
+  return shell(focus ? `Graph: ${focus.title} · HTML Server` : 'Graph · HTML Server', `${siteNav('graph')}<main class="wrap graph-wrap">
+${intro}
+<p class="meta">${plural(data.nodes.length, 'page')} · ${plural(data.edges.length, 'link')} · ${plural(linked, 'page')} with links</p>
+<div id="graph" class="graph" role="img" aria-label="Graph of pages and links"></div>
+<div id="legend" class="legend"></div>
+<script id="graph-data" type="application/json">${json}</script></main>`, { scripts: ['graph.js'] });
 }
 
 /** Every version, newest first: view it, see what it changed, or compare any two. */
@@ -79,8 +134,8 @@ export function historyPage(a) {
     · <a href="/review/${S}?v=${v.n}">review</a></td></tr>`).join('');
   const opts = (sel) => a.versions.slice().reverse()
     .map((v) => `<option value="${v.n}"${v.n === sel ? ' selected' : ''}>v${v.n}</option>`).join('');
-  return shell(`History: ${a.title}`, `<main class="wrap history">
-<p class="meta"><a href="/">Artifacts</a> / <a href="/pages/${S}">${esc(a.title)}</a></p>
+  return shell(`History: ${a.title} · HTML Server`, `${siteNav()}<main class="wrap history">
+<p class="meta"><a href="/pages/${S}">${esc(a.title)}</a> · <a href="/graph?page=${S}">Graph</a></p>
 <h1>History</h1>
 <p class="meta">${esc(a.slug)} · ${a.versions.length} version${a.versions.length === 1 ? '' : 's'} · owned by ${esc(a.owner)}</p>
 ${a.versions.length > 1 ? `<form class="compare" action="/review/${S}/changes" method="get">
@@ -93,7 +148,7 @@ ${a.versions.length > 1 ? `<form class="compare" action="/review/${S}/changes" m
 }
 
 export function reviewPage(slug) {
-  return shell('Review', `<header class="bar"><h1><a href="/">Artifacts</a> / <span id="title"></span></h1>
+  return shell('Review', `<header class="bar"><h1><a href="/">HTML Server</a> / <span id="title"></span></h1>
 <select id="ver" aria-label="Version"></select>
 <button id="changes">Show changes</button><button id="restore" hidden>Make this version current</button>
 <a id="open" target="_blank">Open page</a> <a id="hist">History</a> <a id="jump" href="#comments">Comments</a></header>
@@ -147,7 +202,11 @@ export function docsPage(base, routes) {
   const display = (pattern) => pattern.replace(/\(\?<(\w+)>[^)]*\)/g, '<$1>').replace(/\/\?/g, '/').replace(/\(\?:|\)\?/g, '') || '/';
   const rows = routes.filter((r) => r.doc).map((r) =>
     `<tr><td><b>${r.method}</b></td><td><code>${esc(display(r.path))}</code></td><td>${esc(r.who)}</td><td>${md(r.doc)}</td></tr>`).join('');
-  return shell('Artifacts API', `<main class="wrap docs"><p><a href="/">← Artifacts</a></p><h1>API</h1>
+  return shell('API · HTML Server', `${siteNav('api')}<main class="wrap docs"><h1>API</h1>
+<p class="lead">The HTTP API of this server, running <a href="${RELEASE_URL}">HTML Server v${esc(VERSION)}</a>
+(<a href="${RELEASE_URL}">release notes</a>). Source, changelog and every release:
+<a href="${REPO_URL}">${esc(REPO_URL.replace('https://', ''))}</a>. Install the command-line client with
+<code>npm install -g github:lawwu/html-server#v${esc(VERSION)}</code>.</p>
 <h2>Quickstart</h2>
 <pre>A=${esc(base)}
 H="Authorization: Bearer $HTML_SERVER_TOKEN"

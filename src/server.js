@@ -6,7 +6,8 @@ import {
   MAX_BODY_BYTES, RENDER_CSP, TOC_MIN_HEADINGS,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, diffPage, docsPage, galleryCards, galleryPage, historyPage, reviewPage } from './pages.js';
+import { VIEWS, diffPage, docsPage, galleryCards, galleryPage, graphPage, historyPage, reviewPage } from './pages.js';
+import { exampleCategories, exampleHtml, findExamples } from './examples.js';
 import { Store } from './store.js';
 import { ApiError, unifiedDiff } from './text.js';
 
@@ -17,7 +18,13 @@ const CID = '(?<cid>\\d+)';
 // renders from this table, so documenting a route means filling in its row; rows
 // with no description stay off the page. The bare /<slug> page route matches last.
 export const ROUTES = [
-  ['GET', '/', 'gallery', 'anyone', 'The gallery: browse, filter by `?category=`, search (`?q=`) public pages; `?view=list` for the list layout'],
+  ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first); `?view=list` for the list layout'],
+  ['GET', '/graph', 'graph', 'anyone*',
+    'Your pages and the links between them, as an interactive graph. `?page=<name>` (and `&depth=2`) for one page\'s neighbourhood'],
+  ['GET', '/api/graph', 'graphData', 'anyone*',
+    'The graph as JSON: `nodes` (pages, with links in and out) and `edges` (`source` → `target` page ids); same `?page=` and `?depth=`'],
+  ['GET', '/gallery/?', 'examples', 'anyone', 'The example pages that ship with HTML Server, with the same filters and search'],
+  ['GET', '/gallery/(?<file>[A-Za-z0-9][\\w.-]*\\.html)', 'example', 'anyone', 'One example page'],
   ['GET', '/api/?', 'docs', 'anyone', 'This page'],
   ['GET', '/_static/(?<file>[\\w.-]+)', 'static', 'anyone', null],
   ['GET', `/pages/${SLUG}`, 'render', 'anyone*',
@@ -70,16 +77,29 @@ export const ROUTES = [
 
 const STATIC_DIR = new URL('../public/', import.meta.url);
 const TOC_SCRIPT = readFileSync(new URL('toc.js', STATIC_DIR), 'utf8');
+const VERSION_BADGE_SCRIPT = readFileSync(new URL('version-badge.js', STATIC_DIR), 'utf8');
+
+/** Insert a script just before the page's last </body> (or at the end). Display-time only. */
+function injectScript(html, attrs, code) {
+  // A </script> inside the script would end it early; ours have none, but be safe.
+  const tag = `<script ${attrs}>${code.replace(/<\/script/gi, '<\\/script')}</script>`;
+  const at = html.search(/<\/body\s*>(?![\s\S]*<\/body\s*>)/i);
+  return at === -1 ? html + tag : html.slice(0, at) + tag + html.slice(at);
+}
 
 /** Add the contents sidebar to a page with enough headings (see TOC_MIN_HEADINGS). */
 export function withToc(doc) {
   const html = doc.toString('utf8');
   if ((html.match(/<h[23][\s>]/gi) || []).length < TOC_MIN_HEADINGS) return doc;
   if (/<meta\b[^>]*name\s*=\s*["']?toc["']?[^>]*content\s*=\s*["']?off/i.test(html)) return doc;
-  // A </script> inside the script would end it early; toc.js has none, but be safe.
-  const tag = `<script data-artifact-toc-script>${TOC_SCRIPT.replace(/<\/script/gi, '<\\/script')}</script>`;
-  const at = html.search(/<\/body\s*>(?![\s\S]*<\/body\s*>)/i);
-  return Buffer.from(at === -1 ? html + tag : html.slice(0, at) + tag + html.slice(at));
+  return Buffer.from(injectScript(html, 'data-artifact-toc-script', TOC_SCRIPT));
+}
+
+/** On an old version, a small badge: "v2 of 6", with links to the current version and the history. */
+export function withVersionBadge(doc, { n, latest, current, history }) {
+  const a = (k, v) => (v == null ? '' : ` data-${k}="${String(v).replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)}"`);
+  const attrs = `data-artifact-version-badge${a('n', n)}${a('latest', latest)}${a('current', current)}${a('history', history)}`;
+  return Buffer.from(injectScript(doc.toString('utf8'), attrs, VERSION_BADGE_SCRIPT));
 }
 
 const STATIC_TYPES = { css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', svg: 'image/svg+xml' };
@@ -104,7 +124,31 @@ class Ctx {
     this.send(200, 'text/html; charset=utf-8', body, { 'Content-Security-Policy': RENDER_CSP, 'X-Content-Type-Options': 'nosniff' });
   }
 
-  maybeToc(doc) { return this.query.get('toc') === '0' ? doc : withToc(doc); }
+  /** ?page=<name>[&depth=n]: a local graph around one page (depth 1-3, default 1). */
+  graphScope() {
+    const depth = this.int('depth');
+    if (depth != null && (depth < 1 || depth > 3)) throw new ApiError(400, 'depth must be 1, 2 or 3');
+    return { focus: this.query.get('page') || undefined, depth: depth ?? 1 };
+  }
+
+  /** A gallery listing, or with ?fragment just its cards (what live search swaps in). */
+  listing(items, opts) {
+    const base = opts.section === 'gallery' ? '/gallery' : '/';
+    if (this.query.get('fragment')) return this.html(galleryCards(items, opts.q, { base }));
+    const view = VIEWS.includes(this.query.get('view')) ? this.query.get('view') : 'grid';
+    this.html(galleryPage(items, { ...opts, view }));
+  }
+
+  /** ?preview=1: a gallery-card thumbnail. Not a view, and no sidebar or badge drawn over it. */
+  preview() { return !!this.query.get('preview'); }
+
+  /** What we add to a page at display time: the contents sidebar, and on an old version a badge. */
+  decorate({ body, n, latest }, links) {
+    if (this.preview()) return body;
+    let doc = this.query.get('toc') === '0' ? body : withToc(body);
+    if (n < latest) doc = withVersionBadge(doc, { n, latest, ...links });
+    return doc;
+  }
 
   int(name) {
     const v = this.query.get(name);
@@ -151,9 +195,19 @@ const handlers = {
     const q = (c.query.get('q') || '').trim();
     const category = c.query.get('category') || '';
     const items = c.store.list(null, { q: q || undefined, category: category || undefined, limit: 500 });
-    if (c.query.get('fragment')) return c.html(galleryCards(items, q)); // live search swaps this in
-    const view = VIEWS.includes(c.query.get('view')) ? c.query.get('view') : 'grid';
-    c.html(galleryPage(items, { q, category, categories: c.store.categories(null), view }));
+    c.listing(items, { q, category, categories: c.store.categories(null), section: 'pages' });
+  },
+  graph(c) { c.html(graphPage(c.store.graph(c.viewerId(), c.graphScope()))); },
+  graphData(c) { c.json(200, c.store.graph(c.viewerId(), c.graphScope())); },
+  examples(c) {
+    const q = (c.query.get('q') || '').trim();
+    const category = c.query.get('category') || '';
+    c.listing(findExamples({ q, category }), { q, category, categories: exampleCategories(), section: 'gallery' });
+  },
+  example(c, { file }) {
+    const body = exampleHtml(file);
+    if (!body) throw new ApiError(404, 'no such example');
+    c.page(c.preview() || c.query.get('toc') === '0' ? body : withToc(body));
   },
   docs(c) { c.html(docsPage(`http://${c.req.headers.host || 'localhost'}`, ROUTES)); },
   static(c, { file }) {
@@ -163,8 +217,16 @@ const handlers = {
     try { body = readFileSync(new URL(file, STATIC_DIR)); } catch { throw new ApiError(404, 'not found'); }
     c.send(200, type, body, { 'Cache-Control': 'no-cache' });
   },
-  render(c, { slug }) { c.page(c.maybeToc(c.store.render(slug, c.int('v'), c.viewerId(), c.visit()))); },
-  renderShare(c, { share }) { c.page(c.maybeToc(c.store.renderShare(share, c.int('v'), c.visit()))); },
+  render(c, { slug }) {
+    const r = c.store.render(slug, c.int('v'), c.viewerId(), c.preview() ? null : c.visit());
+    const S = encodeURIComponent(r.slug);
+    c.page(c.decorate(r, { current: `/pages/${S}`, history: `/history/${S}` }));
+  },
+  renderShare(c, { share }) {
+    // A share link may be a private page, whose history needs a sign-in: no history link.
+    const r = c.store.renderShare(share, c.int('v'), c.preview() ? null : c.visit());
+    c.page(c.decorate(r, { current: `/v/${encodeURIComponent(share)}` }));
+  },
   // Always the shell: the script loads the page with the viewer's saved token, so
   // private pages work and missing ones show "not found" in place.
   review(c, { slug }) { c.html(reviewPage(slug)); },

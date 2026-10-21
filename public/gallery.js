@@ -7,6 +7,7 @@ const count = document.getElementById('count');
 const toggles = [...document.querySelectorAll('.vt')];
 const url = new URLSearchParams(location.search);
 const category = url.get('category') || '';
+const BASE = box.form.dataset.base || '/'; // "/" for your pages, "/gallery" for the examples
 const PREF = 'artifact_gallery_view';
 let ctl, timer;
 
@@ -22,7 +23,7 @@ function stateParams(q = box.value.trim()) {
   if (view !== 'grid') p.set('view', view);
   return p;
 }
-const syncUrl = () => { const p = stateParams(); history.replaceState(null, '', p.size ? `/?${p}` : '/'); };
+const syncUrl = () => { const p = stateParams(); history.replaceState(null, '', p.size ? `${BASE}?${p}` : BASE); };
 
 function setView(v) {
   view = v;
@@ -45,7 +46,7 @@ async function search() {
     const p = new URLSearchParams({ fragment: '1' });
     if (q) p.set('q', q);
     if (category) p.set('category', category);
-    const r = await fetch(`/?${p}`, { signal: ctl.signal });
+    const r = await fetch(`${BASE}?${p}`, { signal: ctl.signal });
     results.innerHTML = r.ok ? await r.text() : '<p class="empty">Search failed.</p>';
     const n = results.querySelectorAll('.card').length;
     count.textContent = q ? `${n} match${n === 1 ? '' : 'es'}` : '';
@@ -65,7 +66,7 @@ document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('clic
   if (q) p.set('q', q);
   if (chip.dataset.category) p.set('category', chip.dataset.category);
   if (view !== 'grid') p.set('view', view);
-  location.href = p.size ? `/?${p}` : '/';
+  location.href = p.size ? `${BASE}?${p}` : BASE;
 }));
 
 if (view !== results.className) setView(view);

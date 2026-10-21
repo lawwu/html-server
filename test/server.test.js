@@ -1,7 +1,7 @@
 // End-to-end API tests: a fresh database and server per test, so tests can't see
 // each other's pages.   npm test   (or: node --test test/)
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
@@ -388,4 +388,170 @@ test('history page: every version, view links, and compare any two', async () =>
   await put('hidden.html', '<p>x</p>', admin, '?visibility=private');
   assert.equal((await req('GET', '/history/hidden'))[0], 404);
   assert.equal((await req('GET', '/history/hidden', { token: admin }))[0], 200);
+});
+
+test('search ranks title matches first, then file names, then body text', async () => {
+  await put('notes.html', '<title>Misc notes</title><p>budget budget budget budget budget planning</p>');
+  await put('plan.html', '<title>Family budget</title><p>see the spreadsheet</p>');
+  await put('household-budget.html', '<title>House</title><p>numbers</p>');
+  const order = async (q) => slugs((await req('GET', `/api/artifacts?q=${q}`))[1]);
+  assert.deepEqual(await order('budget'), ['plan.html', 'household-budget.html', 'notes.html']);
+  assert.deepEqual((await order('family budget'))[0], 'plan.html'); // whole query in the title
+  assert.deepEqual(await order('household'), ['household-budget.html']); // file name is searchable
+  assert.deepEqual((await order('budgt'))[0], 'plan.html'); // typos still work, same ranking
+});
+
+test('an older search index is rebuilt on startup, keeping every page findable', async () => {
+  await put('old.html', '<title>Lighthouse keeper</title><p>fog horn</p>');
+  // Put back the 0.3.0 layout (title, body) and its version marker, as an old database has.
+  store.db.exec("DROP TABLE artifacts_vocab; DROP TABLE artifacts_fts; CREATE VIRTUAL TABLE artifacts_fts USING fts5(title, body);"
+    + " CREATE VIRTUAL TABLE artifacts_vocab USING fts5vocab(artifacts_fts, 'row'); DELETE FROM meta WHERE key = 'search_index'");
+  store.close();
+  store = new Store(join(dir, 't.db'));
+  server.close();
+  server = makeServer(store);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}`;
+  assert.deepEqual(slugs((await req('GET', '/api/artifacts?q=lighthouse'))[1]), ['old.html']);
+  assert.deepEqual(slugs((await req('GET', '/api/artifacts?q=horn'))[1]), ['old.html']);
+  assert.equal(store.setting('search_index'), '2');
+});
+
+test('site header, title and search box', async () => {
+  const [, page] = await req('GET', '/');
+  assert.match(page, /<title>HTML Server<\/title>/);
+  assert.match(page, /<a class="brand" href="\/">HTML Server<\/a>/);
+  assert.match(page, /<a href="\/gallery">Gallery<\/a>/);
+  assert.match(page, /placeholder="Search pages"/);
+  assert.doesNotMatch(page, /typos are fine/);
+  assert.match((await req('GET', '/api'))[1], /<a href="\/api" class="on"/);
+});
+
+test('/gallery: the bundled example pages, filterable and searchable', async () => {
+  const [s, page] = await req('GET', '/gallery');
+  assert.equal(s, 200);
+  assert.match(page, /<title>Gallery · HTML Server<\/title>/);
+  assert.equal(page.match(/<article class="card">/g).length, 13);
+  assert.match(page, /Machine learning <span>2<\/span>/);
+  assert.match(page, /href="\/gallery\/kmeans-step-through.html"/);
+  assert.match(page, /data-base="\/gallery"/);
+  const [, ml] = await req('GET', '/gallery?category=machine-learning');
+  assert.equal(ml.match(/<article class="card">/g).length, 2);
+  const [, frag] = await req('GET', '/gallery?q=kmeans&fragment=1');
+  assert.equal(frag.match(/<article class="card">/g).length, 1);
+  assert.doesNotMatch(frag, /<html/);
+
+  const [s2, ex, h] = await req('GET', '/gallery/kmeans-step-through.html');
+  assert.equal(s2, 200);
+  assert.match(ex, /k-means/);
+  assert.match(h.get('content-security-policy'), /sandbox/);
+  assert.equal((await req('GET', '/gallery/nope.html'))[0], 404);
+  assert.equal((await req('GET', '/gallery/..%2Fpackage.json'))[0], 404);
+  assert.deepEqual((await req('GET', '/'))[1].match(/kmeans/), null); // examples aren't your pages
+  assert.equal((await put('gallery', '<p>x</p>'))[0], 400); // reserved
+});
+
+test('card previews load the page without counting a view or drawing extras', async () => {
+  const long = '<title>Long</title><h2>A</h2><h2>B</h2><h2>C</h2>';
+  await put('long.html', long);
+  await put('long.html', long + '<p>v2</p>');
+  assert.match((await req('GET', '/'))[1], /<iframe src="\/pages\/long.html\?preview=1" loading="lazy"/);
+  const [, prev, h] = await req('GET', '/pages/long.html?preview=1&v=1');
+  assert.doesNotMatch(prev, /data-artifact-toc-script|data-artifact-version-badge/);
+  assert.match(h.get('content-security-policy'), /sandbox/);
+  assert.equal((await req('GET', '/api/artifacts/long.html/views', { token: admin }))[1].views, 0);
+  assert.doesNotMatch((await req('GET', '/gallery/kmeans-step-through.html?preview=1'))[1], /data-artifact-toc-script/);
+});
+
+test('an old version carries a badge linking to the current version and history', async () => {
+  const [, a] = await put('memo.html', '<p>one</p>');
+  await put('memo.html', '<p>two</p>');
+  const [, old] = await req('GET', '/pages/memo?v=1');
+  assert.match(old, /data-artifact-version-badge data-n="1" data-latest="2" data-current="\/pages\/memo.html" data-history="\/history\/memo.html"/);
+  assert.doesNotMatch((await req('GET', '/pages/memo'))[1], /data-artifact-version-badge/); // current: no badge
+  assert.doesNotMatch((await req('GET', '/pages/memo?v=2'))[1], /data-artifact-version-badge/);
+  const [, shared] = await req('GET', `${a.share_url}?v=1`);
+  assert.match(shared, /data-artifact-version-badge data-n="1" data-latest="2" data-current="\/v\/[\w-]+"/);
+  assert.doesNotMatch(shared, /data-history/); // share links may be private: no history link
+});
+
+test('footer and docs link to the GitHub release that is running; uploaded pages get neither', async () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const release = `https://github.com/lawwu/html-server/releases/tag/v${pkg.version}`;
+  for (const path of ['/', '/gallery', '/api', '/review/x']) {
+    const [, page] = await req('GET', path);
+    assert.match(page, new RegExp(`<footer class="site-foot"><a href="${release}">HTML Server v${pkg.version.replace(/\./g, '\\.')}</a>`), path);
+    assert.match(page, /<a href="https:\/\/github.com\/lawwu\/html-server">Source on GitHub<\/a>/, path);
+  }
+  const [, docs] = await req('GET', '/api');
+  assert.match(docs, new RegExp(`running <a href="${release}">`));
+  assert.match(docs, /npm install -g github:lawwu\/html-server#v/);
+  await put('mine.html', '<p>my page</p>');
+  assert.doesNotMatch((await req('GET', '/pages/mine'))[1], /site-foot|github\.com/);
+  assert.doesNotMatch((await req('GET', '/gallery/kmeans-step-through.html'))[1], /site-foot/);
+});
+
+test('cards put the category chip beside the title', async () => {
+  await put('c.html', '<title>Chart</title><meta name="category" content="data-viz">');
+  assert.match((await req('GET', '/'))[1],
+    /<div class="head"><h2><a href="\/pages\/c.html">Chart<\/a><\/h2>\s*<a class="tag" href="\/\?category=data-viz">Data visualization<\/a><\/div>/);
+});
+
+test('graph: pages and the links between them, visibility-aware, local or global', async () => {
+  await put('a.html', '<title>A</title><a href="/pages/b.html">b</a> <a href="c">c</a> <a href="missing.html">x</a>');
+  await put('b.html', '<title>B</title><a href="a.html">back to a</a>');
+  await put('c.html', '<title>C</title><a href="/d">d</a>');
+  await put('d.html', '<title>D</title>');
+  await put('secret.html', '<title>S</title>', admin, '?visibility=private');
+  await put('e.html', '<title>E</title><a href="/pages/secret">s</a>');
+
+  const [, g] = await req('GET', '/api/graph');
+  const name = (id) => g.nodes.find((n) => n.id === id).slug;
+  const edges = g.edges.map((e) => `${name(e.source)}>${name(e.target)}`).sort();
+  assert.deepEqual(edges, ['a.html>b.html', 'a.html>c.html', 'b.html>a.html', 'c.html>d.html']); // missing + private left out
+  assert.ok(!g.nodes.some((n) => n.slug === 'secret.html'));
+  const a = g.nodes.find((n) => n.slug === 'a.html');
+  assert.deepEqual([a.links_in, a.links_out, a.url], [1, 2, '/pages/a.html']);
+  assert.equal((await req('GET', '/api/graph', { token: admin }))[1].edges.length, 5); // the owner sees the private link
+
+  const [, local] = await req('GET', '/api/graph?page=c');
+  assert.deepEqual(local.nodes.map((n) => n.slug).sort(), ['a.html', 'c.html', 'd.html']); // one hop, either direction
+  const [, wider] = await req('GET', '/api/graph?page=c&depth=2');
+  assert.ok(wider.nodes.some((n) => n.slug === 'b.html'));
+  assert.equal((await req('GET', '/api/graph?page=c&depth=9'))[0], 400);
+
+  // Links follow the latest version.
+  await put('c.html', '<title>C</title><p>no links now</p>');
+  assert.equal((await req('GET', '/api/graph?page=c'))[1].nodes.length, 2); // only a links to c
+
+  const [s, page] = await req('GET', '/graph?page=a');
+  assert.equal(s, 200);
+  assert.match(page, /<title>Graph: A · HTML Server<\/title>/);
+  assert.match(page, /<script id="graph-data" type="application\/json">/);
+  assert.match((await req('GET', '/history/a'))[1], /href="\/graph\?page=a.html">Graph<\/a>/);
+  assert.equal((await put('graph', '<p>x</p>'))[0], 400); // reserved
+});
+
+test('links are backfilled once for databases from before the links table', async () => {
+  await put('x.html', '<a href="y.html">y</a>');
+  await put('y.html', '<p>y</p>');
+  store.db.exec("DELETE FROM links; DELETE FROM meta WHERE key = 'links_index'");
+  store.close();
+  store = new Store(join(dir, 't.db'));
+  server.close();
+  server = makeServer(store);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}`;
+  assert.equal((await req('GET', '/api/graph'))[1].edges.length, 1);
+});
+
+test('search highlights matched words in titles and snippets, typos included', async () => {
+  await put('fam.html', '<title>[Draft] Family budget</title><p>monthly budget review</p>');
+  const [, hits] = await req('GET', '/api/artifacts?q=budgt');
+  assert.equal(hits[0].title_highlight, '[Draft] Family [budget]'); // the API: [brackets]
+  assert.match(hits[0].snippet, /monthly \[budget\] review/);
+  const [, frag] = await req('GET', '/?q=budgt&fragment=1');
+  assert.match(frag, /<h2><a href="\/pages\/fam.html">\[Draft\] Family <mark>budget<\/mark><\/a><\/h2>/); // literal [Draft] stays text
+  assert.match(frag, /monthly <mark>budget<\/mark> review/);
+  assert.equal((await req('GET', '/api/artifacts'))[1][0].title_highlight, undefined); // not searching: no highlight fields
 });

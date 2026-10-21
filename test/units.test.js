@@ -52,3 +52,11 @@ test('unified diff matches Python difflib output', () => {
     '--- v1\n+++ v2\n@@ -1,7 +1,7 @@\n a\n b\n c\n-d\n+D\n e\n f\n g\n@@ -12,3 +12,4 @@\n l\n m\n n\n+o\n');
   assert.equal(unifiedDiff(split('abc'), split('abc'), 'v1', 'v2'), '');
 });
+
+test('extractLinks: links to pages on this server, in the forms people write them', async () => {
+  const { extractLinks } = await import('../src/text.js');
+  const doc = `<a href="/pages/plan.html">a</a> <a href='/budget'>b</a> <a href=notes.html>c</a> <a href="./faq.html#q2">d</a>
+    <a href="https://example.com/x.html">e</a> <a href="mailto:a@b.c">f</a> <a href="/api/artifacts">g</a> <a href="#top">h</a>
+    <a href="/pages/plan.html?v=2">dup</a> <a href="sub/dir.html">i</a>`;
+  assert.deepEqual(extractLinks(doc), ['plan.html', 'budget', 'notes.html', 'faq.html']);
+});
