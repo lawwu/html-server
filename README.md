@@ -377,7 +377,7 @@ folders (`/alice/x.html`) if one shared namespace for names gets crowded. Each o
 
 Releases are git tags, `vX.Y.Z`, following semantic versioning; [`CHANGELOG.md`](CHANGELOG.md)
 says what each one changed, and `html-server --version` says which one you're on.
-Install a specific release with `npm install -g github:lawwu/html-server#v0.3.0`;
+Install a specific release with `npm install -g github:lawwu/html-server#v0.4.0`;
 without the `#…` you get the latest `main`.
 
 To cut a release, add its notes to the changelog's "Unreleased" section, then:
