@@ -1,6 +1,7 @@
 // Server-rendered pages: your pages at /, the example gallery at /gallery, history,
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
 import { MAX_BODY_BYTES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, VERSION } from './config.js';
+import { barList, columnChart, tile } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
 
 const CATEGORY_LABELS = {
@@ -26,50 +27,78 @@ const shell = (title, body, { scripts = [], bodyAttrs = '' } = {}) => `<!doctype
 <body ${bodyAttrs}>${body}${footer()}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
 
 const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
-const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('ch') ? 'es' : 's'}`;
+
+// GitHub's mark (Octicons, MIT), linking to the release that's running.
+const GITHUB_MARK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
 
 /** The bar at the top of the server's own pages. */
 export function siteNav(active) {
   const item = (href, label, key) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a>`;
   return `<header class="site"><a class="brand" href="/">HTML Server</a>
-<nav>${item('/', 'Pages', 'pages')}${item('/graph', 'Graph', 'graph')}${item('/gallery', 'Gallery', 'gallery')}${item('/api', 'API', 'api')}</nav></header>`;
+<nav>${item('/', 'Pages', 'pages')}${item('/graph', 'Graph', 'graph')}${item('/stats', 'Stats', 'stats')}${item('/gallery', 'Gallery', 'gallery')}${item('/api', 'API', 'api')}</nav>
+<a class="gh" href="${RELEASE_URL}" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a></header>`;
 }
 
+const PIN = '<svg class="pin" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.8 1.5 14.5 6.2l-1.4.4-2.5 2.5.3 3.3-1.4 1.4-2.7-2.7-3.5 3.5-.7-.7 3.5-3.5L3.4 7.7l1.4-1.4 3.3.3 2.5-2.5z"/></svg>';
+
 /**
- * The cards for a result set: also served alone as the live-search fragment.
- * Each card leads with a live, scaled-down preview of the page (?preview=1: not
- * counted as a view, no sidebar), loaded only when it scrolls into view. The frame
- * needs no sandbox attribute: the page itself is served with a sandbox CSP header.
+ * The cards for a result set. Each card leads with a live, scaled-down preview of the
+ * page (?preview=1: not counted as a view, no sidebar), loaded only when it scrolls
+ * into view; the frame needs no sandbox attribute, the page itself is served with a
+ * sandbox CSP header. Tags sit as small chips beside the title; a checkbox (shown in
+ * select mode) is how pages are picked for bulk tagging and pinning.
  */
 export function galleryCards(items, q, { base = '/' } = {}) {
-  if (!items.length) return `<p class="empty">${q ? 'No matches.' : 'Nothing here yet.'}</p>`;
   return items.map((i) => {
     const hits = i[HIT];
     const title = hits?.title ? markHits(esc(hits.title)) : esc(i.title);
     const snippet = hits?.snippet ? markHits(esc(hits.snippet)) : esc(i.description);
     const S = encodeURIComponent(i.slug);
+    const tags = i.tags ?? (i.category ? [i.category] : []);
+    const chip = (t) => `<a class="tag" href="${base}?category=${encodeURIComponent(t)}">${esc(categoryLabel(t))}</a>`;
     const meta = i.example
       ? `example page · ${esc(i.slug)}`
       : `${esc(i.slug)} · ${esc(i.owner)} · v${i.latest_version} · ${day(i.updated_at)} · ${plural(i.views, 'view')}${i.visibility === 'private' ? ' · private' : ''}
     · <a href="/review/${S}">review</a> · <a href="/history/${S}">history</a>`;
-    return `<article class="card">
+    return `<article class="card${i.pinned ? ' pinned' : ''}" data-slug="${esc(i.slug)}">
+  ${i.example ? '' : `<label class="pick"><input type="checkbox" value="${esc(i.slug)}" aria-label="Select ${esc(i.title)}"></label>`}
   <a class="thumb" href="${esc(i.url)}" tabindex="-1" aria-hidden="true"><iframe src="${esc(i.url)}?preview=1" loading="lazy"
     scrolling="no" title="" tabindex="-1"></iframe></a>
-  <div class="head"><h2><a href="${esc(i.url)}">${title}</a></h2>
-  ${i.category ? `<a class="tag" href="${base}?category=${encodeURIComponent(i.category)}">${esc(categoryLabel(i.category))}</a>` : ''}</div>
+  <div class="head"><h2>${i.pinned ? PIN : ''}<a href="${esc(i.url)}">${title}</a></h2>
+  ${tags.length ? `<span class="tags">${tags.slice(0, 3).map(chip).join('')}${tags.length > 3 ? `<span class="more">+${tags.length - 3}</span>` : ''}</span>` : ''}</div>
   ${snippet ? `<p class="desc">${snippet}</p>` : ''}
   <p class="meta">${meta}</p>
 </article>`;
   }).join('\n');
 }
 
+/**
+ * The results area: on your pages with no search, a "Featured" section of pinned
+ * pages above "All pages"; otherwise one list. Also what live search swaps in.
+ */
+export function resultsBody(items, q, { base = '/' } = {}) {
+  if (!items.length) return `<p class="empty">${q ? 'No matches.' : 'Nothing here yet.'}</p>`;
+  const pinned = !q && base === '/' ? items.filter((i) => i.pinned) : [];
+  if (!pinned.length) return `<div class="cards">${galleryCards(items, q, { base })}</div>`;
+  return `<h2 class="section-title">${PIN}Featured</h2><div class="cards">${galleryCards(pinned, q, { base })}</div>
+<h2 class="section-title">All pages</h2><div class="cards">${galleryCards(items.filter((i) => !i.pinned), q, { base })}</div>`;
+}
+
 export const VIEWS = ['grid', 'list'];
+
+/** "18 pages · 2 featured", or "13 example pages": the line above the cards. */
+function totalLabel(total, items, section) {
+  if (section === 'gallery') return plural(total, 'example page');
+  const featured = items.filter((i) => i.pinned).length;
+  return `${plural(total, 'page')}${featured ? ` · ${featured} featured` : ''}`;
+}
 
 /**
  * A browsable set of pages: your pages at / ("pages"), or the bundled examples at
  * /gallery ("gallery"). Category chips, search, grid/list and previews.
  */
-export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages' }) {
+export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages', total = items.length }) {
   const base = section === 'gallery' ? '/gallery' : '/';
   // Links keep the other settings, so the page works fully without JS.
   const link = (over) => {
@@ -90,9 +119,18 @@ ${intro}<form id="search" role="search" data-base="${base}"><input id="q" name="
 ${category ? `<input type="hidden" name="category" value="${esc(category)}">` : ''}
 ${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : ''}</form>
 <div class="bar2"><nav class="chips" aria-label="Categories">${chip('', 'All')}${categories.map((c) => chip(c.category, categoryLabel(c.category), c.count)).join('')}</nav>
-<div class="views" role="group" aria-label="Layout">${toggle('grid', 'Grid view', grid)}${toggle('list', 'List view', list)}</div></div>
-<p id="count" class="meta"></p>
-<section id="results" class="${view}">${galleryCards(items, q, { base })}</section></main>`, { scripts: ['gallery.js'] });
+<div class="tools">${section === 'pages' ? '<button type="button" id="select" class="select-btn">Select</button>' : ''}
+<div class="views" role="group" aria-label="Layout">${toggle('grid', 'Grid view', grid)}${toggle('list', 'List view', list)}</div></div></div>
+<p id="count" class="meta" data-total="${esc(totalLabel(total, items, section))}">${q ? plural(items.length, 'match') : esc(totalLabel(total, items, section))}</p>
+<section id="results" class="${view}">${resultsBody(items, q, { base })}</section>
+${section === 'pages' ? `<div id="bulk" class="bulk" hidden role="region" aria-label="Selected pages">
+  <span id="bulk-count">0 selected</span>
+  <input id="bulk-tag" placeholder="tag, e.g. trips" autocomplete="off" aria-label="Tag">
+  <button type="button" data-act="add">Add tag</button><button type="button" data-act="remove">Remove tag</button>
+  <button type="button" data-act="pin">Feature</button><button type="button" data-act="unpin">Unfeature</button>
+  <button type="button" data-act="done" class="ghost">Done</button>
+  <p id="bulk-msg" class="bulk-msg"></p>
+</div>` : ''}</main>`, { scripts: ['gallery.js'] });
 }
 
 /**
@@ -117,6 +155,43 @@ ${intro}
 <div id="graph" class="graph" role="img" aria-label="Graph of pages and links"></div>
 <div id="legend" class="legend"></div>
 <script id="graph-data" type="application/json">${json}</script></main>`, { scripts: ['graph.js'] });
+}
+
+/** /stats: headline numbers, then views and uploads over time, top pages, tags, recent changes. */
+export function statsPage(s) {
+  const t = s.totals;
+  const kb = (n) => (n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+  const md = (d) => new Date(`${d}T12:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const when = (ts) => { const d = new Date(ts * 1000); return `${d.toLocaleDateString('en-CA')} ${d.toTimeString().slice(0, 5)}`; };
+  const recent = s.recent.length ? `<ol class="activity">${s.recent.map((r) => `<li><a href="${esc(r.url)}">${esc(r.title)}</a>
+  <span class="meta">v${r.n} · ${esc(r.author)} · ${esc(when(r.created_at))}${r.note ? ` · ${esc(r.note)}` : ''}</span></li>`).join('')}</ol>`
+    : '<p class="empty">Nothing yet.</p>';
+  return shell('Stats · HTML Server', `${siteNav('stats')}<main class="wrap stats">
+<h1>Stats</h1>
+<section class="tiles">
+${tile(t.pages, 'pages', t.featured ? `${t.featured} featured` : '')}
+${tile(t.versions, 'versions', `${(t.versions / Math.max(t.pages, 1)).toFixed(1)} per page`)}
+${tile(t.views_recent, 'views, 30 days', `${plural(t.visitor_days_recent, 'visitor-day')}`)}
+${tile(t.views, 'views, all time')}
+${tile(t.tags, 'tags')}
+${tile(t.comments, 'comments')}
+${tile(t.authors, t.authors === 1 ? 'author' : 'authors')}
+${tile(kb(t.bytes), 'of HTML', 'latest versions')}
+</section>
+<div class="charts">
+${columnChart(s.views_by_day.map((d) => ({ label: d.day, short: md(d.day), value: d.views, tip: `${md(d.day)}: ${d.views} view${d.views === 1 ? '' : 's'}` })),
+    { title: 'Views per day, last 30 days', unit: 'views' })}
+${columnChart(s.uploads_by_week.map((w) => ({ label: `Week of ${w.week}`, short: md(w.week), value: w.versions,
+    tip: `Week of ${md(w.week)}: ${w.versions} version${w.versions === 1 ? '' : 's'} uploaded` })),
+    { title: 'Versions uploaded per week, last 12 weeks', unit: 'versions' })}
+${barList(s.most_viewed.map((p) => ({ label: p.title, value: p.views, href: p.url })), { title: 'Most viewed', unit: 'views', empty: 'No views yet.' })}
+${barList(s.most_edited.map((p) => ({ label: p.title, value: p.versions, href: p.url })), { title: 'Most edited', unit: 'versions', empty: 'No page has a second version yet.' })}
+${barList(s.tags.slice(0, 12).map((x) => ({ label: categoryLabel(x.tag), value: x.count, href: `/?category=${encodeURIComponent(x.tag)}` })), { title: 'Pages per tag', unit: 'pages', empty: 'No tags yet.' })}
+<figure class="chart"><figcaption>Recent uploads</figcaption>${recent}</figure>
+</div>
+<p class="meta">Counts cover the pages you can see. Views exclude previews, bots and command-line tools. Data as JSON: <a href="/api/stats">/api/stats</a>.</p>
+<div id="tip" class="tip" role="tooltip" hidden></div>
+</main>`, { scripts: ['stats.js'] });
 }
 
 /** Every version, newest first: view it, see what it changed, or compare any two. */

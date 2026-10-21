@@ -49,6 +49,9 @@ Use a running server:
                                         upload; the page lives at /pages/<file name>.
                                         --base N: refuse if someone added a version after vN
   history NAME                          every version, with date, author and note
+  pin NAME | unpin NAME                 feature a page at the top of the home page (owner or admin)
+  tag add TAG NAME... | tag rm TAG NAME...   tag or untag many pages at once
+  tags                                  every tag in use, with counts
   import DIR [--private]                upload every .html file in DIR (re-runnable: unchanged files are skipped)
   ls                                    your pages and everyone's public ones
   find WORDS...                         search (typos are fine)
@@ -250,12 +253,12 @@ const accountCommands = {
 // --- client commands -------------------------------------------------------------
 
 /** Call the API. Returns parsed JSON, or text for non-JSON responses. */
-async function api(method, path, { body, auth = 'optional' } = {}) {
+async function api(method, path, { body, auth = 'optional', json: sendJson = false } = {}) {
   const t = token();
   if (auth === 'required' && !t) fail('not signed in: run `html-server login` (or set HTML_SERVER_TOKEN)');
   let r;
   try {
-    r = await fetch(SERVER + path, { method, body, headers: t ? { Authorization: `Bearer ${t}` } : {} });
+    r = await fetch(SERVER + path, { method, body, headers: { ...(t ? { Authorization: `Bearer ${t}` } : {}), ...(sendJson ? { 'Content-Type': 'application/json' } : {}) } });
   } catch {
     fail(`can't reach ${SERVER} (is the server running?)`);
   }
@@ -331,6 +334,31 @@ const clientCommands = {
     }
     console.log(Object.entries(count).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', '));
     if (count.failed) process.exitCode = 1;
+  },
+  async pin([name]) {
+    if (!name) fail('usage: pin NAME');
+    const a = await api('POST', `/api/artifacts/${enc(name)}/pin`, { auth: 'required' });
+    console.log(`${a.slug} is featured at the top of ${SERVER}/`);
+  },
+  async unpin([name]) {
+    if (!name) fail('usage: unpin NAME');
+    const a = await api('DELETE', `/api/artifacts/${enc(name)}/pin`, { auth: 'required' });
+    console.log(`${a.slug} is no longer featured`);
+  },
+  async tag([op, tag, ...names]) {
+    if (!['add', 'rm'].includes(op) || !tag || !names.length) fail('usage: tag add|rm TAG NAME...');
+    const body = JSON.stringify({ pages: names, [op === 'add' ? 'add' : 'remove']: [tag] });
+    const { results } = await api('POST', '/api/tags', { body, auth: 'required', json: true });
+    let failed = 0;
+    for (const r of results) {
+      if (r.error) { failed++; console.error(`failed  ${r.slug}: ${r.error}`); } else console.log(`${r.slug.padEnd(40)} ${r.tags.join(', ') || '(no tags)'}`);
+    }
+    if (failed) process.exitCode = 1;
+  },
+  async tags() {
+    const tags = await api('GET', '/api/tags');
+    if (!tags.length) return console.log('(no tags)');
+    for (const t of tags) console.log(`${t.tag.padEnd(30)} ${t.count}`);
   },
   async history([name]) {
     if (!name) fail('usage: history NAME');

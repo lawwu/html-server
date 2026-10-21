@@ -7,6 +7,31 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Featured pages:** pin pages to a "Featured" section at the top of the home page,
+  in the order pinned (`html-server pin NAME` / `unpin`, `POST|DELETE
+  /api/artifacts/<name>/pin`, or the selection bar). The page's owner or an admin can
+  pin. This replaces the old rule that the "featured" category sorted first.
+- **Tags:** pages carry server-side tags, any number each. A page's
+  `<meta name="category">` becomes a tag automatically, and existing categories were
+  converted on startup. The chips filter by tag. **Tag many pages at once** with
+  **Select** on the home page (tick pages, then Add tag / Remove tag / Feature /
+  Unfeature), `html-server tag add|rm TAG NAME...`, or `POST /api/tags`. Each page is
+  checked on its own, and pages you can't edit are reported rather than failing the
+  rest. `html-server tags` and `/api/tags` list them.
+- **Stats** at `/stats`: totals (pages, versions, views, tags, comments, authors,
+  size), views per day for 30 days, versions uploaded per week for 12 weeks, the most
+  viewed and most edited pages, pages per tag, and recent uploads. Every chart has a
+  hover tooltip and a table view, and the data is at `/api/stats`.
+- **Page count** on the home page ("17 pages · 2 featured"), switching to the match
+  count while searching. The gallery shows its own count.
+- **GitHub button** at the right of the header, with the running version, linking to
+  its release.
+- **More readable graph:** pages without links sit in their own "Not linked" section;
+  labels are on but never overlap (busier pages win, and hover shows the rest);
+  arrowheads show link direction; dots are bigger and spaced further apart; the
+  legend is clickable to highlight a category. It uses the validated 8-colour
+  palette, with extra categories folded into "Other".
+
 ## 0.4.0 (2026-10-20)
 
 - **Search ranks titles first:** pages whose title contains the whole query come

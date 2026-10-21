@@ -431,14 +431,14 @@ test('/gallery: the bundled example pages, filterable and searchable', async () 
   const [s, page] = await req('GET', '/gallery');
   assert.equal(s, 200);
   assert.match(page, /<title>Gallery · HTML Server<\/title>/);
-  assert.equal(page.match(/<article class="card">/g).length, 13);
+  assert.equal(page.match(/<article class="card[^"]*"/g).length, 13);
   assert.match(page, /Machine learning <span>2<\/span>/);
   assert.match(page, /href="\/gallery\/kmeans-step-through.html"/);
   assert.match(page, /data-base="\/gallery"/);
   const [, ml] = await req('GET', '/gallery?category=machine-learning');
-  assert.equal(ml.match(/<article class="card">/g).length, 2);
+  assert.equal(ml.match(/<article class="card[^"]*"/g).length, 2);
   const [, frag] = await req('GET', '/gallery?q=kmeans&fragment=1');
-  assert.equal(frag.match(/<article class="card">/g).length, 1);
+  assert.equal(frag.match(/<article class="card[^"]*"/g).length, 1);
   assert.doesNotMatch(frag, /<html/);
 
   const [s2, ex, h] = await req('GET', '/gallery/kmeans-step-through.html');
@@ -494,7 +494,7 @@ test('footer and docs link to the GitHub release that is running; uploaded pages
 test('cards put the category chip beside the title', async () => {
   await put('c.html', '<title>Chart</title><meta name="category" content="data-viz">');
   assert.match((await req('GET', '/'))[1],
-    /<div class="head"><h2><a href="\/pages\/c.html">Chart<\/a><\/h2>\s*<a class="tag" href="\/\?category=data-viz">Data visualization<\/a><\/div>/);
+    /<div class="head"><h2><a href="\/pages\/c.html">Chart<\/a><\/h2>\s*<span class="tags"><a class="tag" href="\/\?category=data-viz">Data visualization<\/a><\/span><\/div>/);
 });
 
 test('graph: pages and the links between them, visibility-aware, local or global', async () => {
@@ -554,4 +554,119 @@ test('search highlights matched words in titles and snippets, typos included', a
   assert.match(frag, /<h2><a href="\/pages\/fam.html">\[Draft\] Family <mark>budget<\/mark><\/a><\/h2>/); // literal [Draft] stays text
   assert.match(frag, /monthly <mark>budget<\/mark> review/);
   assert.equal((await req('GET', '/api/artifacts'))[1][0].title_highlight, undefined); // not searching: no highlight fields
+});
+
+test('featured pages: pinned to the top by their owner or an admin, in pin order', async () => {
+  const bob = (await req('POST', '/api/users', { body: '{"name":"bob"}', token: admin }))[1].token;
+  await put('one.html', '<title>One</title>');
+  await put('two.html', '<title>Two</title>');
+  await put('bobs.html', '<title>Bob page</title>', bob);
+  await put('three.html', '<title>Three</title>');
+
+  assert.equal((await req('POST', '/api/artifacts/one.html/pin', { token: bob }))[0], 403); // not his page
+  assert.equal((await req('POST', '/api/artifacts/bobs.html/pin', { token: bob }))[1].pinned, true); // his own
+  await req('POST', '/api/artifacts/one.html/pin', { token: admin }); // pinned second
+  const list = (await req('GET', '/api/artifacts'))[1];
+  assert.deepEqual(slugs(list).slice(0, 2), ['bobs.html', 'one.html']); // pinned first, in pin order
+  assert.deepEqual(list.slice(0, 3).map((a) => a.pinned), [true, true, false]);
+
+  const [, page] = await req('GET', '/');
+  assert.match(page, /Featured<\/h2><div class="cards">.*bobs\.html.*one\.html.*<\/div>\s*<h2 class="section-title">All pages<\/h2>/s);
+  assert.match(page, /<article class="card pinned" data-slug="one.html">/);
+  assert.doesNotMatch((await req('GET', '/?q=three&fragment=1'))[1], /Featured/); // searching: one ranked list
+
+  await req('DELETE', '/api/artifacts/bobs.html/pin', { token: admin }); // admins can unpin anyone's
+  assert.deepEqual(slugs((await req('GET', '/api/artifacts'))[1])[0], 'one.html');
+});
+
+test('tags: categories become tags; tag many pages at once; filter by tag', async () => {
+  const bob = (await req('POST', '/api/users', { body: '{"name":"bob"}', token: admin }))[1].token;
+  await put('a.html', '<title>A</title><meta name="category" content="data-viz">');
+  await put('b.html', '<title>B</title>');
+  await put('c.html', '<title>C</title>', bob);
+  assert.deepEqual((await req('GET', '/api/artifacts/a.html'))[1].tags, ['data-viz']); // from the meta tag
+
+  const [s, r] = await req('POST', '/api/tags', { token: admin,
+    body: JSON.stringify({ pages: ['a.html', 'b', 'c.html', 'nope'], add: ['Trip Plans', 'q4'] }) });
+  assert.equal(s, 200);
+  assert.deepEqual(r.results, [
+    { slug: 'a.html', tags: ['data-viz', 'q4', 'trip-plans'] }, // normalized: "Trip Plans" → trip-plans
+    { slug: 'b.html', tags: ['q4', 'trip-plans'] },
+    { slug: 'c.html', error: "'c.html' belongs to bob" }, // checked page by page
+    { slug: 'nope', error: 'no such artifact' },
+  ]);
+  assert.deepEqual(slugs((await req('GET', '/api/artifacts?category=trip-plans'))[1]).sort(), ['a.html', 'b.html']);
+  assert.deepEqual((await req('GET', '/api/tags'))[1].find((t) => t.tag === 'q4'), { tag: 'q4', count: 2 });
+
+  await req('POST', '/api/tags', { token: admin, body: JSON.stringify({ pages: ['a.html'], remove: ['q4', 'data-viz'] }) });
+  assert.deepEqual((await req('GET', '/api/artifacts/a.html'))[1].tags, ['trip-plans']);
+  await put('a.html', '<title>A</title><meta name="category" content="data-viz"><p>v2</p>'); // same category: not re-added
+  assert.deepEqual((await req('GET', '/api/artifacts/a.html'))[1].tags, ['trip-plans']);
+
+  assert.equal((await req('POST', '/api/tags', { token: admin, body: '{"pages":["a.html"],"add":["!!"]}' }))[0], 400);
+  assert.equal((await req('POST', '/api/tags', { body: '{"pages":["a.html"],"add":["x"]}' }))[0], 401);
+  store.setEditing('open');
+  assert.equal((await req('POST', '/api/tags', { token: bob, body: '{"pages":["b.html"],"add":["seen"]}' }))[1].results[0].tags.includes('seen'), true);
+
+  const [, home] = await req('GET', '/');
+  assert.match(home, /<button type="button" id="select"/);
+  assert.match(home, /<input type="checkbox" value="b.html"/);
+  assert.match(home, /data-category="trip-plans"/); // tag chips in the filter bar
+});
+
+test('existing categories become tags once, on startup', async () => {
+  await put('old.html', '<title>Old</title><meta name="category" content="architecture">');
+  store.db.exec("DELETE FROM tags; DELETE FROM meta WHERE key = 'tags_index'");
+  store.close();
+  store = new Store(join(dir, 't.db'));
+  server.close();
+  server = makeServer(store);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}`;
+  assert.deepEqual((await req('GET', '/api/artifacts/old.html'))[1].tags, ['architecture']);
+});
+
+test('stats: totals and series over the pages you can see', async () => {
+  const bob = (await req('POST', '/api/users', { body: '{"name":"bob"}', token: admin }))[1].token;
+  await put('a.html', '<title>Alpha</title><meta name="category" content="data-viz">');
+  await put('a.html', '<title>Alpha</title><p>v2</p>', admin);
+  await put('b.html', '<title>Beta</title>', bob);
+  await put('hidden.html', '<title>Hidden</title>', admin, '?visibility=private');
+  await req('GET', '/pages/a.html');
+  await req('GET', '/pages/a.html', { ua: 'Mozilla/5.0 other' });
+  await req('GET', '/pages/b.html');
+
+  const [, s] = await req('GET', '/api/stats');
+  assert.deepEqual(
+    [s.totals.pages, s.totals.versions, s.totals.views, s.totals.views_recent, s.totals.tags, s.totals.authors],
+    [2, 3, 3, 3, 1, 2]); // the private page is left out
+  assert.equal(s.views_by_day.length, 30);
+  assert.equal(s.views_by_day.at(-1).views, 3); // today, filled series
+  assert.equal(s.uploads_by_week.length, 12);
+  assert.equal(s.uploads_by_week.at(-1).versions, 3);
+  assert.deepEqual(s.most_viewed.map((p) => [p.slug, p.views]), [['a.html', 2], ['b.html', 1]]);
+  assert.deepEqual(s.most_edited.map((p) => [p.slug, p.versions]), [['a.html', 2]]);
+  assert.deepEqual(s.recent[0].slug, 'b.html');
+  assert.equal((await req('GET', '/api/stats', { token: admin }))[1].totals.pages, 3); // the owner counts it
+
+  const [code, page] = await req('GET', '/stats');
+  assert.equal(code, 200);
+  assert.match(page, /<title>Stats · HTML Server<\/title>/);
+  assert.match(page, /<b>2<\/b><span>pages<\/span>/);
+  assert.match(page, /<figcaption>Views per day, last 30 days<\/figcaption>/);
+  assert.match(page, /data-tip="Alpha: 2 views"/);
+  assert.match(page, /<details class="tview"><summary>Show as table<\/summary>/); // every chart has a table view
+  assert.equal((await put('stats', '<p>x</p>'))[0], 400); // reserved
+});
+
+test('home shows the page count; header links to GitHub with the version', async () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  await put('p1.html', '<title>One</title>');
+  await put('p2.html', '<title>Two</title>');
+  await req('POST', '/api/artifacts/p1.html/pin', { token: admin });
+  const [, page] = await req('GET', '/');
+  assert.match(page, /<p id="count" class="meta" data-total="2 pages · 1 featured">2 pages · 1 featured<\/p>/);
+  assert.match((await req('GET', '/?q=one'))[1], /<p id="count"[^>]*>1 match<\/p>/);
+  assert.match(page, new RegExp(`<a class="gh" href="https://github.com/lawwu/html-server/releases/tag/v${pkg.version}"[^>]*><svg[^]*?</svg><span>v${pkg.version.replace(/\./g, '\\.')}</span></a>`));
+  assert.match((await req('GET', '/gallery'))[1], /data-total="13 example pages"/);
 });

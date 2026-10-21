@@ -234,3 +234,22 @@ test('backup: a checked, private snapshot, safe while the server is serving', as
   running.close();
   assert.match((await cli(['backup', '--db', join(dir, 'nope.db')], h)).err, /no database at/);
 });
+
+test('pin, unpin, tag add/rm and tags from the CLI', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('tagger') };
+  const page = join(dir, 'tagme.html');
+  writeFileSync(page, '<title>Tag me</title>');
+  await cli(['put', page], env);
+  await cli(['put', page, 'x', '--name', 'tagme2.html'], env);
+  assert.match((await cli(['pin', 'tagme.html'], env)).out, /tagme\.html is featured/);
+  assert.match((await cli(['unpin', 'tagme.html'], env)).out, /no longer featured/);
+  let r = await cli(['tag', 'add', 'Road Trips', 'tagme.html', 'tagme2', 'missing.html'], env);
+  assert.match(r.out, /tagme\.html +road-trips/);
+  assert.match(r.out, /tagme2\.html +road-trips/);
+  assert.match(r.err, /failed  missing\.html: no such artifact/);
+  assert.equal(r.code, 1);
+  assert.match((await cli(['tags'], env)).out, /road-trips +2/);
+  r = await cli(['tag', 'rm', 'road-trips', 'tagme.html'], env);
+  assert.match(r.out, /tagme\.html +\(no tags\)/);
+  assert.match((await cli(['tag', 'add', 'x'], env)).err, /usage: tag add\|rm TAG NAME/);
+});
