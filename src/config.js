@@ -44,7 +44,7 @@ export const DEFAULT_EDITING = 'owner';
 // gallery never publishes anyone's address. Signed-in users see them in full.
 export const MASK_EMAILS_FOR_ANONYMOUS = true;
 // Top-level paths the server itself uses, so no page may take these names.
-export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'favicon.ico', 'robots.txt']);
+export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'favicon.ico', 'robots.txt']);
 
 export const VISIBILITIES = ['public', 'private'];
 export const DEFAULT_VISIBILITY = 'public'; // everything visible unless an upload says private
@@ -76,6 +76,11 @@ export const VIEW_REPORT_DAYS = 30;
 // when it has at least this many h2/h3 headings. public/toc.js decides placement;
 // a page opts out with <meta name="toc" content="off">, a single view with ?toc=0.
 export const TOC_MIN_HEADINGS = 3;
+
+// Tags: server-side labels, any number per page. A page's <meta name="category"> is
+// added as a tag automatically; the rest are added and removed by the page's editors.
+export const TAG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const MAX_TAGS_PER_PAGE = 20;
 
 export const MAX_COMMENT_CHARS = 10_000;
 export const DIFF_CONTEXT_LINES = 3;

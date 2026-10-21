@@ -6,7 +6,7 @@ import {
   MAX_BODY_BYTES, RENDER_CSP, TOC_MIN_HEADINGS,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, diffPage, docsPage, galleryCards, galleryPage, graphPage, historyPage, reviewPage } from './pages.js';
+import { VIEWS, diffPage, docsPage, galleryPage, graphPage, historyPage, resultsBody, reviewPage, statsPage } from './pages.js';
 import { exampleCategories, exampleHtml, findExamples } from './examples.js';
 import { Store } from './store.js';
 import { ApiError, unifiedDiff } from './text.js';
@@ -19,6 +19,8 @@ const CID = '(?<cid>\\d+)';
 // with no description stay off the page. The bare /<slug> page route matches last.
 export const ROUTES = [
   ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first); `?view=list` for the list layout'],
+  ['GET', '/stats', 'stats', 'anyone*', 'Totals, views and uploads over time, most viewed and edited pages, tags, recent uploads'],
+  ['GET', '/api/stats', 'statsData', 'anyone*', 'The same numbers as JSON'],
   ['GET', '/graph', 'graph', 'anyone*',
     'Your pages and the links between them, as an interactive graph. `?page=<name>` (and `&depth=2`) for one page\'s neighbourhood'],
   ['GET', '/api/graph', 'graphData', 'anyone*',
@@ -40,7 +42,13 @@ export const ROUTES = [
     'Side-by-side changes page. `?from=1&to=3` (default: previous vs latest), `?of=source` for HTML'],
   ['GET', '/api/artifacts/?', 'list', 'anyone*',
     'List newest first. `?q=` search, `?category=`, `?owner=`, `?limit=`, `?state=trashed` (your own trash, token required)'],
-  ['GET', '/api/categories', 'categories', 'anyone', 'Gallery categories in use, with counts'],
+  ['GET', '/api/categories', 'categories', 'anyone', 'Tags in use, with counts, as `{category, count}` (older name)'],
+  ['GET', '/api/tags', 'tags', 'anyone*', 'Tags in use on pages you can see, with counts'],
+  ['POST', '/api/tags', 'tagPages', 'token',
+    'Tag many pages at once: body `{"pages": ["a.html", "b"], "add": ["trips"], "remove": ["draft"]}`.'
+    + ' Each page needs edit rights; the result reports each page\'s tags or its error'],
+  ['POST', `/api/artifacts/${SLUG}/pin`, 'pin', 'owner or admin', 'Feature a page: pin it to the top of the home page'],
+  ['DELETE', `/api/artifacts/${SLUG}/pin`, 'unpin', 'owner or admin', 'Unpin a featured page'],
   ['PUT', `/api/artifacts/${SLUG}`, 'put', 'token',
     'Upload a page, or add a version (yours, or anyone\'s public page under open editing). `?note=` / `X-Note`,'
     + ' `X-Title`, `X-Visibility: private`; `?base=n` refuses if the page has moved past version n'],
@@ -134,7 +142,7 @@ class Ctx {
   /** A gallery listing, or with ?fragment just its cards (what live search swaps in). */
   listing(items, opts) {
     const base = opts.section === 'gallery' ? '/gallery' : '/';
-    if (this.query.get('fragment')) return this.html(galleryCards(items, opts.q, { base }));
+    if (this.query.get('fragment')) return this.html(resultsBody(items, opts.q, { base }));
     const view = VIEWS.includes(this.query.get('view')) ? this.query.get('view') : 'grid';
     this.html(galleryPage(items, { ...opts, view }));
   }
@@ -195,14 +203,17 @@ const handlers = {
     const q = (c.query.get('q') || '').trim();
     const category = c.query.get('category') || '';
     const items = c.store.list(null, { q: q || undefined, category: category || undefined, limit: 500 });
-    c.listing(items, { q, category, categories: c.store.categories(null), section: 'pages' });
+    c.listing(items, { q, category, categories: c.store.categories(null), section: 'pages', total: category ? items.length : c.store.countPages(null) });
   },
+  stats(c) { c.html(statsPage(c.store.stats(c.viewerId()))); },
+  statsData(c) { c.json(200, c.store.stats(c.viewerId())); },
   graph(c) { c.html(graphPage(c.store.graph(c.viewerId(), c.graphScope()))); },
   graphData(c) { c.json(200, c.store.graph(c.viewerId(), c.graphScope())); },
   examples(c) {
     const q = (c.query.get('q') || '').trim();
     const category = c.query.get('category') || '';
-    c.listing(findExamples({ q, category }), { q, category, categories: exampleCategories(), section: 'gallery' });
+    const found = findExamples({ q, category });
+    c.listing(found, { q, category, categories: exampleCategories(), section: 'gallery', total: q ? findExamples({ category }).length : found.length });
   },
   example(c, { file }) {
     const body = exampleHtml(file);
@@ -249,6 +260,18 @@ const handlers = {
     }));
   },
   categories(c) { c.json(200, c.store.categories(c.viewerId())); },
+  tags(c) { c.json(200, c.store.tags(c.viewerId())); },
+  async tagPages(c) {
+    const u = c.user();
+    const { pages, add = [], remove = [] } = await c.jsonBody();
+    const list = (v, name) => {
+      if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new ApiError(400, `${name} must be a list of strings`);
+      return v;
+    };
+    c.json(200, { results: c.store.tagPages(u.id, list(pages ?? [], 'pages'), { add: list(add, 'add'), remove: list(remove, 'remove') }) });
+  },
+  pin(c, { slug }) { c.json(200, c.store.pin(c.user(), slug, true)); },
+  unpin(c, { slug }) { c.json(200, c.store.pin(c.user(), slug, false)); },
   describe(c, { slug }) { c.json(200, c.store.describe(slug, c.viewerId())); },
   raw(c, { slug, n }) { c.text(c.store.versionHtml(slug, Number(n), c.viewerId())); },
   diff(c, { slug }) {

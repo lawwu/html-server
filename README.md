@@ -175,6 +175,21 @@ ship in this package's `gallery/` folder, served read-only from the package, so 
 install has them and they never mix with your own pages. To make one your own, copy it
 and `html-server put` it.
 
+**Featured pages** sit in their own section at the top of the home page, in the order
+they were pinned. Pin with `html-server pin NAME` (`unpin` to undo), or tick pages
+under **Select** and press Feature. A page's owner or an admin can pin it.
+
+**Tags** label pages, any number each. A page's `<meta name="category">` becomes its
+first tag automatically, and the chips filter by tag. To tag many pages at once, press
+**Select** on the home page, tick the pages, type a tag, and press Add tag or Remove
+tag. Or use `html-server tag add trips plan.html notes.html` (`tag rm` to remove,
+`tags` to list them). You need edit rights on each page; any you can't edit are listed
+and skipped.
+
+**Stats** (`/stats`) shows totals, views per day, uploads per week, the most viewed
+and most edited pages, pages per tag and recent uploads, all counted over the pages
+you can see. Hover any bar for its value, or open "Show as table".
+
 **Graph** (`/graph`) draws your pages as dots and the links between them as lines, in
 the spirit of Quartz's graph view. Links are read from each page's latest version:
 `/pages/x`, `/x`, or a relative `x.html`. Drag dots or the background, scroll to zoom

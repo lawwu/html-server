@@ -4,7 +4,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  BOT_UA_RE, SEARCH_WEIGHTS, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
+  BOT_UA_RE, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
   SLUG_RE, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS comments (
     resolved_at REAL                -- top-level comments only
 );
 CREATE INDEX IF NOT EXISTS comments_by_artifact ON comments (artifact_id, n);
+CREATE TABLE IF NOT EXISTS tags (
+    artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (artifact_id, tag)
+);
+CREATE INDEX IF NOT EXISTS tags_by_tag ON tags (tag);
 CREATE TABLE IF NOT EXISTS links (               -- what each page's latest version links to
     from_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
     to_slug TEXT NOT NULL,                       -- as written; resolved (also as <slug>.html) when read
@@ -79,6 +85,7 @@ const ADDED_COLUMNS = {
   artifacts: [
     ['description', "TEXT NOT NULL DEFAULT ''"], // from <meta name="description">, for the gallery
     ['category', "TEXT NOT NULL DEFAULT ''"], //    from <meta name="category">
+    ['pinned_at', 'REAL'], // set when pinned to the home page's Featured section (0.5.0)
   ],
   versions: [
     // Who uploaded each version (0.3.0, for open editing). Versions from before then
@@ -94,7 +101,16 @@ const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 export const hashToken = sha256;
 const localDay = (t) => new Date(t * 1000).toLocaleDateString('en-CA'); // YYYY-MM-DD, server's timezone
 const VIEWS = '(SELECT COUNT(*) FROM views v WHERE v.artifact_id = a.id) AS views';
-const SELECT = `SELECT a.*, u.name AS owner, ${VIEWS} FROM artifacts a JOIN users u ON u.id = a.owner_id`;
+const TAGS = "(SELECT group_concat(t.tag, ',') FROM tags t WHERE t.artifact_id = a.id) AS tags_csv";
+const SELECT = `SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS} FROM artifacts a JOIN users u ON u.id = a.owner_id`;
+// Featured (pinned) pages first, in the order they were pinned; then newest first.
+const LISTING_ORDER = 'a.pinned_at IS NULL, a.pinned_at, a.updated_at DESC';
+
+/** "Trip Plans" → "trip-plans"; null if it can't be a tag. */
+export function normalizeTag(t) {
+  const s = String(t ?? '').trim().toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return TAG_RE.test(s) ? s : null;
+}
 const COMMENT_SELECT = 'SELECT c.id, c.n AS version, c.parent_id AS parent, u.name AS author, c.body,'
   + ' c.created_at, c.resolved_at FROM comments c JOIN users u ON u.id = c.author_id';
 
@@ -125,6 +141,8 @@ export function summary(a, viewerId = null) {
     created_at: a.created_at,
     updated_at: a.updated_at,
     views: a.views ?? null,
+    tags: a.tags_csv ? a.tags_csv.split(',').sort() : [],
+    pinned: a.pinned_at != null,
   };
 }
 
@@ -145,6 +163,10 @@ export class Store {
     this.vocab = null; // indexed words for fuzzy search; reset whenever the index changes
     this.ensureSearchIndex();
     this.ensureLinks();
+    if (this.setting('tags_index') !== '1') { // 0.5.0: categories become each page's first tag
+      this.run("INSERT OR IGNORE INTO tags (artifact_id, tag) SELECT id, category FROM artifacts WHERE category != ''");
+      this.setSetting('tags_index', '1');
+    }
   }
 
   close() { this.db.close(); }
@@ -351,6 +373,9 @@ export class Store {
         id, n, doc, sha256(doc), doc.length, note, t, userId);
       this.index(id, title, slug, description, body);
       this.updateLinks(id, text);
+      // A new or changed <meta name="category"> becomes a tag; removing it later doesn't untag.
+      const catTag = normalizeTag(category);
+      if (catTag && (!a || a.category !== category)) this.run('INSERT OR IGNORE INTO tags (artifact_id, tag) VALUES (?, ?)', id, catTag);
     });
     this.vocab = null;
     return this.describe(slug, userId);
@@ -403,19 +428,19 @@ export class Store {
     if (state === TRASHED) [where, args] = ['a.state = ? AND a.owner_id = ?', [TRASHED, viewerId ?? -1]];
     else [where, args] = ["a.state = ? AND (a.visibility = 'public' OR a.owner_id = ?)", [ACTIVE, viewerId ?? -1]];
     if (owner) { where += ' AND u.name = ?'; args.push(owner.toLowerCase()); }
-    if (category) { where += ' AND a.category = ?'; args.push(category); }
+    // ?category= is the older name for a tag filter; both match a page's tags.
+    if (category) { where += ' AND EXISTS (SELECT 1 FROM tags t WHERE t.artifact_id = a.id AND t.tag = ?)'; args.push(category); }
     const rows = q
       // Ranked: the whole query appearing in the title first, then bm25 with title
       // and file-name hits weighted above body hits (SEARCH_WEIGHTS).
-      ? this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, snippet(artifacts_fts, 2, char(1), char(2), '…', 12) AS snippet,`
+      ? this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS}, snippet(artifacts_fts, 2, char(1), char(2), '…', 12) AS snippet,`
         + ' highlight(artifacts_fts, 0, char(1), char(2)) AS title_hits'
         + ' FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
         + ` WHERE artifacts_fts MATCH ? AND ${where}`
         + ' ORDER BY instr(lower(a.title), lower(?)) > 0 DESC, bm25(artifacts_fts, ?, ?, ?) LIMIT ?',
         ftsQuery(q, this.vocabulary()), ...args, q.trim(), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body, limit)
-      : this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, NULL AS snippet FROM artifacts a`
-        + ` JOIN users u ON u.id = a.owner_id WHERE ${where}`
-        + " ORDER BY a.category = 'featured' DESC, a.updated_at DESC LIMIT ?", ...args, limit);
+      : this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS}, NULL AS snippet FROM artifacts a`
+        + ` JOIN users u ON u.id = a.owner_id WHERE ${where} ORDER BY ${LISTING_ORDER} LIMIT ?`, ...args, limit);
     return rows.map((r) => {
       const item = summary(r, viewerId);
       if (!q) return item;
@@ -466,9 +491,120 @@ export class Store {
 
   /** Categories in use among pages this viewer can see, with counts. */
   categories(viewerId) {
-    return this.all("SELECT category, COUNT(*) AS count FROM artifacts WHERE category != '' AND state = ?"
-      + " AND (visibility = 'public' OR owner_id = ?) GROUP BY category ORDER BY category = 'featured' DESC, category", ACTIVE, viewerId ?? -1)
+    return this.tags(viewerId).map(({ tag, count }) => ({ category: tag, count }));
+  }
+
+  /**
+   * Everything /stats shows, for the pages this viewer can see (public pages, plus
+   * their own private ones). Days and weeks are in the server's local time, and
+   * every series is filled in, so a quiet day is a zero rather than a gap.
+   */
+  stats(viewerId, { days = 30, weeks = 12, top = 10 } = {}) {
+    const vis = "a.state = 'active' AND (a.visibility = 'public' OR a.owner_id = ?)";
+    const v = viewerId ?? -1;
+    const one = (sql) => this.one(sql, v);
+    const since = now() - days * 86400;
+    const totals = {
+      pages: one(`SELECT COUNT(*) AS n FROM artifacts a WHERE ${vis}`).n,
+      featured: one(`SELECT COUNT(*) AS n FROM artifacts a WHERE ${vis} AND a.pinned_at IS NOT NULL`).n,
+      versions: one(`SELECT COUNT(*) AS n FROM versions x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis}`).n,
+      views: one(`SELECT COUNT(*) AS n FROM views x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis}`).n,
+      comments: one(`SELECT COUNT(*) AS n FROM comments x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis}`).n,
+      tags: one(`SELECT COUNT(DISTINCT t.tag) AS n FROM tags t JOIN artifacts a ON a.id = t.artifact_id WHERE ${vis}`).n,
+      authors: one(`SELECT COUNT(DISTINCT x.author_id) AS n FROM versions x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis}`).n,
+      bytes: one(`SELECT COALESCE(SUM(x.size), 0) AS n FROM versions x JOIN artifacts a ON a.id = x.artifact_id AND x.n = a.latest_version WHERE ${vis}`).n,
+    };
+    const recentViews = this.one(`SELECT COUNT(*) AS n, COUNT(DISTINCT x.visitor || date(x.at, 'unixepoch', 'localtime')) AS d`
+      + ` FROM views x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ?`, v, since);
+    Object.assign(totals, { views_recent: recentViews.n, visitor_days_recent: recentViews.d });
+
+    const byDay = new Map(this.all("SELECT date(x.at, 'unixepoch', 'localtime') AS day, COUNT(*) AS n FROM views x"
+      + ` JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ? GROUP BY day`, v, since).map((r) => [r.day, r.n]));
+    const viewsByDay = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000).toLocaleDateString('en-CA');
+      viewsByDay.push({ day: d, views: byDay.get(d) || 0 });
+    }
+
+    // Weeks start on Monday; label each by its Monday.
+    const monday = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d; };
+    const thisWeek = monday(Date.now());
+    const start = new Date(thisWeek); start.setDate(start.getDate() - 7 * (weeks - 1));
+    const uploads = this.all(`SELECT x.created_at FROM versions x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.created_at >= ?`,
+      v, start.getTime() / 1000);
+    const uploadsByWeek = Array.from({ length: weeks }, (_, i) => {
+      const w = new Date(start); w.setDate(w.getDate() + 7 * i);
+      return { week: w.toLocaleDateString('en-CA'), versions: 0 };
+    });
+    for (const u of uploads) {
+      const i = Math.round((monday(u.created_at * 1000) - start) / (7 * 86400000));
+      if (uploadsByWeek[i]) uploadsByWeek[i].versions++;
+    }
+
+    const pageRows = (sql) => this.all(sql, v, top).map((r) => ({ ...r, url: `/pages/${r.slug}` }));
+    return {
+      totals,
+      views_by_day: viewsByDay,
+      uploads_by_week: uploadsByWeek,
+      most_viewed: pageRows(`SELECT a.slug, a.title, (SELECT COUNT(*) FROM views x WHERE x.artifact_id = a.id) AS views FROM artifacts a`
+        + ` WHERE ${vis} AND views > 0 ORDER BY views DESC, a.title LIMIT ?`),
+      most_edited: pageRows(`SELECT a.slug, a.title, a.latest_version AS versions FROM artifacts a WHERE ${vis} AND a.latest_version > 1`
+        + ' ORDER BY a.latest_version DESC, a.title LIMIT ?'),
+      tags: this.tags(viewerId).sort((x, y) => y.count - x.count || x.tag.localeCompare(y.tag)),
+      recent: this.all(`SELECT a.slug, a.title, x.n, x.note, x.created_at, u.name AS author FROM versions x`
+        + ` JOIN artifacts a ON a.id = x.artifact_id LEFT JOIN users u ON u.id = x.author_id WHERE ${vis}`
+        + ' ORDER BY x.created_at DESC LIMIT ?', v, top)
+        .map((r) => ({ ...r, author: r.author ? displayName(r.author, viewerId) : '(deleted user)', url: `/pages/${r.slug}` })),
+    };
+  }
+
+  /** How many active pages this viewer can see. */
+  countPages(viewerId) {
+    return this.one("SELECT COUNT(*) AS n FROM artifacts WHERE state = ? AND (visibility = 'public' OR owner_id = ?)", ACTIVE, viewerId ?? -1).n;
+  }
+
+  /** Tags in use on pages this viewer can see, with counts, alphabetical. */
+  tags(viewerId) {
+    return this.all('SELECT t.tag, COUNT(*) AS count FROM tags t JOIN artifacts a ON a.id = t.artifact_id'
+      + " WHERE a.state = ? AND (a.visibility = 'public' OR a.owner_id = ?) GROUP BY t.tag ORDER BY t.tag", ACTIVE, viewerId ?? -1)
       .map((r) => ({ ...r }));
+  }
+
+  /**
+   * Add and remove tags on many pages at once. Each page is checked on its own (you
+   * may edit some and not others), so the result reports per page: { slug, tags } or
+   * { slug, error }. Pages that worked are saved even if others didn't.
+   */
+  tagPages(userId, slugs, { add = [], remove = [] } = {}) {
+    const fix = (list) => [...new Set(list.map((t) => {
+      const n = normalizeTag(t);
+      if (!n) throw new ApiError(400, `'${t}' can't be a tag: use letters, digits and dashes (up to 40)`);
+      return n;
+    }))];
+    [add, remove] = [fix(add), fix(remove)];
+    if (!slugs.length || (!add.length && !remove.length)) throw new ApiError(400, 'give pages and tags to add or remove');
+    return this.tx(() => slugs.map((slug) => {
+      try {
+        const a = this.editable(slug, userId);
+        for (const t of remove) this.run('DELETE FROM tags WHERE artifact_id = ? AND tag = ?', a.id, t);
+        for (const t of add) this.run('INSERT OR IGNORE INTO tags (artifact_id, tag) VALUES (?, ?)', a.id, t);
+        const tags = this.all('SELECT tag FROM tags WHERE artifact_id = ? ORDER BY tag', a.id).map((r) => r.tag);
+        if (tags.length > MAX_TAGS_PER_PAGE) throw new ApiError(400, `at most ${MAX_TAGS_PER_PAGE} tags per page`);
+        return { slug: a.slug, tags };
+      } catch (e) {
+        if (!e.status) throw e;
+        return { slug, error: e.message };
+      }
+    }));
+  }
+
+  /** Pin to (or unpin from) the home page's Featured section: the page's owner, or an admin. */
+  pin(user, slug, on) {
+    const a = this.readable(slug, user.id);
+    if (a.owner_id !== user.id && !user.is_admin) throw new ApiError(403, `only ${a.owner} or an admin can feature '${a.slug}'`);
+    if (on && a.pinned_at == null) this.run('UPDATE artifacts SET pinned_at = ? WHERE id = ?', now(), a.id);
+    if (!on) this.run('UPDATE artifacts SET pinned_at = NULL WHERE id = ?', a.id);
+    return this.describe(a.slug, user.id);
   }
 
   /** Every indexed word. Only steers matching; results are still visibility-filtered. */

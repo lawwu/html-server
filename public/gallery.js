@@ -49,7 +49,7 @@ async function search() {
     const r = await fetch(`${BASE}?${p}`, { signal: ctl.signal });
     results.innerHTML = r.ok ? await r.text() : '<p class="empty">Search failed.</p>';
     const n = results.querySelectorAll('.card').length;
-    count.textContent = q ? `${n} match${n === 1 ? '' : 'es'}` : '';
+    count.textContent = q ? `${n} match${n === 1 ? '' : 'es'}` : count.dataset.total; // back to "18 pages" when cleared
   } catch (e) {
     if (e.name !== 'AbortError') throw e;
   }
@@ -70,3 +70,99 @@ document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('clic
 }));
 
 if (view !== results.className) setView(view);
+
+// --- select mode: tag, untag, feature or unfeature many pages at once ---------------
+// Uses the same saved sign-in as the review page (this site's localStorage only).
+const selectBtn = document.getElementById('select');
+const bulk = document.getElementById('bulk');
+if (selectBtn && bulk) {
+  const picked = new Set();
+  const msg = document.getElementById('bulk-msg');
+  const tagBox = document.getElementById('bulk-tag');
+  let token = '';
+  try { token = localStorage.getItem('artifact_token') || ''; } catch { /* storage blocked */ }
+
+  const say = (text, isError = false) => { msg.textContent = text; msg.classList.toggle('err', isError); };
+  const sync = () => {
+    document.getElementById('bulk-count').textContent = `${picked.size} selected`;
+    for (const card of results.querySelectorAll('.card[data-slug]')) {
+      const on = picked.has(card.dataset.slug);
+      card.classList.toggle('picked', on);
+      const box = card.querySelector('.pick input');
+      if (box) box.checked = on;
+    }
+  };
+  const setSelecting = (on) => {
+    document.body.classList.toggle('selecting', on);
+    bulk.hidden = !on;
+    selectBtn.textContent = on ? 'Selecting…' : 'Select';
+    if (!on) { picked.clear(); say(''); }
+    sync();
+  };
+  selectBtn.addEventListener('click', () => setSelecting(!document.body.classList.contains('selecting')));
+  // Delegated, because live search replaces the cards; the selection survives it.
+  results.addEventListener('change', (e) => {
+    const box = e.target.closest('.pick input');
+    if (!box) return;
+    box.checked ? picked.add(box.value) : picked.delete(box.value);
+    sync();
+  });
+  new MutationObserver(sync).observe(results, { childList: true });
+
+  async function call(method, path, body) {
+    const r = await fetch(path, {
+      method, body: body && JSON.stringify(body),
+      headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw Object.assign(new Error(data?.error || r.statusText), { status: r.status });
+    return data;
+  }
+
+  function askToken() {
+    say('');
+    const wrap = document.createElement('span');
+    wrap.className = 'bulk-msg';
+    wrap.innerHTML = 'Sign in to change pages: <input type="password" placeholder="paste your token" aria-label="Token"> <button type="button">Save</button>';
+    msg.replaceChildren(wrap);
+    const [input, save] = [wrap.querySelector('input'), wrap.querySelector('button')];
+    input.focus();
+    save.onclick = () => {
+      token = input.value.trim();
+      try { localStorage.setItem('artifact_token', token); } catch { /* this visit only */ }
+      say(token ? 'Signed in. Try again.' : '');
+    };
+  }
+
+  bulk.addEventListener('click', async (e) => {
+    const act = e.target.dataset?.act;
+    if (!act) return;
+    if (act === 'done') return setSelecting(false);
+    if (!picked.size) return say('Tick some pages first.', true);
+    if (!token) return askToken();
+    const pages = [...picked];
+    try {
+      let failures = [];
+      if (act === 'add' || act === 'remove') {
+        const tag = tagBox.value.trim();
+        if (!tag) { tagBox.focus(); return say('Type a tag first.', true); }
+        const { results: out } = await call('POST', '/api/tags', { pages, [act]: [tag] });
+        failures = out.filter((r) => r.error).map((r) => `${r.slug}: ${r.error}`);
+        say(`${act === 'add' ? 'Tagged' : 'Untagged'} ${out.length - failures.length} of ${out.length}.`);
+      } else {
+        for (const slug of pages) {
+          try { await call(act === 'pin' ? 'POST' : 'DELETE', `/api/artifacts/${encodeURIComponent(slug)}/pin`); } catch (err) {
+            if (err.status === 401) throw err;
+            failures.push(`${slug}: ${err.message}`);
+          }
+        }
+        say(`${act === 'pin' ? 'Featured' : 'Unfeatured'} ${pages.length - failures.length} of ${pages.length}.`);
+      }
+      if (failures.length) say(`${msg.textContent} Not changed: ${failures.join('; ')}`, true);
+      await search(); // redraw with the new tags or featured order
+    } catch (err) {
+      if (err.status === 401) { token = ''; return askToken(); }
+      say(err.message, true);
+    }
+  });
+}
