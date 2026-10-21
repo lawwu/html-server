@@ -7,6 +7,8 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.4.0 (2026-10-20)
+
 - **Search ranks titles first:** pages whose title contains the whole query come
   first, then results ranked with title hits weighted 10x and file-name hits 5x over
   body text. File names are searchable now ("household" finds
