@@ -7,6 +7,8 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.5.0 (2026-10-20)
+
 - **Featured pages:** pin pages to a "Featured" section at the top of the home page,
   in the order pinned (`html-server pin NAME` / `unpin`, `POST|DELETE
   /api/artifacts/<name>/pin`, or the selection bar). The page's owner or an admin can
