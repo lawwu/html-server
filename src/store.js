@@ -4,12 +4,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  BOT_UA_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
+  BOT_UA_RE, SEARCH_WEIGHTS, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
   SLUG_RE, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
 import { ACTIVE, NONE, PURGED, TRASHED, transition } from './lifecycle.js';
-import { ApiError, extractLines, extractText, ftsQuery } from './text.js';
+import { ApiError, HIT, bracketHits, extractLines, extractLinks, extractText, ftsQuery, metaContent } from './text.js';
 
 // Same schema as the Python version, so an existing artifacts.db keeps working.
 const SCHEMA = `
@@ -63,10 +63,16 @@ CREATE TABLE IF NOT EXISTS comments (
     resolved_at REAL                -- top-level comments only
 );
 CREATE INDEX IF NOT EXISTS comments_by_artifact ON comments (artifact_id, n);
+CREATE TABLE IF NOT EXISTS links (               -- what each page's latest version links to
+    from_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    to_slug TEXT NOT NULL,                       -- as written; resolved (also as <slug>.html) when read
+    PRIMARY KEY (from_id, to_slug)
+);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE VIRTUAL TABLE IF NOT EXISTS artifacts_fts USING fts5(title, body);
-CREATE VIRTUAL TABLE IF NOT EXISTS artifacts_vocab USING fts5vocab(artifacts_fts, 'row');
 `;
+// The search index has its own version: when its columns change, it is rebuilt
+// from each page's latest version on startup (see ensureSearchIndex).
+const SEARCH_INDEX_VERSION = '2'; // 2: title, name, body (0.4.0); 1: title, body
 // Columns added after the first release, per table: [name, definition, backfill SQL].
 // Applied on startup if missing, so older databases upgrade in place.
 const ADDED_COLUMNS = {
@@ -92,15 +98,6 @@ const SELECT = `SELECT a.*, u.name AS owner, ${VIEWS} FROM artifacts a JOIN user
 const COMMENT_SELECT = 'SELECT c.id, c.n AS version, c.parent_id AS parent, u.name AS author, c.body,'
   + ' c.created_at, c.resolved_at FROM comments c JOIN users u ON u.id = c.author_id';
 
-function metaContent(doc, name) {
-  for (const tag of doc.match(/<meta\b[^>]*>/gi) || []) {
-    if (new RegExp(`\\bname\\s*=\\s*["']?${name}["'\\s>/]`, 'i').test(tag)) {
-      const m = tag.match(/\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
-      if (m) return (m[1] ?? m[2]).trim();
-    }
-  }
-  return '';
-}
 
 export function visible(a, viewerId) {
   if (viewerId != null && a.owner_id === viewerId) return true;
@@ -146,9 +143,52 @@ export class Store {
     this.db.prepare("INSERT OR IGNORE INTO meta VALUES ('visitor_secret', ?)").run(randomBytes(16).toString('hex'));
     this.visitorSecret = this.db.prepare("SELECT value FROM meta WHERE key = 'visitor_secret'").get().value;
     this.vocab = null; // indexed words for fuzzy search; reset whenever the index changes
+    this.ensureSearchIndex();
+    this.ensureLinks();
   }
 
   close() { this.db.close(); }
+
+  /** Create the search index, or rebuild it from every page's latest version if its layout changed. */
+  ensureSearchIndex() {
+    const exists = this.one("SELECT 1 AS x FROM sqlite_master WHERE name = 'artifacts_fts'");
+    if (exists && this.setting('search_index', '1') === SEARCH_INDEX_VERSION) return;
+    this.tx(() => {
+      this.db.exec('DROP TABLE IF EXISTS artifacts_vocab; DROP TABLE IF EXISTS artifacts_fts;'
+        + ' CREATE VIRTUAL TABLE artifacts_fts USING fts5(title, name, body);'
+        + " CREATE VIRTUAL TABLE artifacts_vocab USING fts5vocab(artifacts_fts, 'row');");
+      const rows = this.all('SELECT a.id, a.slug, a.title, a.description, v.html FROM artifacts a'
+        + ' JOIN versions v ON v.artifact_id = a.id AND v.n = a.latest_version');
+      for (const r of rows) this.index(r.id, r.title, r.slug, r.description, extractText(Buffer.from(r.html).toString('utf8')).body);
+      this.setSetting('search_index', SEARCH_INDEX_VERSION);
+    });
+    this.vocab = null;
+  }
+
+  /** Fill the links table once for databases from before it existed (0.4.0). */
+  ensureLinks() {
+    if (this.setting('links_index') === '1') return;
+    this.tx(() => {
+      for (const r of this.all('SELECT a.id, v.html FROM artifacts a JOIN versions v ON v.artifact_id = a.id AND v.n = a.latest_version')) {
+        this.updateLinks(r.id, Buffer.from(r.html).toString('utf8'));
+      }
+      this.setSetting('links_index', '1');
+    });
+  }
+
+  updateLinks(id, html) {
+    this.run('DELETE FROM links WHERE from_id = ?', id);
+    for (const to of extractLinks(html, { isSlug: (s) => SLUG_RE.test(s) && !RESERVED_SLUGS.has(s.toLowerCase()) })) {
+      this.run('INSERT OR IGNORE INTO links (from_id, to_slug) VALUES (?, ?)', id, to);
+    }
+  }
+
+  /** (Re)index one page. The description is searchable too: it's what its card shows. */
+  index(id, title, slug, description, body) {
+    const name = slug.replace(/\.html?$/i, '').replace(/[-_.]+/g, ' ');
+    this.run('DELETE FROM artifacts_fts WHERE rowid = ?', id);
+    this.run('INSERT INTO artifacts_fts (rowid, title, name, body) VALUES (?,?,?,?)', id, title, name, `${description} ${body}`.trim());
+  }
 
   tx(fn) {
     this.db.exec('BEGIN');
@@ -309,9 +349,8 @@ export class Store {
       }
       this.run('INSERT INTO versions (artifact_id, n, html, sha256, size, note, created_at, author_id) VALUES (?,?,?,?,?,?,?,?)',
         id, n, doc, sha256(doc), doc.length, note, t, userId);
-      this.run('DELETE FROM artifacts_fts WHERE rowid = ?', id);
-      // The description is searchable too: it's what the gallery card shows.
-      this.run('INSERT INTO artifacts_fts (rowid, title, body) VALUES (?,?,?)', id, title, `${description} ${body}`.trim());
+      this.index(id, title, slug, description, body);
+      this.updateLinks(id, text);
     });
     this.vocab = null;
     return this.describe(slug, userId);
@@ -366,13 +405,63 @@ export class Store {
     if (owner) { where += ' AND u.name = ?'; args.push(owner.toLowerCase()); }
     if (category) { where += ' AND a.category = ?'; args.push(category); }
     const rows = q
-      ? this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, snippet(artifacts_fts, 1, '[', ']', '…', 12) AS snippet`
+      // Ranked: the whole query appearing in the title first, then bm25 with title
+      // and file-name hits weighted above body hits (SEARCH_WEIGHTS).
+      ? this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, snippet(artifacts_fts, 2, char(1), char(2), '…', 12) AS snippet,`
+        + ' highlight(artifacts_fts, 0, char(1), char(2)) AS title_hits'
         + ' FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
-        + ` WHERE artifacts_fts MATCH ? AND ${where} ORDER BY rank LIMIT ?`, ftsQuery(q, this.vocabulary()), ...args, limit)
+        + ` WHERE artifacts_fts MATCH ? AND ${where}`
+        + ' ORDER BY instr(lower(a.title), lower(?)) > 0 DESC, bm25(artifacts_fts, ?, ?, ?) LIMIT ?',
+        ftsQuery(q, this.vocabulary()), ...args, q.trim(), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body, limit)
       : this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, NULL AS snippet FROM artifacts a`
         + ` JOIN users u ON u.id = a.owner_id WHERE ${where}`
         + " ORDER BY a.category = 'featured' DESC, a.updated_at DESC LIMIT ?", ...args, limit);
-    return rows.map((r) => (r.snippet ? { ...summary(r, viewerId), snippet: r.snippet } : summary(r, viewerId)));
+    return rows.map((r) => {
+      const item = summary(r, viewerId);
+      if (!q) return item;
+      // The API gets [brackets] around matched words; cards get the raw markers (HIT, not serialized).
+      Object.assign(item, { snippet: r.snippet ? bracketHits(r.snippet) : null, title_highlight: bracketHits(r.title_hits) });
+      item[HIT] = { title: r.title_hits, snippet: r.snippet };
+      return item;
+    });
+  }
+
+  /**
+   * Pages as nodes and the links between them as edges, for /graph. Only pages this
+   * viewer can see, and only links whose target exists and is visible too.
+   */
+  graph(viewerId, { focus, depth = 1 } = {}) {
+    const nodes = this.all('SELECT a.id, a.slug, a.title, a.category, a.owner_id,'
+      + " (SELECT COUNT(*) FROM views v WHERE v.artifact_id = a.id) AS views FROM artifacts a"
+      + " WHERE a.state = ? AND (a.visibility = 'public' OR a.owner_id = ?) ORDER BY a.id", ACTIVE, viewerId ?? -1);
+    const ids = new Set(nodes.map((n) => n.id));
+    const edges = this.all("SELECT DISTINCT l.from_id AS source, t.id AS target FROM links l"
+      + " JOIN artifacts t ON t.slug = l.to_slug OR t.slug = l.to_slug || '.html'")
+      .filter((e) => e.source !== e.target && ids.has(e.source) && ids.has(e.target))
+      .map((e) => ({ source: e.source, target: e.target }));
+    const deg = (k) => (id) => edges.filter((e) => e[k] === id).length;
+    let keep = null, focusId = null;
+    if (focus) {
+      // A local graph: the page plus everything within `depth` links of it, either direction.
+      const f = this.readable(focus, viewerId);
+      focusId = f.id;
+      keep = new Set([f.id]);
+      for (let d = 0, frontier = [f.id]; d < depth && frontier.length; d++) {
+        const next = [];
+        for (const e of edges) {
+          for (const [a, b] of [[e.source, e.target], [e.target, e.source]]) {
+            if (frontier.includes(a) && !keep.has(b)) { keep.add(b); next.push(b); }
+          }
+        }
+        frontier = next;
+      }
+    }
+    return {
+      focus: focusId,
+      edges: keep ? edges.filter((e) => keep.has(e.source) && keep.has(e.target)) : edges,
+      nodes: nodes.filter((n) => !keep || keep.has(n.id)).map((n) => ({ id: n.id, slug: n.slug, title: n.title, category: n.category, url: `/pages/${n.slug}`,
+        views: n.views, links_in: deg('target')(n.id), links_out: deg('source')(n.id) })),
+    };
   }
 
   /** Categories in use among pages this viewer can see, with counts. */
@@ -398,12 +487,13 @@ export class Store {
   versionHtml(slug, n, viewerId) { return this.version(this.readable(slug, viewerId), n); }
 
   /** `visit` is [ip, userAgent] to count a page view, or null not to. */
+  /** { body, slug, n, latest }: the HTML of version n (default latest), counting a view if `visit`. */
   render(slug, n, viewerId, visit) {
     const a = this.readable(slug, viewerId);
     if (a.state !== ACTIVE) throw new ApiError(404, 'no such artifact');
     const body = this.version(a, n);
     this.countView(a, n, visit, 'url');
-    return body;
+    return { body, slug: a.slug, n: n || a.latest_version, latest: a.latest_version };
   }
 
   /** Capability link: works for private artifacts too, never for trashed ones. */
@@ -412,7 +502,7 @@ export class Store {
     if (!a || a.state !== ACTIVE) throw new ApiError(404, 'not found');
     const body = this.version(a, n);
     this.countView(a, n, visit, 'share');
-    return body;
+    return { body, slug: a.slug, n: n || a.latest_version, latest: a.latest_version };
   }
 
   countView(a, n, visit, via) {

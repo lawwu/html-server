@@ -7,6 +7,33 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Search ranks titles first:** pages whose title contains the whole query come
+  first, then results ranked with title hits weighted 10x and file-name hits 5x over
+  body text. File names are searchable now ("household" finds
+  `household-budget.html`). The search index is rebuilt automatically on first start.
+  Matched words are highlighted in titles as well as in the text snippet, typo matches
+  included. The API adds `title_highlight`, with matched words in `[brackets]`.
+- **Gallery** at `/gallery`: the example pages that ship with HTML Server, served
+  from the package (read-only, not mixed with your pages), with the same categories,
+  search, grid/list and previews.
+- **Site header** on the server's own pages: HTML Server · Pages · Gallery · API. The
+  home page is titled "HTML Server", and its search box says "Search pages".
+- **Previews on cards:** each card shows the real page scaled down, loaded as you
+  scroll. Previews (`?preview=1`) don't count as views and skip the sidebar.
+- **Graph** at `/graph`: your pages as dots and the links between them as lines, in
+  the spirit of Quartz's graph view. Live layout: drag a dot or the background, scroll
+  to zoom, and labels fade in as you zoom. Hovering highlights a page's neighbours,
+  and clicking opens the page. `/graph?page=<name>` is one page's neighbourhood
+  (`&depth=2` for more), linked from its History page. `/api/graph` returns the data.
+  Links are read from each page's latest version (`/pages/x`, `/x`, or a relative
+  `x.html`); existing pages are scanned once on startup.
+- **Footer** on the server's own pages: the running version, linking to its GitHub
+  release, plus the repository. The API docs link to both, and give the install command.
+- **Category chips** on cards are now small pills beside the title, in grid and list
+  view, instead of a full-width label.
+- **Old-version badge:** a page shown at an old version (`?v=2`) gets a small "Old
+  version: v2 of 6" badge with links to the current version and the history.
+
 ## 0.3.0 (2026-10-20)
 
 - **Open editing:** `html-server config editing open` lets any signed-in user upload

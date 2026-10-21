@@ -151,9 +151,10 @@ link and its review link. A Claude Code skill or a line in your `CLAUDE.md` that
 "publish HTML pages with `html-server put`" is enough to wire it up. Decide there which
 kinds of content the agent may publish publicly, and which only with `--private`.
 
-## Gallery
+## Pages and the gallery
 
-The home page shows every public page as a card, filterable by category chips,
+The home page (**Pages**) shows every public page as a card, with a live preview of
+the page, filterable by category chips,
 with live, typo-tolerant search. The grid/list toggle switches to one compact row per
 page; the choice is remembered in that browser, and `?view=list` puts it in a link. A card's text and category come from the page
 itself:
@@ -165,8 +166,24 @@ itself:
 
 The categories in use are `featured`, `explain-diff`, `architecture`, `data-science`,
 `machine-learning`, `data-viz`, `code-review`, `editor` and `prototype`. Any other kebab-case value creates a new chip.
-Descriptions are searchable. The seed pages live in `gallery/`; publish them with
-`for f in gallery/*.html; do html-server put "$f" "gallery seed"; done`.
+Descriptions and file names are searchable, but the title counts most: pages whose
+title contains the whole query come first. Previews are the real page scaled down,
+loaded as you scroll. They don't count as views.
+
+**Gallery** (`/gallery`, linked at the top of every page) shows the example pages that
+ship in this package's `gallery/` folder, served read-only from the package, so every
+install has them and they never mix with your own pages. To make one your own, copy it
+and `html-server put` it.
+
+**Graph** (`/graph`) draws your pages as dots and the links between them as lines, in
+the spirit of Quartz's graph view. Links are read from each page's latest version:
+`/pages/x`, `/x`, or a relative `x.html`. Drag dots or the background, scroll to zoom
+(labels fade in), and hover to see a page's neighbours. `/graph?page=<name>` shows one
+page's neighbourhood, and is linked from its History page. The data is at `/api/graph`.
+
+**Old versions** are always reachable at `/pages/<name>?v=n`, from the History page
+(below) and from the review page's version picker. When you're looking at one, a small
+badge says "Old version: v2 of 6", with links to the current version and the history.
 
 ## Contents sidebar
 

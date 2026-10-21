@@ -11,10 +11,9 @@ import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { VERSION } from './config.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
 
-// The version comes from package.json, so the two can never drift.
-export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 // --- who and where: env vars win, then credentials.json, then the local default ---
 function readCredentials() {

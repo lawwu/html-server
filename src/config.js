@@ -1,6 +1,13 @@
 // Every tunable in one place, with the reason for its value.
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+
+// The running version comes from package.json, so --version, the footer and the
+// release links can never drift from what's installed.
+export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+export const REPO_URL = 'https://github.com/lawwu/html-server';
+export const RELEASE_URL = `${REPO_URL}/releases/tag/v${VERSION}`; // this version's release notes
 
 // Everything this machine keeps lives in one private folder in the user's home,
 // never next to the code (an npx or npm install puts code in a throwaway cache).
@@ -37,7 +44,7 @@ export const DEFAULT_EDITING = 'owner';
 // gallery never publishes anyone's address. Signed-in users see them in full.
 export const MASK_EMAILS_FOR_ANONYMOUS = true;
 // Top-level paths the server itself uses, so no page may take these names.
-export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'favicon.ico', 'robots.txt']);
+export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'favicon.ico', 'robots.txt']);
 
 export const VISIBILITIES = ['public', 'private'];
 export const DEFAULT_VISIBILITY = 'public'; // everything visible unless an upload says private
@@ -53,6 +60,10 @@ export const RENDER_CSP = 'sandbox allow-scripts allow-forms allow-popups allow-
 export const FUZZY_CUTOFF = 0.75;
 export const FUZZY_MIN_LEN = 3;
 export const FUZZY_MAX_EXPANSIONS = 3; // per typed word
+// Search ranking (FTS5 bm25 column weights): a hit in the title counts 10x a hit in
+// the page text, and the file name ("kmeans-step-through.html" → "kmeans step
+// through") 5x. Pages whose title contains the whole query come first regardless.
+export const SEARCH_WEIGHTS = { title: 10, name: 5, body: 1 };
 
 // Page views: every render counts once. Visitors are a hash of (server secret,
 // day, IP, user agent), so one person counts once per day and no IP or user agent
