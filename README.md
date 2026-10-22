@@ -264,9 +264,18 @@ the SIL Open Font License, licences in `public/fonts`) and its three-column layo
 with live search; the grid/list toggle switches to one compact row per page (remembered in
 that browser; `?view=list` puts it in a link). Previews don't count as views.
 
-**Featured pages** sit in their own section at the top, in the order they were pinned.
-Pin with `html-server pin NAME` (`unpin` to undo), or tick pages under **Select** and press
-Feature. A page's owner or an admin can pin it.
+**Sort** the pages by **Recently updated** (the default), **Newest**, **Most viewed** or
+**Title A–Z** with the menu beside the layout toggle; while searching, **Best match** is
+the default. The choice is remembered in that browser and `?sort=views` puts it in a link.
+Featured pages stay on top whatever the order. The same works elsewhere:
+`html-server ls --sort views`, `html-server search WORDS --sort updated`, `?sort=` on
+`/api/artifacts` and `/api/search`, and the MCP `list_pages` and `search_pages` tools.
+
+**Featured pages** are pinned to the top: their own section on the home page, first in
+`html-server ls` (marked `[featured]`) and in lists over the API, in the order they were
+pinned. Pin with `html-server pin NAME` (`unpin` to undo), or press **Select** on the home
+page, tick pages and press **Feature** (**Unfeature** to undo). A page's owner or an admin
+can pin it.
 
 **Tags** label pages, any number each. An HTML page's `category` and a note's or
 notebook's frontmatter tags are added automatically, and the chips filter by tag. To tag many pages at once, press

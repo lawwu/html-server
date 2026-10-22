@@ -1,6 +1,6 @@
-// The gallery: live search (re-fetch the server-rendered cards as you type) and
-// the grid/list toggle (the same cards, styled per layout). Without JS the form
-// and the links still work, so the page works either way.
+// The gallery: live search (re-fetch the server-rendered cards as you type), sorting
+// (the same, re-fetched in the new order) and the grid/list toggle (the same cards,
+// styled per layout). Without JS the forms and the links still work.
 const box = document.getElementById('q');
 const results = document.getElementById('results');
 const count = document.getElementById('count');
@@ -9,7 +9,12 @@ const url = new URLSearchParams(location.search);
 const category = url.get('category') || '';
 const BASE = box.form.dataset.base || '/'; // "/" for your pages, "/gallery" for the examples
 const PREF = 'artifact_gallery_view';
+const SORT_PREF = 'artifact_gallery_sort';
+const sortSel = document.getElementById('sort'); // your pages only, not the examples
 let ctl, timer;
+// The chosen sort; '' means the default (best match while searching, else recently updated).
+let sort = url.get('sort') || '';
+const sortFor = (q) => (sort === 'relevance' && !q ? '' : sort); // best match means nothing without a query
 
 const pref = () => { try { return localStorage.getItem(PREF); } catch { return null; } };
 // A view in the URL wins (it's a shared link); otherwise use this browser's last choice.
@@ -21,7 +26,16 @@ function stateParams(q = box.value.trim()) {
   if (q) p.set('q', q);
   if (category) p.set('category', category);
   if (view !== 'grid') p.set('view', view);
+  if (sortFor(q)) p.set('sort', sortFor(q));
   return p;
+}
+
+/** Show the order in effect, and offer "Best match" only while searching. */
+function syncSort(q = box.value.trim()) {
+  if (!sortSel) return;
+  const best = sortSel.querySelector('option[value="relevance"]');
+  best.hidden = best.disabled = !q;
+  sortSel.value = sortFor(q) || (q ? 'relevance' : 'updated');
 }
 const syncUrl = () => { const p = stateParams(); history.replaceState(null, '', p.size ? `${BASE}?${p}` : BASE); };
 
@@ -39,6 +53,7 @@ function setView(v) {
 
 async function search() {
   const q = box.value.trim();
+  syncSort(q);
   syncUrl();
   ctl?.abort();
   ctl = new AbortController();
@@ -46,6 +61,7 @@ async function search() {
     const p = new URLSearchParams({ fragment: '1' });
     if (q) p.set('q', q);
     if (category) p.set('category', category);
+    if (sortFor(q)) p.set('sort', sortFor(q));
     const r = await fetch(`${BASE}?${p}`, { signal: ctl.signal });
     results.innerHTML = r.ok ? await r.text() : '<p class="empty">Search failed.</p>';
     const n = results.querySelectorAll('.card').length;
@@ -66,10 +82,26 @@ document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('clic
   if (q) p.set('q', q);
   if (chip.dataset.category) p.set('category', chip.dataset.category);
   if (view !== 'grid') p.set('view', view);
+  if (sortFor(q)) p.set('sort', sortFor(q));
   location.href = p.size ? `${BASE}?${p}` : BASE;
 }));
 
 if (view !== results.className) setView(view);
+
+// Sorting: re-fetch the cards in the new order, and remember the choice in this browser.
+sortSel?.addEventListener('change', () => {
+  const q = box.value.trim();
+  sort = sortSel.value === (q ? 'relevance' : 'updated') ? '' : sortSel.value;
+  try { localStorage.setItem(SORT_PREF, sort); } catch { /* not remembered */ }
+  search();
+});
+sortSel?.form.addEventListener('submit', (e) => e.preventDefault());
+// A sort in the URL wins (it's a shared link); otherwise this browser's last choice.
+if (sortSel && !url.get('sort')) {
+  let saved = null;
+  try { saved = localStorage.getItem(SORT_PREF); } catch { /* none */ }
+  if (saved && saved !== 'relevance' && [...sortSel.options].some((o) => o.value === saved)) { sort = saved; search(); }
+}
 
 // --- select mode: tag, untag, feature or unfeature many pages at once ---------------
 // Uses the same saved sign-in as the review page (this site's localStorage only).
