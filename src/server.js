@@ -163,7 +163,7 @@ class Ctx {
       headers = { ...headers, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' };
     }
     this.res.writeHead(status, { 'Content-Type': type, 'Content-Length': buf.length, ...headers });
-    this.res.end(buf);
+    this.res.end(this.head ? undefined : buf); // HEAD: the same status and headers, no body
   }
 
   json(status, obj) { this.send(status, 'application/json', JSON.stringify(obj, null, 2) + '\n'); }
@@ -344,7 +344,8 @@ class Ctx {
 
   /** Reads are open: no token means anonymous; a bad token is still an error. */
   viewerId() { return this.req.headers.authorization ? this.user().id : null; }
-  visit() { return [this.req.socket.remoteAddress, this.req.headers['user-agent'] || '']; }
+  /** Who's viewing, for the view count; null for HEAD (link checkers and uptime monitors aren't views). */
+  visit() { return this.head ? null : [this.req.socket.remoteAddress, this.req.headers['user-agent'] || '']; }
 }
 
 const handlers = {
@@ -551,11 +552,13 @@ export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) 
   {
     const url = new URL(req.url, 'http://localhost');
     const c = new Ctx(store, req, res, url, csp);
+    c.head = req.method === 'HEAD';
     try {
       let path = url.pathname;
       try { path = decodeURIComponent(path); } catch { throw new ApiError(400, 'bad URL encoding'); }
       for (const r of ROUTES) {
-        const m = r.method === req.method && r.re.exec(path);
+        // HEAD is answered like GET (link checkers, uptime monitors, curl -I), without the body.
+        const m = r.method === (c.head ? 'GET' : req.method) && r.re.exec(path);
         if (m) return await handlers[r.handler](c, m.groups || {});
       }
       throw new ApiError(404, 'no route');

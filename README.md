@@ -511,6 +511,9 @@ name owns it, and a second user gets a 409.
 | Who am I · replace your token | `curl -H "$H" $A/api/me` · `curl -X POST -H "$H" $A/api/me/token` |
 | Users (admin) | `POST /api/users` `{"name":"bob"}` · `GET /api/users` · `POST /api/users/bob/token` · `DELETE /api/users/bob` (deletes their pages too) |
 
+Every GET route also answers **HEAD** (`curl -I`, link checkers, uptime monitors) with the
+same status and headers and no body; HEAD requests don't count as views.
+
 Pass options as headers with `curl -T`: curl only appends the file name when the URL ends
 in `/`, so `.../api/artifacts/?note=x` arrives without a name and gets a 400 that explains
 this. Query parameters work when the name is spelled out in the URL. Errors are JSON:

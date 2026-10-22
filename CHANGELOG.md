@@ -7,6 +7,12 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.6.2 (2026-10-22)
+
+- **HEAD requests work:** every GET route answers HEAD with the same status and headers
+  and no body, so `curl -I`, link checkers and uptime monitors see pages that exist
+  instead of a 404. HEAD requests don't count as page views.
+
 ## 0.6.1 (2026-10-22)
 
 - **Sort pages** by recently updated (the default), newest, most viewed or title: a Sort

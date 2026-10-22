@@ -685,6 +685,27 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match((await req('GET', '/gallery'))[1], /data-total="13 example pages"/);
 });
 
+test('HEAD is answered like GET, without a body, and is not a page view', async () => {
+  await put('head-check.html', '<title>Head check</title><p>' + 'x'.repeat(4000) + '</p>');
+  const views = async () => (await req('GET', '/api/artifacts/head-check.html'))[1].views;
+  const browser = { 'user-agent': 'Mozilla/5.0' };
+  for (const path of ['/pages/head-check.html', '/', '/docs', '/api/artifacts/head-check.html', '/_static/style.css']) {
+    const [head, get] = await Promise.all(['HEAD', 'GET'].map((method) => fetch(`${base}${path}`, { method, headers: browser })));
+    assert.equal(head.status, get.status, path);
+    assert.equal(head.headers.get('content-type'), get.headers.get('content-type'), path);
+    assert.equal(await head.text(), '', path); // no body
+  }
+  const plain = { ...browser, 'accept-encoding': 'identity' }; // compare lengths uncompressed
+  const page = await fetch(`${base}/pages/head-check.html`, { method: 'HEAD', headers: plain });
+  assert.match(page.headers.get('content-security-policy'), /allow-popups-to-escape-sandbox/); // the headers a page really gets
+  assert.equal(Number(page.headers.get('content-length')),
+    (await (await fetch(`${base}/pages/head-check.html`, { headers: plain })).arrayBuffer()).byteLength);
+  const before = await views();
+  await fetch(`${base}/pages/head-check.html`, { method: 'HEAD', headers: browser });
+  assert.equal(await views(), before); // monitors polling with HEAD don't inflate the count
+  assert.equal((await fetch(`${base}/pages/no-such-page`, { method: 'HEAD' })).status, 404);
+});
+
 test('sorting pages: by update, creation, views or title, featured pages first; searches too', async () => {
   const view = (slug, n) => Promise.all(Array.from({ length: n }, () =>
     fetch(`${base}/pages/${slug}`, { headers: { 'user-agent': 'Mozilla/5.0' } })));
