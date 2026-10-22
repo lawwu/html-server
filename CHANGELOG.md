@@ -7,6 +7,13 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.5.2 (2026-10-22)
+
+- **`--sandbox-allow` without a value** now says what it takes (an example and the valid
+  permissions) and that links pages open in a new tab, such as Jira, already work
+  without it, instead of printing a stack trace. Other argument mistakes (`--port` with
+  no number, say) are one-line errors too.
+
 ## 0.5.1 (2026-10-22)
 
 - **Links that pages open in a new tab now load fully.** Rendered pages add
