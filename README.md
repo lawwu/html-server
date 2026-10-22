@@ -1,12 +1,16 @@
-# html-server
+# HTML Server
 
-A small self-hosted server for HTML artifacts: push them with curl, and every push
-becomes a new version. You can render any version in a browser, search the whole set
-by text, give each person their own token, and delete artifacts (trash first, then
-purge). Everything is public unless you mark it private, and a page's URL is its
-file name. The home page is a gallery, filterable by category. It runs on Node.js
-(22.13 or newer) with zero dependencies, on Node's built-in SQLite, in one database
-file.
+Host, version, search and link **HTML pages, Markdown notes and Jupyter notebooks** in one
+place, with a site that looks and works like [Quartz](https://quartz.jzhao.xyz): a sidebar
+explorer, ⌘K search, hover previews, backlinks and a graph of how everything links.
+
+Push a file and it becomes a page, and every push is a new version you can view, diff and
+restore. Publish from the command line, from Claude and other AI apps over MCP, or with
+curl, or sync a whole notes repo on every git commit. Everything is public unless you mark
+it private, and a page's URL is its file name.
+
+It runs on Node.js 22.13 or newer, on Node's built-in SQLite, with one dependency
+(`marked`, for Markdown), or on Cloudflare Workers with one command.
 
 ```bash
 npm install -g github:lawwu/html-server   # puts `html-server` on your PATH
@@ -14,25 +18,24 @@ html-server serve                         # first run: makes you an admin and si
 html-server put page.html "first draft"   # → http://127.0.0.1:8765/pages/page.html
 ```
 
-| File | What |
-| --- | --- |
-| `src/cli.js` | The `html-server` command: `serve`, `create-user`, `reset-token`, `config`, plus `put`, `ls`, `find`, `diff`, `restore`, `views`, `rm`, `open`, `review`, `whoami`. Run `html-server help` |
-| `src/server.js` | HTTP routes (the table that also generates `/api` docs) and their handlers |
-| `src/store.js` | All database access, with the schema |
-| `src/lifecycle.js` | The active → trashed → purged state machine |
-| `src/text.js` | HTML to text, fuzzy matching (the same similarity measure as Python's difflib), search query building, line diffs |
-| `src/pages.js` | Server-rendered pages: gallery, docs, review shell, side-by-side diff |
-| `src/config.js` | Every tunable constant, with the reason for its value |
-| `public/` | Browser code and styles: `gallery.js` (live search), `review.js`, `toc.js` (contents sidebar, added to pages), `style.css` |
-| `gallery/` | Seed pages for the gallery (explain-diff, architecture, data science, ML, data viz, featured) |
-| `CHANGELOG.md` | What each release changed |
-| `test/` | `npm test`: unit tests for lifecycle, fuzzy matching, extraction and diffs, plus the HTTP API end to end with a fresh database per test |
-| `~/.html-server/artifacts.db` | All data, created on first run, outside the code so reinstalling or `npx` can't lose it. `HTML_SERVER_HOME` moves the folder; `--db` uses another file. Back it up separately |
-| `~/.html-server/credentials.json` | Which server the CLI uses and its token. Written by `login`, or by the first `serve`; only you can read it |
+Every running server documents itself at **`/docs`**: the command line, MCP and the HTTP
+API on one page (the same page as Markdown at `/docs.md`).
+
+## Contents
+
+- [Install and run](#install-and-run)
+- [Publishing: CLI, AI apps, curl](#publishing-cli-ai-apps-curl)
+- [What you can host](#what-you-can-host): [HTML pages](#html-pages), [Markdown notes](#markdown-notes), [Jupyter notebooks](#jupyter-notebooks), [syncing a folder or Quartz repo](#syncing-a-folder-or-quartz-repo)
+- [The site](#the-site)
+- [Versions, history and review](#versions-history-and-review)
+- [Users and admins](#users-and-admins)
+- [Deploy to Cloudflare](#deploy-to-cloudflare)
+- [Backups and updating](#backups-and-updating)
+- [Replacing an existing page service](#replacing-an-existing-page-service)
+- [HTTP API](#http-api)
+- [Design notes](#design-notes) · [The sandbox](#the-sandbox) · [Files](#files) · [Versioning](#versioning) · [License](#license)
 
 ## Install and run
-
-Requires Node.js 22.13 or newer. There are no dependencies to install.
 
 ```bash
 npm install -g github:lawwu/html-server
@@ -47,10 +50,12 @@ from it needs your GitHub SSH access.
 html-server serve
 ```
 
-The first time, with an empty database, it creates an admin named after your
-computer account and signs the CLI in, so `html-server put page.html` works right
-away. Nothing goes in your shell profile. The server binds to 127.0.0.1 by default;
-pass `--host 0.0.0.0` only behind something like Tailscale.
+The first time, with an empty database, it creates an admin named after your computer
+account and signs the CLI in, so `html-server put page.html` works right away. Nothing
+goes in your shell profile. The server binds to 127.0.0.1 by default; pass
+`--host 0.0.0.0` only behind something like Tailscale. Its data lives in
+`~/.html-server/artifacts.db` (`HTML_SERVER_HOME` moves the folder, `--db` uses another
+file), outside the code, so reinstalling can't lose it.
 
 **On any other machine,** or as another user, sign in once:
 
@@ -58,203 +63,261 @@ pass `--host 0.0.0.0` only behind something like Tailscale.
 html-server login
 ```
 
-It asks for the server's URL and your token (typing is hidden), checks them against
-the server and saves them to `~/.html-server/credentials.json`, readable only by you.
-`html-server logout` forgets them. For scripts and CI, `login --url URL --token TOKEN`
-skips the questions, or `HTML_SERVER_URL` and `HTML_SERVER_TOKEN` override the saved
-login for one shell. Run the tests with `npm test`.
+It asks for the server's URL and your token (typing is hidden), checks them and saves
+them to `~/.html-server/credentials.json`, readable only by you. `html-server logout`
+forgets them. For scripts and CI, `login --url URL --token TOKEN` skips the questions,
+or `HTML_SERVER_URL` and `HTML_SERVER_TOKEN` override the saved login for one shell.
 
-In Claude Code, `.claude/launch.json` has an `html-server` entry that starts it in the browser pane.
+`html-server --help` lists every command, and `html-server help sync` (or
+`sync --help`) shows one. Rather not run a server? [Deploy to Cloudflare](#deploy-to-cloudflare).
+In Claude Code, `.claude/launch.json` has an `html-server` entry that starts it in the
+browser pane.
 
-## Backups and updating
+## Publishing: CLI, AI apps, curl
 
-**Back up** with one command. It's safe while the server is running, because
-SQLite takes a consistent snapshot without writing to the live file, and the copy is
-checked before it reports success:
+**The CLI:**
 
 ```bash
-html-server backup                  # → ~/.html-server/backups/artifacts-<date-time>.db
-html-server backup /mnt/nas/        # or any folder or file path; never overwrites
-html-server backup --keep 14        # then keep only the newest 14 in the backups folder
+html-server put trip-plan.html "drop the rental car"   # a page; the note goes with the version
+html-server put weekly-review.md                         # a Markdown note
+html-server put analysis.ipynb --private                 # a notebook, private
+html-server sync ~/github/my-garden --install-hook       # a folder or Quartz repo, on every commit
 ```
 
-Backups are readable only by you. `--keep` deletes only its own timestamped files.
-For a nightly backup, run `html-server backup --keep 14` from cron or launchd.
-**Restore** by stopping the server, copying a backup over `~/.html-server/artifacts.db`,
-and starting it again.
+`put` prints the page's link and its review link. `--base N` refuses the upload if
+someone added a version after vN (see [Open editing](#open-editing)).
 
-**Update a deployment:**
+**Claude and other AI apps (MCP).** `html-server mcp` runs HTML Server as an MCP server;
+apps start it themselves and it uses the same login as the CLI, so sign in (or run the
+first `serve`) once beforehand.
 
-1. `html-server backup`
-2. `npm install -g github:lawwu/html-server#vX.Y.Z` (or `git checkout vX.Y.Z` in an
-   `npm link`ed clone).
-3. Restart the server with the same flags. On startup it upgrades the database in
-   place; so far every change has only added columns.
-4. `html-server --version`, then open a few pages.
+```bash
+claude mcp add html-server -- html-server mcp
+```
 
-To roll back, reinstall the previous tag and restart. Older versions ignore columns
-they don't know about. Restore the backup only if the data itself went wrong.
+For Claude Desktop (Settings → Developer → Edit Config, then restart the app), use full
+paths, because apps don't see your shell's PATH:
 
-## Users and admins
+```json
+{
+  "mcpServers": {
+    "html-server": { "command": "/opt/homebrew/bin/node", "args": ["/Users/you/github/html-server/src/cli.js", "mcp"] }
+  }
+}
+```
 
-Every user has one bearer token. It is shown once, at creation or reset, and the
-server stores only its hash.
+Tools: `publish_page` (HTML, Markdown or a notebook), `search_pages`, `list_pages`,
+`get_page`, `page_history`, `diff_versions`, `restore_version`, `list_comments`,
+`add_comment`, `tag_pages`, `feature_page` and `server_info`. **Pages published over MCP
+are private unless the call says `public: true`**, so a chat can't put something in the
+public gallery by accident; a private page comes back with its share link. Editing goes
+`get_page`, then `publish_page` with `base_version`, so two agents can't silently
+overwrite each other.
 
-| Who | Can |
-| --- | --- |
-| Anyone (no token) | Browse, search and read public pages, their history and their comments |
-| User | Upload pages, then change, trash or delete **their own**; comment; rotate their own token. Under open editing, also add versions to anyone's public pages |
-| Admin | Everything a user can, plus create, list and delete users and reset their tokens |
-| Shell access to the server | `html-server create-user NAME [--admin]` and `reset-token NAME`, with no token needed. This is how the first admin is made, and how a lost admin token is recovered |
+**Coding agents** can also just use the CLI: a line in your `CLAUDE.md` (or a skill) saying
+"publish HTML pages with `html-server put`" is enough. Decide there which kinds of content
+the agent may publish publicly, and which only with `--private`.
 
-**Usernames: handles or emails, per deployment.** By default usernames are short
-handles (`alice`). For a deployment where they should be email addresses, run
-`html-server config usernames email` once (add `--db` if needed). From then
-on, new users must be valid addresses. Addresses are trimmed and lowercased, and
-user routes accept them (`/api/users/bob@example.com/token`). Existing users keep
-their names. `config` alone shows the current setting.
+**curl** works too: `curl -T trip-plan.html -H "Authorization: Bearer $HTML_SERVER_TOKEN" $A/api/artifacts/`.
+See [HTTP API](#http-api).
 
-Because pages and comments are public by default, **email addresses are masked for
-anyone not signed in**. Gallery cards, page metadata and comment authors show
-`bob@…`; signed-in users see the full address. Turn this off with
-`MASK_EMAILS_FOR_ANONYMOUS` in `src/config.js`.
+## What you can host
 
-**Signing in.** There are no passwords or login screen; the token is the credential.
-- **The CLI** keeps it in `~/.html-server/credentials.json` after `login` (or after
-  the first `serve` on the server's own machine).
-- **curl, scripts and agents** send it as `Authorization: Bearer <token>`.
-- **In a browser,** reading needs no sign-in. To comment, a reviewer opens a page's
-  review screen, clicks **Sign in to comment** and pastes their token once. It is
-  kept in that browser's local storage for this site only; sandboxed pages can't
-  read it.
-- **Giving someone access:** an admin creates their user and sends them the token
-  over a private channel. If it leaks, `POST /api/me/token` replaces it; if it's
-  lost, an admin resets it.
+Every page, whatever its kind, gets versions, search, tags, comments, views, the graph,
+featuring and a stable URL: `/pages/<file name>`, with the extension optional
+(`/pages/trip-plan` finds `trip-plan.html`).
 
-Admin is a user-management role only: admins can't edit, delete or see other people's
-private pages. A new admin is made by an existing admin (`"admin": true` when
-creating) or from the shell. There is no way yet to promote or demote an existing
-user, and there is no admin UI; user management goes through the API (table below).
+### HTML pages
 
-**A new user:** an admin runs `html-server create-user bob` (on the server) or
-`POST /api/users`, and sends bob the token; bob runs `html-server login` once.
+Any single-file HTML page: reports, explainers, dashboards, small tools. A page's
+JavaScript runs, in a sandbox that keeps it away from the API and your sign-in.
 
-**A lost token:** an admin runs `POST /api/users/NAME/token`, or anyone with shell
-access runs `reset-token NAME`. Both issue a new token and keep the user's pages.
-Deleting the user instead would delete their pages too.
+**In a browser tab** a page sits in the site's frame: the sidebar, a title bar with its
+tags, history, comments, **Copy HTML** and "full page ↗", then the page itself in its own
+design, then its local graph and backlinks. The frame grows to the page's full height, so
+the whole thing scrolls as one page: natively with [responsive
+iframes](https://developer.chrome.com/blog/responsive-iframes) (`frame-sizing:
+content-height`; the server adds the page's opt-in meta tag) where the browser has them,
+otherwise by a small script that reports the page's height. Pages built to fill the window
+(100vh or `height: 100%` layouts, `overflow: hidden`) stay at window height, as does any
+page with `<meta name="html-server-frame" content="window">`.
 
-## Publishing from an AI agent
+Only browser tabs get the frame. Iframes, gallery previews, the review page, curl and
+other clients get the page itself, as does `?raw=1`, and the frame isn't counted as a view.
 
-Coding agents are good at writing single-file HTML pages, and the CLI gives them a
-one-line way to publish one: `html-server put report.html "what changed"` prints the page
-link and its review link. A Claude Code skill or a line in your `CLAUDE.md` that says
-"publish HTML pages with `html-server put`" is enough to wire it up. Decide there which
-kinds of content the agent may publish publicly, and which only with `--private`.
-
-## Pages and the gallery
-
-The home page (**Pages**) shows every public page as a card, with a live preview of
-the page, filterable by category chips,
-with live, typo-tolerant search. The grid/list toggle switches to one compact row per
-page; the choice is remembered in that browser, and `?view=list` puts it in a link. A card's text and category come from the page
-itself:
+**Gallery cards** take their text and first tag from the page:
 
 ```html
 <meta name="description" content="One sentence for the card.">
 <meta name="category" content="data-viz">
 ```
 
-The categories in use are `featured`, `explain-diff`, `architecture`, `data-science`,
-`machine-learning`, `data-viz`, `code-review`, `editor` and `prototype`. Any other kebab-case value creates a new chip.
-Descriptions and file names are searchable, but the title counts most: pages whose
-title contains the whole query come first. Previews are the real page scaled down,
-loaded as you scroll. They don't count as views.
+**Contents sidebar.** Opened on its own (`?raw=1`, or a share link), a page with at least
+3 `<h2>`/`<h3>` headings gets a table of contents: pinned in the left margin when there's
+room (a centred, readable-width article), otherwise a "Contents" button. It highlights the
+section you're reading, and headings without an `id` get one. It's added only at display
+time (`public/toc.js`, in a shadow root so styles can't clash); stored versions, source,
+diffs and search never include it. `<meta name="toc" content="off">` turns it off for a
+page, `?toc=0` for one view, and pages with their own `<nav class="toc">` are left alone.
 
-**Gallery** (`/gallery`, linked at the top of every page) shows the example pages that
-ship in this package's `gallery/` folder, served read-only from the package, so every
-install has them and they never mix with your own pages. To make one your own, copy it
-and `html-server put` it.
+### Markdown notes
 
-**Featured pages** sit in their own section at the top of the home page, in the order
-they were pinned. Pin with `html-server pin NAME` (`unpin` to undo), or tick pages
-under **Select** and press Feature. A page's owner or an admin can pin it.
+Upload a `.md` file and the server renders it as a page of the site, laid out like a
+Quartz page: breadcrumbs, date and reading time, tag pills, then the note, with a right
+sidebar holding a live local graph, the table of contents and **backlinks** (every page
+linking here, Markdown or HTML).
 
-**Tags** label pages, any number each. A page's `<meta name="category">` becomes its
-first tag automatically, and the chips filter by tag. To tag many pages at once, press
-**Select** on the home page, tick the pages, type a tag, and press Add tag or Remove
-tag. Or use `html-server tag add trips plan.html notes.html` (`tag rm` to remove,
-`tags` to list them). You need edit rights on each page; any you can't edit are listed
-and skipped.
+- **Frontmatter** sets the title, `tags`, `description` and `aliases` (`draft: true` or
+  `publish: false` keeps a note out of `sync`). Without a title, the first `# heading` or
+  the file name is used.
+- **`[[Wikilinks]]`** (`[[Note]]`, `[[Note|text]]`, `[[Note#Heading]]`) resolve by name to
+  notes, notebooks **or** HTML pages, ignoring case. A link to a page that doesn't exist yet
+  is drawn faded, as in Quartz. Ordinary Markdown links to other pages count too.
+- **Obsidian/Quartz callouts** (`> [!warning] Title`, foldable with `-` or `+`),
+  `==highlights==`, task lists, tables, and code blocks with syntax highlighting.
+- **Images and PDFs** are assets, embedded with `![[diagram.png]]`, `![[diagram.png|800]]`
+  or `![](img/diagram.png)` (uploaded by `sync`, or `PUT /api/assets/<name>`). Images over
+  3 MB link instead of embedding.
+- **Copy markdown** copies the note's source. Diffs show the Markdown; frontmatter tags
+  follow the note, and tags you add by hand stay.
 
-**Stats** (`/stats`) shows totals, views per day, uploads per week, the most viewed
-and most edited pages, pages per tag and recent uploads, all counted over the pages
-you can see. Hover any bar for its value, or open "Show as table".
+### Jupyter notebooks
 
-**Graph** (`/graph`) draws your pages as dots and the links between them as lines, in
-the spirit of Quartz's graph view. Links are read from each page's latest version:
-`/pages/x`, `/x`, or a relative `x.html`. Drag dots or the background, scroll to zoom
-(labels fade in), and hover to see a page's neighbours. `/graph?page=<name>` shows one
-page's neighbourhood, and is linked from its History page. The data is at `/api/graph`.
+Upload an `.ipynb` and it becomes a page like a note, rendered from the notebook as saved:
 
-**Old versions** are always reachable at `/pages/<name>?v=n`, from the History page
-(below) and from the review page's version picker. When you're looking at one, a small
-badge says "Old version: v2 of 6", with links to the current version and the history.
+- **Markdown cells** render as notes do: wikilinks, callouts, headings in the contents
+  sidebar, backlinks, and pasted (`attachment:`) images.
+- **Code cells** are highlighted (Python, JavaScript/TypeScript, shell, SQL and R; other
+  languages plain), with their `In [n]` prompts. The meta line shows the kernel and
+  number of code cells.
+- **Saved outputs:** printed text, `Out [n]` results, HTML (pandas tables; charts like
+  Plotly or Bokeh whose JavaScript is in the output), PNG/JPEG/SVG images, Markdown, JSON,
+  and errors (tracebacks without their terminal colours).
+- **Title, tags and description** come from a first raw cell of YAML frontmatter (as
+  Quarto and Jupytext write it), or the notebook's metadata, else the first `#` heading.
+- **Search** covers Markdown cells, code and short text outputs; **diffs** compare cells,
+  not JSON; **Copy notebook** copies the `.ipynb`. Notebook formats 3 and 4 are read.
+- **Nothing runs:** there's no kernel. Widgets that need one (ipywidgets) show their saved
+  fallback, outputs that load their library from the web when the page opens may not draw
+  inside the sandbox, and LaTeX shows as text.
 
-## Contents sidebar
+### Syncing a folder or Quartz repo
 
-Any page with at least 3 `<h2>`/`<h3>` headings gets a table of contents when it is
-displayed, like the one on the "unreasonable effectiveness of HTML" article:
+`sync` uploads a Quartz repo, an Obsidian vault or any folder of notes, notebooks, HTML
+pages and images, one way:
 
-- **Pinned in the left margin** when the window is at least 1100px wide and the page
-  leaves 230px or more of free space beside its headings. A centred, readable-width
-  article gets this.
-- **A "Contents" button otherwise** (bottom right), which opens the list as a panel.
-  Full-width pages and phones get this.
-- **Highlights the section you're reading** as you scroll. Clicking jumps there.
-  Headings without an `id` get one, so sections can be linked to.
+```bash
+html-server sync ~/github/my-garden --dry-run        # see what would happen
+html-server sync ~/github/my-garden --prune          # upload new and changed files; trash deleted ones
+html-server sync ~/github/my-garden --install-hook   # re-sync on every git commit and pull
+```
 
-It is added only when the page is displayed (`public/toc.js`, drawn in a shadow root
-so page styles and its styles can't affect each other). Stored versions, raw source,
-diffs and search never include it. To turn it off for a page, add
-`<meta name="toc" content="off">`; for one view, add `?toc=0`. Pages that already
-have a `<nav class="toc">` are left alone. To get the pinned version, write pages
-with a centred content column (`max-width` around 40–48rem) and `h2` sections.
+- **A Quartz repo is recognised** by its `quartz.config.yaml` (or `.ts`) next to
+  `content/`. Sync then reads `content/` and honours the config's `ignorePatterns`. Any
+  other folder is read as is, skipping hidden folders (`.obsidian`, `.git`,
+  `.ipynb_checkpoints`).
+- **Pages are named like Quartz's paths:** `plugins/Backlinks.md` becomes
+  `/pages/plugins-Backlinks.md`, so notes sharing a file name in different folders stay
+  separate. A folder's `index.md` is that folder's page. Where each file lives drives the
+  explorer and breadcrumbs.
+- **`[[Wikilinks]]` resolve the way Quartz does:** `[[Backlinks]]` finds the note named
+  Backlinks wherever it lives (the shortest path wins if several do), `[[plugins/Backlinks]]`
+  goes exactly there, `aliases` work, and `[[tags/plugin/emitter]]` goes to that tag.
+  Nested tags (`plugin/emitter`) become `plugin-emitter`.
+- **Re-runnable:** unchanged files are skipped, changed ones become new versions, and
+  drafts stay out. In a git checkout, each new version's note is the commit message that
+  last touched the file.
+- **`--prune`** trashes pages that came from this folder but whose file is gone (they can
+  be restored); pages uploaded any other way are never touched.
+- **`--install-hook`** adds `post-commit` and `post-merge` hooks, so every commit and every
+  `git pull` re-syncs in the background (with `--prune`); output goes to
+  `~/.html-server/sync.log`. Delete the hook files to stop. An existing hook of your own is
+  left alone, and you're shown the line to add.
 
-## Replacing an existing page service
+The repo stays where you write; the server keeps a versioned, searchable, linked copy.
+Tested against Quartz's own documentation: 111 notes and 15 images, every wikilink
+resolving.
 
-If pages are already being served at `/pages/{slug}` by another service, this server
-can take over without breaking any links:
+## The site
 
-1. **Import the existing pages.** Point `import` at a folder of the current `.html`
-   files. Each keeps its file name, so `/pages/showstopper-timeline` serves
-   `showstopper-timeline.html` exactly as before. Re-running is safe: unchanged files
-   are skipped and changed ones become new versions, so you can import once to test
-   and again just before switching over.
+The pages the server draws borrow Quartz's default theme (MIT): its colours, its
+typefaces (Schibsted Grotesk, Source Sans 3, IBM Plex Mono, served from this server under
+the SIL Open Font License, licences in `public/fonts`) and its three-column layout.
 
-   ```bash
-   html-server import /path/to/current/pages
-   ```
+- **Left sidebar** on every page: the title, the running version (linking to its
+  release), search, a light/dark switch, the site's sections (Pages, Graph, Stats,
+  Gallery, Docs) and an **explorer** of folders and pages. On a phone it collapses
+  above the page.
+- **Search from anywhere:** ⌘K, Ctrl+K or `/` opens a search box with live results;
+  arrows move, Enter opens. On the home page the same keys go to its own search box,
+  which filters the cards instead. Search is typo-tolerant (including in the start of a
+  longer word: "gardn" finds "gardening"), ranks title matches first and marks the
+  matched words. From the terminal: `html-server search WORDS` (`--tag`, `--json`).
+- **Hover previews:** point at a link to another page here to see it: a note or notebook
+  rendered, an HTML page as its title, tags and opening text.
+- **Graph view:** on notes and pages, a live local graph of the pages linked to or from
+  this one (drag, zoom, hover for neighbours, click to open); its expand button opens the
+  graph of every page over the current one.
+- **Light and dark:** follows the system unless you pick one with the switch.
 
-2. **Try it on a spare port** while the current service keeps running, and check a
-   few old links (`http://HOST:8766/pages/<slug>`):
+**Pages** (`/`) shows every page as a card with a live preview, filterable by tag chips,
+with live search; the grid/list toggle switches to one compact row per page (remembered in
+that browser; `?view=list` puts it in a link). Previews don't count as views.
 
-   ```bash
-   html-server serve --host 0.0.0.0 --port 8766
-   ```
+**Featured pages** sit in their own section at the top, in the order they were pinned.
+Pin with `html-server pin NAME` (`unpin` to undo), or tick pages under **Select** and press
+Feature. A page's owner or an admin can pin it.
 
-3. **Switch over.** Stop the current service, then start this one on the same host
-   and port it used, e.g. `html-server serve --host 0.0.0.0 --port 8080`. Use
-   `--host 127.0.0.1` instead if a reverse proxy in front of it forwards to that
-   port; the proxy config doesn't change.
+**Tags** label pages, any number each. An HTML page's `category` and a note's or
+notebook's frontmatter tags are added automatically, and the chips filter by tag. To tag many pages at once, press
+**Select**, tick the pages, type a tag, and press Add tag or Remove tag; or
+`html-server tag add trips plan.html notes.md` (`tag rm` to remove, `tags` to list them).
+Pages you can't edit are listed and skipped.
 
-New uploads land at the same `/pages/{slug}` URLs. Pages are rendered sandboxed, so
-a page that relied on reading cookies or local storage, or on calling its old
-service's API, will need a look. Plain HTML, CSS and JavaScript pages behave the same.
+**Graph** (`/graph`) is the full graph page: pages as dots sized by their links, links as
+arrows, and tags as small rings joined to their pages, so pages that share a tag cluster
+(switch them off with **Tags**); unconnected pages wait on an outer ring. **Fit** and
+**Full screen** are in the corner. `/graph?page=<name>` shows one page's neighbourhood.
+Links are read from each page's latest version: wikilinks, `/pages/x`, `/x` or a relative
+`x.html`.
 
-## Open editing
+**Stats** (`/stats`): totals, views per day, uploads per week, the most viewed and most
+edited pages, pages per tag and recent uploads, counted over the pages you can see. Hover
+any bar for its value, or open "Show as table".
 
-By default only a page's owner can upload new versions of it. To let any signed-in
-user add versions to public pages, like a wiki:
+**Gallery** (`/gallery`) shows the example pages that ship in this package's `gallery/`
+folder, read-only, so every install has them and they never mix with your own. To make one
+your own, copy it and `html-server put` it.
+
+**Docs** (`/docs`, also `/api`): the command line, MCP and the HTTP API on one page, built
+from the CLI's own usage text, the MCP tool definitions and the route table, so it stays
+current. It's Markdown, with **Copy markdown**, and at `/docs.md` as is.
+
+## Versions, history and review
+
+**Old versions** are always reachable at `/pages/<name>?v=n`. Looking at one, the title bar
+(or, on the raw page, a small badge) says "v2 of 6", with links to the current version and
+the history.
+
+**History** (`/history/<name>`): every version, newest first, with its date, author, note
+and size. Each row links to that version, its changes from the previous one, and the
+review page at that version. **Compare** diffs any two versions side by side: by visible
+text (for notes and notebooks, the Markdown and cells), or the raw source. In the
+terminal: `html-server history NAME` and `html-server diff NAME FROM TO`.
+
+**Review** (`/review/<name>`): the page at the top (drag its bottom edge to resize) and its
+comments for that version underneath, with a version picker, **Show changes** and **Make
+this version current**. Anyone can read a public page's comments; commenting needs a
+token, pasted once and saved in that browser only. A comment's author or the page's owner
+can resolve or delete it; replies go one level deep.
+
+**Restore never rewrites history:** making v2 current appends a new version that's a copy
+of v2, noted "restored from v2".
+
+### Open editing
+
+By default only a page's owner can upload new versions of it. To let any signed-in user
+add versions to public pages, like a wiki:
 
 ```bash
 html-server config editing open
@@ -262,129 +325,230 @@ html-server config editing open
 
 `config editing owner` turns it back off; `config` shows the current setting.
 
-- **Who can do what:** with editing open, anyone signed in can upload a new version
-  of a **public, active** page, or restore an old one. Only the owner can trash or
-  delete a page, change its visibility, or touch a private page.
-- **Every version records who uploaded it**, shown in the history, the review
-  page's version picker and `html-server history`. Versions from before 0.3.0 are
-  credited to the page's owner, since nobody else could have made them.
-- **Nothing is ever overwritten.** A bad edit is undone by restoring the previous
-  version, which appends a copy.
-- **To avoid stepping on someone else's edit,** upload with `--base N`, the version
-  you started from (`?base=N` or `X-Base: N` over the API). If someone added a version
-  since, the upload is refused with "at v5 now, but you started from v4", so you can
-  look at what changed and redo yours on top.
+- **Who can do what:** with editing open, anyone signed in can upload a new version of a
+  **public, active** page, or restore an old one. Only the owner can trash or delete a
+  page, change its visibility, or touch a private page.
+- **Every version records who uploaded it**, shown in the history, the review page and
+  `html-server history`.
+- **Nothing is ever overwritten.** A bad edit is undone by restoring the previous version.
+- **To avoid stepping on someone else's edit,** upload with `--base N`, the version you
+  started from (`?base=N` or `X-Base: N` over the API). If someone added a version since,
+  the upload is refused with "at v5 now, but you started from v4".
 
-## History: `/history/<name>`
+## Users and admins
 
-Every version of a page, newest first, with its date, author, note and size. Each
-row links to that version (`/pages/<name>?v=n`), its changes from the previous
-version, and the review page at that version. The **Compare** picker diffs any
-two versions side by side, as visible text or, with "HTML source" ticked, as raw
-HTML. Gallery cards and the review page link here. In the terminal,
-`html-server history NAME` lists the same versions, and `html-server diff NAME FROM TO`
-shows a diff.
+Every user has one bearer token. It's shown once, at creation or reset, and the server
+stores only its hash.
 
-## Reviewing: `/review/<name>`
+| Who | Can |
+| --- | --- |
+| Anyone (no token) | Browse, search and read public pages, their history and their comments |
+| User | Upload pages, then change, trash or delete **their own**; comment; rotate their own token. Under open editing, also add versions to anyone's public pages |
+| Admin | Everything a user can, plus create, list and delete users and reset their tokens |
+| Shell access to the server | `html-server create-user NAME [--admin]` and `reset-token NAME`, with no token needed: how the first admin is made, and how a lost admin token is recovered |
 
-The page fills the width at the top, and its comments for that version sit underneath.
-Drag the page's bottom edge to make it taller or shorter. The header has a version picker,
-**Show changes** (a side-by-side diff against the previous version) and **Make this
-version current**. Anyone can read a public page's comments; commenting needs a
-token, which the reviewer pastes once and which is saved in that browser only. To
-give a reviewer access, create a user for them (below) and send them their token. A comment's author or the page's owner can resolve or delete it, and replies
-go one level deep.
+**Signing in.** There are no passwords or login screen; the token is the credential.
+- **The CLI** keeps it in `~/.html-server/credentials.json` after `login` (or after the
+  first `serve` on the server's own machine).
+- **curl, scripts and agents** send it as `Authorization: Bearer <token>`.
+- **In a browser,** reading needs no sign-in. To comment, a reviewer clicks **Sign in to
+  comment** on the review page and pastes their token once; it's kept in that browser's
+  storage for this site only, out of reach of the sandboxed pages.
 
-## curl API
+**A new user:** an admin runs `html-server create-user bob` (on the server) or
+`POST /api/users`, and sends bob the token over a private channel; bob runs
+`html-server login` once. **A lost token:** an admin runs `POST /api/users/NAME/token`, or
+anyone with shell access runs `reset-token NAME`; the user's pages are kept. If a token
+leaks, `POST /api/me/token` replaces it.
 
-The full API reference is served at **`/api`**. It is generated from the route table
-in `src/server.js`, so it stays current; the table below is a summary.
+Admin is a user-management role only: admins can't edit, delete or see other people's
+private pages. A new admin is made by an existing admin (`"admin": true` when creating) or
+from the shell. There's no admin UI and no way yet to promote an existing user; user
+management goes through the API.
 
-The examples below assume `A=http://127.0.0.1:8765` and `H="Authorization: Bearer $HTML_SERVER_TOKEN"`.
+**Usernames: handles or emails, per deployment.** By default usernames are short handles
+(`alice`). For a deployment where they should be email addresses, run
+`html-server config usernames email` once; new users must then be valid addresses
+(trimmed and lowercased). Because pages are public by default, **email addresses are
+masked for anyone not signed in** (`bob@…`); turn that off with `MASK_EMAILS_FOR_ANONYMOUS`
+in `src/config.js`.
 
-**Everything is public by default.** Anyone can browse `$A/`, open pages, list and
-search without a token. Writes need a token, and only the owner can change or delete
-an artifact.
+## Deploy to Cloudflare
 
-**The URL is the file name.** `curl -T trip-plan.html $A/api/artifacts/` serves the
-page at `$A/pages/trip-plan.html`; `$A/pages/trip-plan` works too, and so does the short
-alias `$A/trip-plan.html`. API responses give the `/pages/` form as `url`. Names are shared across the
-whole server, so the first user to upload a name owns it, and a second user gets
-a 409 and has to pick another name.
+HTML Server runs anywhere Node 22 runs. It can also run on **Cloudflare Workers**, with no
+server to look after: one command from a clone of the repo (Node 22 and a Cloudflare
+account; the free plan is fine):
+
+```bash
+html-server deploy cloudflare
+```
+
+That signs you in to Cloudflare if needed (Wrangler, Cloudflare's CLI, opens the browser;
+you approve there), deploys, and on the first deploy creates the admin (your login name,
+or `--user NAME`) with a fresh token, stores it as the Worker's `ADMIN_TOKEN` secret, and
+signs this CLI in to the new URL. Run it again to deploy a new version: data, users and
+tokens stay. `--name NAME` deploys a second, separate server. Everything else (the CLI,
+MCP, the API, `sync`) works the same against the `https://….workers.dev` URL; on another
+machine, `html-server login --url URL`.
+
+How it fits: a Worker hands every request to one Durable Object that keeps the whole
+database in its built-in SQLite (with the same full-text search) and runs the same request
+handler as `serve`. The Cloudflare parts are only `cloudflare/` and `wrangler.toml`; the
+rest of the code doesn't depend on Cloudflare.
+
+- **Limit:** a Durable Object's SQLite holds up to 2 MB per row, so on Cloudflare each
+  upload (a page version, notebook or image) is limited to 1.9 MB, with a clear error
+  over it. The Node server takes 16 MB.
+- **Dates** are formatted in UTC there.
+- **Your own domain:** add `routes` to `wrangler.toml` (Cloudflare's docs: Custom Domains).
+- **Try it locally first:** `npm run cf:dev` runs it in Cloudflare's local runtime.
+- **Moving data:** `sync` and `import` re-upload a folder to any server, so moving between
+  a Node server and Cloudflare is a re-sync.
+
+## Backups and updating
+
+**Back up** with one command. It's safe while the server is running (SQLite takes a
+consistent snapshot without writing to the live file), and the copy is checked before it
+reports success:
+
+```bash
+html-server backup                  # → ~/.html-server/backups/artifacts-<date-time>.db
+html-server backup /mnt/nas/        # or any folder or file path; never overwrites
+html-server backup --keep 14        # then keep only the newest 14 in the backups folder
+```
+
+Backups are readable only by you, and `--keep` deletes only its own timestamped files. For
+a nightly backup, run `html-server backup --keep 14` from cron or launchd. **Restore** by
+stopping the server, copying a backup over `~/.html-server/artifacts.db`, and starting it
+again.
+
+**Update a deployment:**
+
+1. `html-server backup`
+2. `npm install -g github:lawwu/html-server#vX.Y.Z` (or `git checkout vX.Y.Z` in an
+   `npm link`ed clone; `html-server deploy cloudflare` again for Cloudflare).
+3. Restart the server with the same flags. On startup it upgrades the database in place;
+   so far every change has only added columns and tables.
+4. `html-server --version`, then open a few pages.
+
+To roll back, reinstall the previous tag and restart. Older versions ignore columns they
+don't know about. Restore the backup only if the data itself went wrong.
+
+## Replacing an existing page service
+
+If pages are already being served at `/pages/{slug}` by another service, this server can
+take over without breaking any links:
+
+1. **Import the existing pages.** Each keeps its file name, so `/pages/showstopper-timeline`
+   serves `showstopper-timeline.html` exactly as before. Re-running is safe: unchanged
+   files are skipped and changed ones become new versions.
+
+   ```bash
+   html-server import /path/to/current/pages
+   ```
+
+2. **Try it on a spare port** while the current service keeps running, and check a few old
+   links:
+
+   ```bash
+   html-server serve --host 0.0.0.0 --port 8766
+   ```
+
+3. **Switch over.** Stop the current service, then start this one on the same host and
+   port, e.g. `html-server serve --host 0.0.0.0 --port 8080` (or `--host 127.0.0.1` behind
+   a reverse proxy; the proxy config doesn't change).
+
+Pages are rendered sandboxed, so a page that relied on reading cookies or local storage,
+or on calling its old service's API, will need a look. Plain HTML, CSS and JavaScript pages
+behave the same.
+
+## HTTP API
+
+The full reference is the server's own **Docs** page (`/docs`, or `/docs.md`), generated
+from the route table. A summary, with `A=http://127.0.0.1:8765` and
+`H="Authorization: Bearer $HTML_SERVER_TOKEN"`:
+
+**Everything is public by default.** Anyone can browse, open pages, list and search without
+a token. Writes need a token, and only the owner can change or delete a page (unless
+[open editing](#open-editing) is on).
+
+**The URL is the file name.** `curl -T trip-plan.html $A/api/artifacts/` serves the page at
+`$A/pages/trip-plan.html`; `$A/pages/trip-plan` works too, and so does the short alias
+`$A/trip-plan.html`. Names are shared across the whole server: the first user to upload a
+name owns it, and a second user gets a 409.
 
 | Do | curl |
 | --- | --- |
-| Upload, or add a new version | `curl -T trip-plan.html -H "$H" $A/api/artifacts/` (curl adds the file name because the URL ends in `/`) |
+| Upload, or add a new version | `curl -T trip-plan.html -H "$H" $A/api/artifacts/` (curl adds the file name because the URL ends in `/`; `.md` and `.ipynb` work the same) |
 | Add a version note | add `-H "X-Note: drop rental car"` |
 | Upload under a different name | `curl -T page.html -H "$H" $A/api/artifacts/other-name.html` |
 | Upload as private | add `-H "X-Visibility: private"` |
-| View | `$A/pages/trip-plan` in a browser · an old version: `$A/pages/trip-plan?v=1` |
-| Browse and search in a browser | `$A/` |
-| List or search | `curl $A/api/artifacts` · `curl "$A/api/artifacts?q=beach+shelling"` · `&owner=alice` |
+| View | `$A/pages/trip-plan` · an old version: `?v=1` · the page alone: `?raw=1` |
+| Search | `curl "$A/api/search?q=beach+shelling"` (`&tag=`, `&limit=`) |
+| List | `curl $A/api/artifacts` · `?q=`, `&owner=alice`, `&category=` |
 | Metadata and version history | `curl $A/api/artifacts/trip-plan.html` |
-| Raw source of version n | `curl $A/api/artifacts/trip-plan.html/versions/2` |
+| Source of version n | `curl $A/api/artifacts/trip-plan.html/versions/2` |
+| What changed | `curl $A/api/artifacts/trip-plan.html/diff` (previous vs latest) · `?from=1&to=3` · `?of=source` |
+| Make an old version current | `curl -X POST -H "$H" $A/api/artifacts/trip-plan.html/versions/2/restore` |
 | Make private or public | `curl -X POST -H "$H" "$A/api/artifacts/trip-plan.html/visibility?to=private"` |
 | Share a private page | send the `share_url` (`/v/<random id>`) from any response; `?v=n` works there too |
-| What changed | `curl $A/api/artifacts/trip-plan.html/diff` (previous vs latest, visible text) · `?from=1&to=3` · `?of=source` |
-| Make an old version current | `curl -X POST -H "$H" $A/api/artifacts/trip-plan.html/versions/2/restore` (adds a copy as a new version) |
+| Tag or feature | `POST /api/tags` with `{"pages": [...], "add": [...], "remove": [...]}` · `POST /api/artifacts/<name>/pin` |
+| Images and PDFs for notes | `curl -T diagram.png -H "$H" $A/api/assets/` · served at `/assets/diagram.png` |
 | Comments | `curl $A/api/artifacts/trip-plan.html/comments` · add: `curl -X POST -H "$H" -d '{"body":"..."}' $A/api/artifacts/trip-plan.html/comments` |
-| Page views (owner) | `curl -H "$H" $A/api/artifacts/trip-plan.html/views`: total, visitors, per day for 30 days, per version, URL vs share link |
-| Trash | `curl -X DELETE -H "$H" $A/api/artifacts/trip-plan.html` |
-| List your trash | `curl -H "$H" "$A/api/artifacts?state=trashed"` |
-| Restore | `curl -X POST -H "$H" $A/api/artifacts/trip-plan.html/restore` |
-| Purge (permanent, trashed only) | `curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"` |
-| Who am I | `curl -H "$H" $A/api/me` |
-| Add a user (admin) | `curl -X POST -H "$H" -d '{"name":"bob"}' $A/api/users` |
-| Reset a user's lost token (admin) | `curl -X POST -H "$H" $A/api/users/bob/token` |
-| Replace your own token | `curl -X POST -H "$H" $A/api/me/token` |
-| List or delete users (admin) | `curl -H "$H" $A/api/users` · `curl -X DELETE -H "$H" $A/api/users/bob`. Deleting a user also deletes all of their artifacts |
+| Page views (owner) | `curl -H "$H" $A/api/artifacts/trip-plan.html/views` |
+| Graph, stats | `curl $A/api/graph` · `curl $A/api/stats` |
+| Trash, restore, purge | `curl -X DELETE -H "$H" $A/api/artifacts/trip-plan.html` · `POST …/restore` · `DELETE …?purge=1` (trashed only) |
+| Your trash | `curl -H "$H" "$A/api/artifacts?state=trashed"` |
+| Who am I · replace your token | `curl -H "$H" $A/api/me` · `curl -X POST -H "$H" $A/api/me/token` |
+| Users (admin) | `POST /api/users` `{"name":"bob"}` · `GET /api/users` · `POST /api/users/bob/token` · `DELETE /api/users/bob` (deletes their pages too) |
+
+Pass options as headers with `curl -T`: curl only appends the file name when the URL ends
+in `/`, so `.../api/artifacts/?note=x` arrives without a name and gets a 400 that explains
+this. Query parameters work when the name is spelled out in the URL. Errors are JSON:
+`{"error": "..."}`.
 
 ## Design notes
 
-- **Lifecycle state machine.** An artifact is `active`, `trashed` or `purged`. Every
-  mutation goes through `transition(state, event)`, a lookup in one table, and any
-  pair missing from the table returns a 409 that names the allowed events. Because
-  of this, a trashed artifact can't take new versions and an active one can't be
-  purged by accident. To add a lifecycle state such as `archived`, add rows to the
-  table; the test that walks every illegal pair will then cover it.
-- **Visibility is a separate setting, not a lifecycle state.** Public and private can
-  each be active or trashed, so visibility is a column on the artifact and is left
-  out of the transition table.
-- **Search** only indexes the *latest* version: its title and visible text, with
-  script and style stripped. It is live on `/` (results update as you type) and
-  fuzzy: every word must match, either as a prefix (`ube` finds "uber") or as a
-  close misspelling of an indexed word (`sheling` finds "shelling", `ubr` finds
-  "uber"). How close is close is set by the `FUZZY_*` constants in `src/config.js`.
-  Words of one or two letters only match as prefixes.
-- **Rendered pages are sandboxed** (see [The sandbox](#the-sandbox) below): their
-  JavaScript runs, but in an opaque origin, so it can't reach the API or any other artifact.
-- **Pass options as headers with `curl -T`.** curl only appends the file name when
-  the URL ends in `/`, so `.../api/artifacts/?note=x` arrives without a name and gets
-  a 400 that explains this. Query parameters still work when the name is spelled out
-  in the URL.
-- **Page views** count each time a page is opened at `/pages/<name>`, its `/<name>` alias, or its share link.
-  Reading the source through the API doesn't count, and neither do crawlers,
-  link-preview bots (iMessage, Slack) or `curl`. A visitor is a hash of a server
-  secret, the day, the IP address and the browser, so one person counts once per
-  day and no IP address or browser string is stored. As a result `visitor_days` is
-  "distinct people per day, summed", not distinct people ever. Your own visits
-  count too, because a browser carries no token. Every listing shows a `views`
-  total; the per-day report is owner-only.
-- **Diffs compare visible text by default**, one line per paragraph, heading or list
-  item, so a regenerated report shows "what a reader would notice changed". Use
-  `?of=source` for the raw HTML.
-- **Restore never rewrites history.** Making v2 current appends a v4 that is a copy
-  of v2, with the note "restored from v2". Comments stay on the version they were
-  written about.
-- **Reserved names:** `api`, `v`, `review`, `favicon.ico` and `robots.txt` can't be used as
-  artifact names, because the server uses those top-level paths itself.
-- **Versions are immutable** and keep a sha256 and an optional note. Nothing is
+- **Lifecycle state machine.** A page is `active`, `trashed` or `purged`. Every mutation
+  goes through `transition(state, event)`, a lookup in one table, and any pair missing from
+  it returns a 409 naming the allowed events, so a trashed page can't take new versions and
+  an active one can't be purged by accident. Visibility (public or private) is a separate
+  column, not a state.
+- **Versions are immutable** and keep a sha256, size, author and optional note. Nothing is
   overwritten except by purge.
+- **Pages run sandboxed** (see [The sandbox](#the-sandbox)): every page, note and
+  notebook's JavaScript runs, but in an opaque origin, so it can't reach the API, your
+  sign-in or another page. That's why notes carry their styles,
+  fonts and scripts inline, and why the frame around HTML pages is an iframe. Hover
+  previews of another page's HTML are rebuilt from an allowlist before they're shown.
+- **Search** indexes each page's latest version (title, file name, description and visible
+  text; for notebooks, cells and short outputs) in SQLite's FTS5, ranked with title and
+  file-name hits weighted above body text, and fuzzy: every word must match, as a prefix
+  (`ube` finds "uber") or as a close misspelling of an indexed word (`sheling` finds
+  "shelling"). The `FUZZY_*` constants in `src/config.js` set how close.
+- **Diffs compare what a reader sees** by default: one line per paragraph, heading or list
+  item for HTML; the Markdown for notes; the cells for notebooks. `?of=source` gives the
+  raw source.
+- **Page views** count each time a page is opened at `/pages/<name>`, its `/<name>` alias
+  or its share link (for a framed page, when the frame loads it). The API, crawlers,
+  link-preview bots, `curl` and gallery previews don't count. A visitor is a hash of a
+  server secret, the day, the IP address and the browser, so one person counts once per
+  day and no IP address or browser string is stored.
+- **One codebase, two runtimes.** The store takes any SQLite database with node:sqlite's
+  small interface, the request handler is separate from node:http, and the package's own
+  files are read through one module, so the same code serves from Node or from a
+  Cloudflare Durable Object.
+- **Reserved names:** `api`, `v`, `review`, `pages`, `history`, `gallery`, `graph`, `stats`,
+  `assets`, `docs`, `favicon.ico` and `robots.txt` can't be page names, because the server
+  uses those paths itself.
+
+Not built yet: per-version deletion, rotating a share link, promoting a user to admin, and
+per-user folders (`/alice/x.html`) if one shared namespace for names gets crowded.
 
 ## The sandbox
 
-Every rendered page (artifacts, old versions, share links, gallery examples, diffs) is
-sent with this header by default:
+Every rendered page (HTML pages, notes, notebooks, old versions, share links, gallery
+examples, diffs) is sent with this header by default:
 
 ```
 Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals
@@ -432,12 +596,37 @@ Per-version deletion, rotating a share link, an MCP server (the CLI covers
 this for coding agents), and per-user
 folders (`/alice/x.html`) if one shared namespace for names gets crowded. Each of these is small to add on top of the store.
 
+## Files
+
+| File | What |
+| --- | --- |
+| `src/cli.js` | The `html-server` command (`html-server --help`); its usage text is in `src/usage.js` |
+| `src/server.js` | HTTP routes (the table that also generates the Docs page) and their handlers |
+| `src/store.js` | All database access, with the schema and its in-place upgrades |
+| `src/pages.js` | Server-rendered pages: the site frame, home, notes, history, stats, graph, docs, review, diffs |
+| `src/markdown.js` | Markdown notes: frontmatter, wikilinks, callouts, rendering |
+| `src/notebook.js` | Jupyter notebooks: parsing, rendering cells and outputs |
+| `src/highlight.js` | Syntax highlighting for code in notes and notebooks |
+| `src/mcp.js` | The MCP server and its tools |
+| `src/client.js` | How the CLI and MCP reach a server: saved login, one request helper |
+| `src/text.js` | HTML to text, fuzzy matching (the same similarity measure as Python's difflib), search queries, line diffs |
+| `src/lifecycle.js` | The active → trashed → purged state machine |
+| `src/files.js` | Reads the package's own files: from disk under Node, from the deploy bundle on Cloudflare |
+| `src/deploy.js` | `html-server deploy cloudflare` |
+| `src/config.js` | Every tunable constant, with the reason for its value |
+| `cloudflare/`, `wrangler.toml` | The Cloudflare Worker and Durable Object, its SQLite adapter, and the file bundler |
+| `public/` | Browser code and styles: search, previews, graphs, the contents sidebar, frame sizing, copy buttons; `fonts/` with their licences |
+| `gallery/` | The example pages shown at `/gallery` |
+| `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks and the Cloudflare adapter |
+| `CHANGELOG.md` | What each release changed |
+| `~/.html-server/` | Your data (`artifacts.db`), the CLI's login (`credentials.json`), backups and the sync log. Not in the repo |
+
 ## Versioning
 
 Releases are git tags, `vX.Y.Z`, following semantic versioning; [`CHANGELOG.md`](CHANGELOG.md)
-says what each one changed, and `html-server --version` says which one you're on.
-Install a specific release with `npm install -g github:lawwu/html-server#v0.5.2`;
-without the `#…` you get the latest `main`.
+says what each one changed, and `html-server --version` says which one you're on. Install a
+specific release with `npm install -g github:lawwu/html-server#vX.Y.Z`, or the newest with
+`#latest`; without the `#…` you get the latest `main`.
 
 To cut a release, add its notes to the changelog's "Unreleased" section, then:
 
@@ -446,8 +635,18 @@ npm version minor          # or patch / major: bumps package.json, commits, tags
 git push --follow-tags
 ```
 
+Then move the `latest` tag to it. It doesn't move on its own, and existing installs update
+only when the install is re-run:
+
+```bash
+git tag -fa latest -m "Moving tag: the newest release (currently vX.Y.Z)" "vX.Y.Z^{commit}"
+git push -f origin refs/tags/latest
+```
+
 ## License
 
-MIT, see [`LICENSE`](LICENSE). The explain-diff gallery page follows Geoffrey Litt's explain-diff format, and
-the featured page summarizes and links to Thariq Shihipar's article. Both are credited
+MIT, see [`LICENSE`](LICENSE). The site's look follows [Quartz](https://github.com/jackyzha0/quartz)'s
+default theme (MIT). The fonts are under the SIL Open Font License (licences in
+`public/fonts`). The explain-diff gallery page follows Geoffrey Litt's explain-diff format,
+and the featured page summarizes and links to Thariq Shihipar's article; both are credited
 on the pages, and neither copies the original.

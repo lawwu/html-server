@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { ACTIVE, PURGED, TRASHED } from '../src/lifecycle.js';
 import { ROUTES, makeServer } from '../src/server.js';
-import { Store } from '../src/store.js';
+import { Store, normalizeTag } from '../src/store.js';
 
 const BROWSER = 'Mozilla/5.0 test';
 let dir, store, server, base, admin;
@@ -198,7 +198,7 @@ test('gallery: description, category, filtering and live-search fragments', asyn
   assert.match(page, /Watch clusters settle\./);
   const [, filtered] = await req('GET', '/?category=machine-learning');
   assert.match(filtered, /K-means/);
-  assert.doesNotMatch(filtered, /Anscombe/);
+  assert.doesNotMatch(filtered.slice(filtered.indexOf('id="results"')), /Anscombe/); // (the explorer still lists every page)
   assert.match(page, /id="results" class="grid"/);
   const [, listPage] = await req('GET', '/?view=list&category=data-science');
   assert.match(listPage, /id="results" class="list"/);
@@ -210,11 +210,24 @@ test('gallery: description, category, filtering and live-search fragments', asyn
   assert.doesNotMatch(frag, /<html/);
 });
 
-test('docs page lists every documented route; static files', async () => {
-  const [s, page, h] = await req('GET', '/api');
+test('one docs page for the CLI, MCP and API, from Markdown; static files', async () => {
+  const [s, page, h] = await req('GET', '/docs');
   assert.equal(s, 200);
+  assert.equal((await req('GET', '/api'))[1], page); // /api is the same page
   assert.match(page, /\/api\/artifacts\/&lt;slug&gt;\/restore/);
-  assert.equal(page.match(/<tr>/g).length, ROUTES.filter((r) => r.doc).length);
+  assert.match(page, /<h2 id="command-line">Command line<\/h2>/);
+  assert.match(page, /sync DIR \[--private\]/); // the CLI's own usage text
+  assert.match(page, /<code>publish_page<\/code>/); // the MCP tools
+  assert.doesNotMatch(page, /\/Users\//); // generic paths, not this machine's
+  assert.match(page, /<button type="button" class="copy-source" data-copy-source="page-source">.*<span>Copy markdown<\/span><\/button>/);
+  const md = await fetch(`${base}/docs.md`);
+  assert.match(md.headers.get('content-type'), /text\/markdown/);
+  const text = await md.text();
+  assert.match(text, /^# Docs\n/);
+  assert.match(text, /\| PUT \| `\/api\/artifacts\/<slug>` \| token \|/);
+  const endpoints = text.slice(text.indexOf('### Endpoints')).split('\n').filter((l) => /^\| (GET|PUT|POST|DELETE) /.test(l));
+  assert.equal(endpoints.length, ROUTES.filter((r) => r.doc).length); // every documented route
+  assert.equal(JSON.parse(page.match(/<script id="page-source" type="application\/json">([^<]*)<\/script>/)[1]), text); // what copy copies
   assert.equal(h.get('content-security-policy'), null); // our page, not a sandboxed artifact
   assert.equal((await req('GET', '/_static/review.js'))[0], 200);
   assert.equal((await req('GET', '/_static/..%2Fsrc%2Fconfig.js'))[0], 404); // no path traversal
@@ -420,11 +433,11 @@ test('an older search index is rebuilt on startup, keeping every page findable',
 test('site header, title and search box', async () => {
   const [, page] = await req('GET', '/');
   assert.match(page, /<title>HTML Server<\/title>/);
-  assert.match(page, /<a class="brand" href="\/">HTML Server<\/a>/);
-  assert.match(page, /<a href="\/gallery">Gallery<\/a>/);
+  assert.match(page, /<h2 class="page-title"><a href="\/" target="_top">HTML Server<\/a><\/h2>/);
+  assert.match(page, /<a href="\/gallery" target="_top">Gallery<\/a>/);
   assert.match(page, /placeholder="Search pages"/);
   assert.doesNotMatch(page, /typos are fine/);
-  assert.match((await req('GET', '/api'))[1], /<a href="\/api" class="on"/);
+  assert.match((await req('GET', '/docs'))[1], /<a href="\/docs" target="_top" class="on"/);
 });
 
 test('/gallery: the bundled example pages, filterable and searchable', async () => {
@@ -484,7 +497,7 @@ test('footer and docs link to the GitHub release that is running; uploaded pages
     assert.match(page, /<a href="https:\/\/github.com\/lawwu\/html-server">Source on GitHub<\/a>/, path);
   }
   const [, docs] = await req('GET', '/api');
-  assert.match(docs, new RegExp(`running <a href="${release}">`));
+  assert.match(docs, new RegExp(`<a href="${release}">HTML Server v`));
   assert.match(docs, /npm install -g github:lawwu\/html-server#v/);
   await put('mine.html', '<p>my page</p>');
   assert.doesNotMatch((await req('GET', '/pages/mine'))[1], /site-foot|github\.com/);
@@ -588,6 +601,7 @@ test('tags: categories become tags; tag many pages at once; filter by tag', asyn
 
   const [s, r] = await req('POST', '/api/tags', { token: admin,
     body: JSON.stringify({ pages: ['a.html', 'b', 'c.html', 'nope'], add: ['Trip Plans', 'q4'] }) });
+  assert.equal(normalizeTag('plugin/Emitter'), 'plugin-emitter'); // Quartz nested tags
   assert.equal(s, 200);
   assert.deepEqual(r.results, [
     { slug: 'a.html', tags: ['data-viz', 'q4', 'trip-plans'] }, // normalized: "Trip Plans" → trip-plans
@@ -629,7 +643,7 @@ test('existing categories become tags once, on startup', async () => {
 test('stats: totals and series over the pages you can see', async () => {
   const bob = (await req('POST', '/api/users', { body: '{"name":"bob"}', token: admin }))[1].token;
   await put('a.html', '<title>Alpha</title><meta name="category" content="data-viz">');
-  await put('a.html', '<title>Alpha</title><p>v2</p>', admin);
+  await put('a.html', '<title>Alpha</title><meta name="category" content="data-viz"><p>v2</p>', admin);
   await put('b.html', '<title>Beta</title>', bob);
   await put('hidden.html', '<title>Hidden</title>', admin, '?visibility=private');
   await req('GET', '/pages/a.html');
@@ -667,6 +681,126 @@ test('home shows the page count; header links to GitHub with the version', async
   const [, page] = await req('GET', '/');
   assert.match(page, /<p id="count" class="meta" data-total="2 pages · 1 featured">2 pages · 1 featured<\/p>/);
   assert.match((await req('GET', '/?q=one'))[1], /<p id="count"[^>]*>1 match<\/p>/);
-  assert.match(page, new RegExp(`<a class="gh" href="https://github.com/lawwu/html-server/releases/tag/v${pkg.version}"[^>]*><svg[^]*?</svg><span>v${pkg.version.replace(/\./g, '\\.')}</span></a>`));
+  assert.match(page, new RegExp(`<a class="gh" href="https://github.com/lawwu/html-server/releases/tag/v${pkg.version}" target="_top"[^>]*><svg[^]*?</svg><span>v${pkg.version.replace(/\./g, '\\.')}</span></a>`));
   assert.match((await req('GET', '/gallery'))[1], /data-total="13 example pages"/);
+});
+
+test('markdown notes: rendered pages, wikilinks across kinds, backlinks, tags, search, diff, graph', async () => {
+  const review = '---\ntitle: Weekly Review\ntags: [planning, habits]\ndescription: What happened this week\n---\n'
+    + '## Wins\n\nShipped the [[Launch Plan]]. See also [[Missing Note]].\n\n> [!tip] Keep going\n> Small steps.\n';
+  let [s, a] = await put('Weekly-Review.md', review);
+  assert.equal(s, 201);
+  assert.deepEqual([a.title, a.description, a.tags, a.url], ['Weekly Review', 'What happened this week', ['habits', 'planning'], '/pages/Weekly-Review.md']);
+  await put('launch-plan.html', '<title>Launch plan</title><p>Back to <a href="Weekly-Review.md">the review</a></p>');
+
+  const [, page, h] = await req('GET', '/pages/weekly-review'); // no extension, any case
+  assert.match(h.get('content-security-policy'), /sandbox/);
+  assert.match(page, /<h1 class="article-title">Weekly Review<\/h1>/);
+  assert.match(page, /<a class="wikilink" href="\/pages\/launch-plan.html">Launch Plan<\/a>/); // wikilink to an HTML page
+  assert.match(page, /wikilink missing[^>]*>Missing Note</);
+  assert.match(page, /class="callout callout-tip"/);
+  assert.match(page, /<section class="backlinks"><h3>Backlinks<\/h3><ul><li><a href="\/pages\/launch-plan.html" target="_top">Launch plan<\/a>/);
+  assert.match(page, /<a class="tag-link" href="\/\?category=planning" target="_top">planning<\/a>/);
+  assert.match(page, /<section class="graph-view">[^]*href="\/pages\/launch-plan.html"/); // the local graph: its linked page
+  assert.match(page, /<a class="wikilink" href="\/pages\/launch-plan.html"/);
+  assert.match(page, /data-artifact-toc-script|<h2 id="wins">/); // headings get anchors (sidebar needs 3+)
+  assert.equal((await req('GET', '/api/artifacts/Weekly-Review.md/versions/1'))[1], review); // raw source is the Markdown
+
+  assert.deepEqual(slugs((await req('GET', '/api/search?q=shipped'))[1].results), ['Weekly-Review.md']);
+  assert.deepEqual(slugs((await req('GET', '/api/artifacts?category=habits'))[1]), ['Weekly-Review.md']);
+
+  // Frontmatter tags follow the note; a tag added by hand stays.
+  await req('POST', '/api/tags', { token: admin, body: JSON.stringify({ pages: ['Weekly-Review.md'], add: ['starred'] }) });
+  [, a] = await put('Weekly-Review.md', review.replace('[planning, habits]', '[planning]').replace('Small steps.', 'Big steps.'));
+  assert.deepEqual(a.tags, ['planning', 'starred']);
+  const [, diff] = await req('GET', '/api/artifacts/Weekly-Review.md/diff');
+  assert.match(diff, /-> Small steps\.\n\+> Big steps\./); // Markdown diffs are the source lines
+
+  const [, g] = await req('GET', '/api/graph');
+  const name = (id) => g.nodes.find((n) => n.id === id).slug;
+  assert.deepEqual(g.edges.map((e) => `${name(e.source)}>${name(e.target)}`).sort(),
+    ['Weekly-Review.md>launch-plan.html', 'launch-plan.html>Weekly-Review.md']);
+  assert.deepEqual(g.nodes.find((n) => n.slug === 'Weekly-Review.md').tags, ['planning', 'starred']);
+
+  const [, old] = await req('GET', '/pages/Weekly-Review.md?v=1'); // an old version renders as it was
+  assert.match(old, /Small steps\./);
+  assert.match(old, /data-artifact-version-badge/);
+});
+
+test('notes: rendered hover previews of linked notes, the site graph for the live graph, fonts, gzip', async () => {
+  await put('Alpha.md', '# Alpha\n\nSee [[Beta]] and [[framed-2]].');
+  await put('Beta.md', '# Beta\n\n> [!tip] Hello\n> from beta\n\nMore text.');
+  await put('framed-2.html', '<title>Framed two</title><p>plain html page text</p>');
+  const [, note] = await req('GET', '/pages/Alpha');
+  const previews = JSON.parse(note.match(/<script id="page-previews" type="application\/json">([^<]*)<\/script>/)[1]);
+  assert.match(previews['Beta.md'].html, /class="callout callout-tip"/); // a note's preview is the note, rendered
+  assert.equal(previews['framed-2.html'].html, undefined); // an HTML page's preview is its text
+  assert.match(previews['framed-2.html'].text, /plain html page text/);
+  const graph = JSON.parse(note.match(/<script id="site-graph" type="application\/json">([^<]*)<\/script>/)[1]);
+  assert.ok(graph.nodes.some(([, title]) => title === 'Beta'));
+  assert.match(note, /url\(data:font\/woff2;base64,/); // the main typefaces travel with the sandboxed note
+  const font = await fetch(`${base}/_static/fonts/source-sans-3.woff2`);
+  assert.equal(font.headers.get('content-type'), 'font/woff2');
+  const gz = await fetch(`${base}/pages/Alpha`, { headers: { 'accept-encoding': 'gzip' } });
+  assert.equal(gz.headers.get('content-encoding'), 'gzip');
+  assert.match(await gz.text(), /<h1 class="article-title">Alpha<\/h1>/);
+});
+
+test('an HTML page opened in a browser tab gets the frame; iframes, clients and ?raw=1 get the page', async () => {
+  await put('framed.html', '<title>Framed</title><meta name="category" content="trips"><p>inside</p>');
+  await put('Points.md', 'See [[framed]]');
+  const get = async (path, dest) => {
+    const r = await fetch(`${base}${path}`, { headers: { 'user-agent': 'Mozilla/5.0', ...(dest ? { 'sec-fetch-dest': dest } : {}) } });
+    return [await r.text(), r.headers];
+  };
+  const [frame, fh] = await get('/pages/framed', 'document');
+  const views = async () => (await req('GET', '/api/artifacts/framed.html'))[1].views;
+  assert.equal(await views(), 0); // the frame isn't a view; the iframe loading the page is
+  await get('/pages/framed', 'iframe');
+  assert.equal(await views(), 1);
+  assert.match(frame, /<iframe class="page-frame auto" src="\/pages\/framed.html\?embed=1" title="Framed"><\/iframe>/);
+  assert.match(frame, /<aside class="sidebar left">/);
+  assert.match(frame, /<a class="tag-link" href="\/\?category=trips">trips<\/a>/);
+  assert.match(frame, /data-src="\/api\/artifacts\/framed.html\/versions\/1">.*<span>Copy HTML<\/span>/);
+  assert.match(frame, /<section class="backlinks"><h3>Backlinks<\/h3><ul><li><a href="\/pages\/Points.md"/);
+  assert.match(frame, /"Points.md":\{"title":"Points"/); // its hover preview
+  assert.equal(fh.get('content-security-policy'), null); // the frame is the server's own page; the page inside stays sandboxed
+  for (const [path, dest] of [['/pages/framed', 'iframe'], ['/pages/framed', undefined], ['/pages/framed?raw=1', 'document']]) {
+    const [raw, h] = await get(path, dest);
+    assert.match(raw, /<p>inside<\/p>/, `${path} ${dest}`);
+    assert.match(h.get('content-security-policy'), /sandbox/);
+  }
+  // In the frame, the page opts in to responsive iframes and reports its height.
+  const [embedded] = await get('/pages/framed?embed=1', 'iframe');
+  assert.match(embedded, /<meta name="responsive-embedded-sizing" content="allow-origins=\*">/);
+  assert.match(embedded, /<script data-html-server-embed>/);
+  assert.doesNotMatch(embedded, /data-artifact-toc-script|data-artifact-version-badge/);
+  await put('app.html', '<html><head><meta name="html-server-frame" content="window"></head><body>app</body></html>');
+  const [app] = await get('/pages/app?embed=1', 'iframe'); // a page can ask to stay at window height
+  assert.doesNotMatch(app, /<meta name="responsive-embedded-sizing"/);
+  assert.match(app, /data-html-server-embed/);
+  const [note] = await get('/pages/Points', 'document'); // notes are already pages of the site
+  assert.match(note, /<h1 class="article-title">Points<\/h1>/);
+  assert.doesNotMatch(note, /<iframe class="page-frame"/);
+});
+
+test('notes are pages of the site: sidebars, footer and stylesheet; previews without them; HTML pages never wrapped', async () => {
+  await put('Note.md', '# Note\n\nHello');
+  await put('raw.html', '<p>my own html</p>');
+  const [, note] = await req('GET', '/pages/Note');
+  assert.match(note, /<style>[^<]*\.sidebar \{[^<]*\.article-title/s); // the site's styles and the note's, inlined
+  assert.match(note, /<aside class="sidebar left">[^]*<h2 class="page-title"><a href="\/" target="_top">HTML Server<\/a>/);
+  assert.match(note, /<details class="explorer" open>[^]*<a href="\/pages\/Note.md" target="_top" class="on" aria-current="page">Note<\/a>/);
+  assert.match(note, /<aside class="sidebar right">/);
+  assert.match(note, /<footer class="site-foot">/);
+  assert.match(note, /<a href="\/history\/Note.md" target="_top">history<\/a>/);
+  assert.match(note, /<span>Copy markdown<\/span>/);
+  assert.equal(JSON.parse(note.match(/<script id="page-source" type="application\/json">([^<]*)<\/script>/)[1]), '# Note\n\nHello'); // what it copies
+  const dark = await (await fetch(`${base}/pages/Note`, { headers: { cookie: 'theme=dark' } })).text();
+  assert.match(dark, /<html lang="en" data-theme="dark">/); // the switch's choice reaches sandboxed notes by cookie
+  const [, preview] = await req('GET', '/pages/Note?preview=1');
+  assert.doesNotMatch(preview, /class="sidebar|<footer class="site-foot"/);
+  assert.match(preview, /<h1 class="article-title">Note<\/h1>/);
+  const [, raw] = await req('GET', '/pages/raw.html');
+  assert.doesNotMatch(raw, /class="site"|style\.css/);
 });

@@ -1,8 +1,8 @@
 {
   "name": "@lawwu/html-server",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
-  "description": "Store, version, search, review and render HTML pages from the command line. Zero dependencies.",
+  "description": "Host, version, search and link HTML pages and Markdown notes, like Quartz that also serves HTML. One dependency.",
   "license": "MIT",
   "author": "Lawrence Wu",
   "type": "module",
@@ -15,10 +15,18 @@
   "files": [
     "src",
     "public",
-    "gallery"
+    "gallery",
+    "cloudflare/*.js",
+    "!cloudflare/files.generated.js",
+    "wrangler.toml"
   ],
   "scripts": {
     "start": "node src/cli.js serve",
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "cf:dev": "npx --yes wrangler@4.147.0 dev",
+    "cf:deploy": "node src/cli.js deploy cloudflare"
+  },
+  "dependencies": {
+    "marked": "18.1.0"
   }
 }

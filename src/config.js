@@ -1,11 +1,11 @@
 // Every tunable in one place, with the reason for its value.
-import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { fileText } from './files.js';
 import { join } from 'node:path';
 
 // The running version comes from package.json, so --version, the footer and the
 // release links can never drift from what's installed.
-export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+export const VERSION = JSON.parse(fileText('package.json')).version;
 export const REPO_URL = 'https://github.com/lawwu/html-server';
 export const RELEASE_URL = `${REPO_URL}/releases/tag/v${VERSION}`; // this version's release notes
 
@@ -23,9 +23,11 @@ export const FALLBACK_URL = 'http://127.0.0.1:8765';
 export const BACKUP_DIR = join(HOME_DIR, 'backups');
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 8765;
-export const MAX_BODY_BYTES = 16 * 1024 * 1024; // 16 MB per version
+export let MAX_BODY_BYTES = 16 * 1024 * 1024; // 16 MB per version
 
 // A page's name is its uploaded file name: no slashes, starts with a letter or digit.
+/** The extensions a page name may end in, which a bare name ("trip-plan") leaves off. */
+export const PAGE_EXT_RE = /\.(html?|md|markdown|ipynb)$/i;
 export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 // Usernames are a per-deployment setting, stored in the database
 // (`node src/server.js config usernames email`): short handles by default, or emails.
@@ -44,7 +46,7 @@ export const DEFAULT_EDITING = 'owner';
 // gallery never publishes anyone's address. Signed-in users see them in full.
 export const MASK_EMAILS_FOR_ANONYMOUS = true;
 // Top-level paths the server itself uses, so no page may take these names.
-export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'favicon.ico', 'robots.txt']);
+export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'assets', 'docs', 'favicon.ico', 'robots.txt']);
 
 export const VISIBILITIES = ['public', 'private'];
 export const DEFAULT_VISIBILITY = 'public'; // everything visible unless an upload says private
@@ -109,6 +111,25 @@ export const TOC_MIN_HEADINGS = 3;
 // added as a tag automatically; the rest are added and removed by the page's editors.
 export const TAG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const MAX_TAGS_PER_PAGE = 20;
+
+// Assets: images (and PDFs) that notes embed, uploaded by `sync` or the API. Notes
+// inline images as data: URIs when rendered, because pages are sandboxed and a sandbox
+// may block loading files; MAX_INLINE_BYTES caps that per image (bigger ones link).
+export const ASSET_TYPES = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
+  svg: 'image/svg+xml', pdf: 'application/pdf',
+};
+export let MAX_ASSET_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Lower the upload limits where the database can't hold more per row: a Cloudflare
+ * Durable Object's SQLite stores at most 2 MB in one row (cloudflare/worker.js).
+ */
+export function setUploadLimits({ body, asset }) {
+  if (body) MAX_BODY_BYTES = body;
+  if (asset) MAX_ASSET_BYTES = asset;
+}
+export const MAX_INLINE_BYTES = 3 * 1024 * 1024;
 
 export const MAX_COMMENT_CHARS = 10_000;
 export const DIFF_CONTEXT_LINES = 3;

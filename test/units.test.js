@@ -60,3 +60,9 @@ test('extractLinks: links to pages on this server, in the forms people write the
     <a href="/pages/plan.html?v=2">dup</a> <a href="sub/dir.html">i</a>`;
   assert.deepEqual(extractLinks(doc), ['plan.html', 'budget', 'notes.html', 'faq.html']);
 });
+
+test('a typo near the start of a longer word still finds it', () => {
+  assert.deepEqual(closeMatches('gardn', ['garden', 'gardening', 'grocery']), ['garden', 'gardening']);
+  assert.deepEqual(closeMatches('archtect', ['architecture', 'banana']), ['architecture']); // typo mid-word, 4+ letters
+  assert.deepEqual(closeMatches('cat', ['catalog']), []); // too short to guess
+});

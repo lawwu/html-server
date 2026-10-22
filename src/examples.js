@@ -1,10 +1,9 @@
 // The example pages that ship with html-server (the package's gallery/ folder),
 // shown at /gallery. Served straight from the package, read-only: they are not in
 // the database, so they never mix with anyone's own pages, and every install has them.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { fileBytes, fileMtime, fileText, listFiles } from './files.js';
 import { extractText, metaContent } from './text.js';
 
-const DIR = new URL('../gallery/', import.meta.url);
 export const EXAMPLE_FILE_RE = /^[A-Za-z0-9][\w.-]*\.html$/;
 
 let cache = null;
@@ -13,10 +12,9 @@ let cache = null;
 export function examples() {
   if (cache) return cache;
   let files = [];
-  try { files = readdirSync(DIR).filter((f) => EXAMPLE_FILE_RE.test(f)); } catch { /* no gallery folder */ }
+  try { files = listFiles('gallery').filter((f) => EXAMPLE_FILE_RE.test(f)); } catch { /* no gallery folder */ }
   cache = files.map((f) => {
-    const url = new URL(f, DIR);
-    const html = readFileSync(url, 'utf8');
+    const html = fileText(`gallery/${f}`);
     const { title, body } = extractText(html);
     return {
       slug: f,
@@ -24,7 +22,7 @@ export function examples() {
       title: title || f,
       description: metaContent(html, 'description'),
       category: metaContent(html, 'category').toLowerCase(),
-      updated_at: statSync(url).mtimeMs / 1000,
+      updated_at: fileMtime(`gallery/${f}`) / 1000,
       example: true,
       text: `${title} ${f.replace(/\.html$/, '').replace(/[-_.]+/g, ' ')} ${metaContent(html, 'description')} ${body}`.toLowerCase(),
     };
@@ -35,7 +33,7 @@ export function examples() {
 /** The raw HTML of one example, or null. */
 export function exampleHtml(file) {
   if (!examples().some((e) => e.slug === file)) return null;
-  return readFileSync(new URL(file, DIR));
+  return fileBytes(`gallery/${file}`);
 }
 
 /** Filter examples by category and by every typed word appearing somewhere in them. */

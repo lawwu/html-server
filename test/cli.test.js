@@ -105,7 +105,7 @@ test('errors are one line with a non-zero exit', async () => {
   assert.deepEqual([r.code, r.err.trim()], [1, 'error: no such artifact']);
   r = (await cli(['frobnicate']));
   assert.equal(r.code, 2);
-  assert.match(r.out, /^html-server \S+ — store, version/);
+  assert.match(r.out, /^html-server \S+ — host, version, search and link HTML pages and Markdown notes/);
   assert.match((await cli(['--bogus'])).err, /^error: Unknown option/);
 });
 
@@ -253,3 +253,89 @@ test('pin, unpin, tag add/rm and tags from the CLI', async () => {
   assert.match(r.out, /tagme\.html +\(no tags\)/);
   assert.match((await cli(['tag', 'add', 'x'], env)).err, /usage: tag add\|rm TAG NAME/);
 });
+
+test('search: ranked results with highlighted titles, tag filter, JSON', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('searcher') };
+  const a = join(dir, 'gardening.html'), b = join(dir, 'recipes.html');
+  writeFileSync(a, '<title>Gardening notes</title><p>tomatoes and basil</p>');
+  writeFileSync(b, '<title>Recipes</title><p>basil pesto, garden tomatoes</p>');
+  await cli(['put', a], env);
+  await cli(['put', b], env);
+  await cli(['tag', 'add', 'kitchen', 'recipes.html'], env);
+  let r = await cli(['search', 'gardn'], env); // typo
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^\[Gardening\] notes\n/); // the title match first, highlighted
+  assert.match(r.out, /2 matches$/m);
+  r = await cli(['search', 'basil', '--tag', 'kitchen'], env);
+  assert.match(r.out, /^Recipes\n.*kitchen/s);
+  assert.match(r.out, /1 match$/m);
+  const j = JSON.parse((await cli(['search', 'pesto', '--json'], env)).out);
+  assert.deepEqual([j.count, j.results[0].slug], [1, 'recipes.html']);
+  assert.match((await cli(['search'], env)).err, /usage: search WORDS/);
+});
+
+test('sync: a Quartz repo — content/, ignorePatterns, Quartz paths, index pages, images, aliases, drafts, git notes, prune, hooks', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('syncer') };
+  const repo = join(dir, 'garden');
+  const c = join(repo, 'content');
+  for (const d of ['daily', 'features', 'plugins', 'private', 'img', '.obsidian']) mkdirSync(join(c, d), { recursive: true });
+  writeFileSync(join(repo, 'quartz.config.yaml'), 'configuration:\n  pageTitle: Garden\n  ignorePatterns:\n    - private\n    - "*.tmp.md"\n');
+  writeFileSync(join(repo, 'README.md'), '# Repo readme, not a note');
+  writeFileSync(join(c, 'index.md'), '# Home\n\nStart at [[Reading List]], see [[plugins/Backlinks]] and [[WR]].\n\n![[chart.png|300]]\n');
+  writeFileSync(join(c, 'daily', 'Reading List.md'), '---\ntags: [books]\naliases: [WR]\n---\n# Reading list\n');
+  writeFileSync(join(c, 'daily', 'Secret.md'), '---\ndraft: true\n---\nnot yet');
+  writeFileSync(join(c, 'features', 'index.md'), '# Features\n');
+  writeFileSync(join(c, 'features', 'Backlinks.md'), '# Backlinks (feature)'); // same file name as plugins/Backlinks.md
+  writeFileSync(join(c, 'plugins', 'Backlinks.md'), '# Backlinks (plugin)');
+  writeFileSync(join(c, 'private', 'diary.md'), '# Private');
+  writeFileSync(join(c, 'scratch.tmp.md'), 'ignored by glob');
+  writeFileSync(join(c, '.obsidian', 'workspace.md'), 'ignored');
+  writeFileSync(join(c, 'img', 'chart.png'), Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4a00000000049454e44ae426082', 'hex'));
+  const git = (...a) => spawnGit(repo, a);
+  await git('init', '-q'); await git('add', '.'); await git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'Plant the garden');
+
+  let r = await cli(['sync', repo], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^Quartz repo: syncing content\/, ignoring private, \*\.tmp\.md/);
+  assert.match(r.out, /new +daily\/Reading List\.md → .*\/pages\/daily-Reading-List\.md/);
+  assert.match(r.out, /new +features\/index\.md → .*\/pages\/features\.md/); // a folder's index is the folder's page
+  assert.match(r.out, /new +plugins\/Backlinks\.md → .*\/pages\/plugins-Backlinks\.md/); // no clash with features/Backlinks
+  assert.match(r.out, /new +img\/chart\.png/);
+  assert.match(r.out, /draft +daily\/Secret\.md/);
+  assert.doesNotMatch(r.out, /diary|scratch|workspace|README/); // ignorePatterns, hidden folders, outside content/
+  assert.match(r.out, /6 new, 1 skipped/);
+  assert.equal(store.describe('index.md', null).versions[0].note, 'Plant the garden'); // the git commit message
+
+  const home = await (await fetch(`${url}/pages/index`, { headers: { 'User-Agent': 'Mozilla/5.0 test' } })).text();
+  assert.match(home, /href="\/pages\/daily-Reading-List.md">Reading List</); // [[Reading List]] by file name
+  assert.match(home, /href="\/pages\/plugins-Backlinks.md">Backlinks</); // [[folder/name]] goes exactly there, labelled by name
+  assert.match(home, /href="\/pages\/daily-Reading-List.md">WR</); // an alias
+  assert.match(home, /<img src="data:image\/png;base64,[^"]+" alt="chart.png" width="300"/); // embedded image, inlined
+  const again = await cli(['sync', repo], env);
+  assert.match(again.out, /6 unchanged, 1 skipped/, again.err); // re-run: nothing to do (5 notes + 1 image; the draft)
+
+  rmSync(join(c, 'features', 'Backlinks.md'));
+  writeFileSync(join(c, 'index.md'), '# Home\n\nPruned.\n');
+  await git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'Tidy up');
+  r = await cli(['sync', repo, '--prune'], env);
+  assert.match(r.out, /updated +index\.md/);
+  assert.match(r.out, /trashed +features-Backlinks\.md \(its file is gone; restorable\)/);
+  assert.equal(store.describe('index.md', null).versions[1].note, 'Tidy up');
+  assert.equal(store.find('features-Backlinks.md').state, 'trashed');
+  assert.equal(store.find('plugins-Backlinks.md').state, 'active');
+
+  r = await cli(['sync', repo, '--install-hook'], env);
+  assert.match(r.out, /installed .*\.git\/hooks\/post-commit/);
+  assert.match(r.out, /installed .*\.git\/hooks\/post-merge/);
+  const hook = readFileSync(join(repo, '.git', 'hooks', 'post-commit'), 'utf8');
+  assert.match(hook, /# html-server sync hook/);
+  assert.match(hook, /'sync' '[^']*\/garden\/content' '--prune'/);
+  assert.equal(statSync(join(repo, '.git', 'hooks', 'post-commit')).mode & 0o111, 0o111);
+});
+
+function spawnGit(cwd, args) {
+  return new Promise((resolve, reject) => {
+    const p = spawn('git', args, { cwd, stdio: 'ignore' });
+    p.on('close', (code) => (code ? reject(new Error(`git ${args.join(' ')} → ${code}`)) : resolve()));
+  });
+}
