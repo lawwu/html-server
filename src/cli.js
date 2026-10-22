@@ -417,6 +417,13 @@ const clientCommands = {
 };
 
 export async function main(argv) {
+  // A flag given without its value (`--sandbox-allow` alone): say what it takes.
+  const bare = argv.findIndex((a, i) => a === '--sandbox-allow' && (i === argv.length - 1 || argv[i + 1].startsWith('-')));
+  if (bare !== -1) {
+    const { SANDBOX_TOKENS } = await import('./config.js');
+    fail(`--sandbox-allow needs a permission, e.g. --sandbox-allow allow-downloads. Valid: ${SANDBOX_TOKENS.join(', ')}.`
+      + ' (Links pages open in a new tab, such as Jira, already work without it.)');
+  }
   const { values: opts, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -453,7 +460,7 @@ export async function main(argv) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === (await import('node:fs')).realpathSync(process.argv[1])) {
   main(process.argv.slice(2)).catch((e) => {
     // CLI mistakes and server errors get one line, not a stack trace.
-    console.error(`error: ${e instanceof CliError || e.status || e.code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' ? e.message : e.stack}`);
+    console.error(`error: ${e instanceof CliError || e.status || e.code?.startsWith('ERR_PARSE_ARGS_') ? e.message : e.stack}`);
     process.exit(1);
   });
 }
