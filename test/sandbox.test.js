@@ -86,3 +86,14 @@ test('serve refuses an unknown --sandbox-allow value before starting', async () 
   assert.equal(out.code, 1);
   assert.match(out.err, /^error: unknown sandbox permission: allow-everything\. Valid: /);
 });
+
+test('serve --sandbox-allow with no value says what it takes, without a stack trace', async () => {
+  for (const args of [['serve', '--sandbox-allow'], ['serve', '--sandbox-allow', '--port', '1']]) {
+    const { out, done } = run(args);
+    await done;
+    assert.equal(out.code, 1);
+    assert.match(out.err, /^error: --sandbox-allow needs a permission, e\.g\. --sandbox-allow allow-downloads\. Valid: allow-downloads, /);
+    assert.match(out.err, /already work without it/);
+    assert.doesNotMatch(out.err, /\n\s+at /); // no stack trace
+  }
+});
