@@ -7,7 +7,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   ASSET_TYPES, BOT_UA_RE, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
-  PAGE_EXT_RE, SLUG_RE, USERNAME_RULES,
+  PAGE_EXT_RE, SEARCH_SORT, SLUG_RE, SORTS, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
 import { ACTIVE, NONE, PURGED, TRASHED, transition } from './lifecycle.js';
@@ -181,7 +181,14 @@ const TAGS = "(SELECT group_concat(t.tag, ',') FROM tags t WHERE t.artifact_id =
 const PREVIEW_CHARS = 420; // how much of a page a hover preview shows
 const SELECT = `SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS} FROM artifacts a JOIN users u ON u.id = a.owner_id`;
 // Featured (pinned) pages first, in the order they were pinned; then newest first.
-const LISTING_ORDER = 'a.pinned_at IS NULL, a.pinned_at, a.updated_at DESC';
+// Featured (pinned) pages first, in the order they were pinned; then the chosen sort.
+const PINNED_FIRST = 'a.pinned_at IS NULL, a.pinned_at';
+const SORT_ORDER = {
+  updated: 'a.updated_at DESC, a.id DESC',
+  created: 'a.created_at DESC, a.id DESC',
+  views: 'views DESC, a.updated_at DESC', // `views` is the count selected with each page (VIEWS)
+  title: 'lower(a.title), a.id',
+};
 
 /** "Trip Plans" → "trip-plans", and Quartz's nested "plugin/emitter" → "plugin-emitter"; null if it can't be a tag. */
 export function normalizeTag(t) {
@@ -531,7 +538,15 @@ export class Store {
   }
 
   /** Active: every public artifact plus the viewer's own. Trashed: the viewer's own only. */
-  list(viewerId, { q, state = ACTIVE, limit = 50, owner, category, source } = {}) {
+  /**
+   * `sort`: a key of SORTS (default: recently updated), or for a search 'relevance'
+   * (its default). Featured pages come first unless searching.
+   */
+  list(viewerId, { q, state = ACTIVE, limit = 50, owner, category, source, sort } = {}) {
+    if (sort && !(sort in SORT_ORDER) && !(q && sort === SEARCH_SORT)) {
+      throw new ApiError(400, `sort must be one of ${[...Object.keys(SORTS), ...(q ? [SEARCH_SORT] : [])].join(', ')}`);
+    }
+    const ranked = q && (!sort || sort === SEARCH_SORT);
     let where, args;
     if (state === TRASHED) [where, args] = ['a.state = ? AND a.owner_id = ?', [TRASHED, viewerId ?? -1]];
     else [where, args] = ["a.state = ? AND (a.visibility = 'public' OR a.owner_id = ?)", [ACTIVE, viewerId ?? -1]];
@@ -546,10 +561,10 @@ export class Store {
         + ' highlight(artifacts_fts, 0, char(1), char(2)) AS title_hits'
         + ' FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
         + ` WHERE artifacts_fts MATCH ? AND ${where}`
-        + ' ORDER BY instr(lower(a.title), lower(?)) > 0 DESC, bm25(artifacts_fts, ?, ?, ?) LIMIT ?',
-        ftsQuery(q, this.vocabulary()), ...args, q.trim(), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body, limit)
+        + (ranked ? ' ORDER BY instr(lower(a.title), lower(?)) > 0 DESC, bm25(artifacts_fts, ?, ?, ?) LIMIT ?' : ` ORDER BY ${SORT_ORDER[sort]} LIMIT ?`),
+        ftsQuery(q, this.vocabulary()), ...args, ...(ranked ? [q.trim(), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body] : []), limit)
       : this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS}, NULL AS snippet FROM artifacts a`
-        + ` JOIN users u ON u.id = a.owner_id WHERE ${where} ORDER BY ${LISTING_ORDER} LIMIT ?`, ...args, limit);
+        + ` JOIN users u ON u.id = a.owner_id WHERE ${where} ORDER BY ${PINNED_FIRST}, ${SORT_ORDER[sort || 'updated']} LIMIT ?`, ...args, limit);
     return rows.map((r) => {
       const item = summary(r, viewerId);
       if (!q) return item;

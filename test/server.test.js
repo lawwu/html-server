@@ -685,6 +685,42 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match((await req('GET', '/gallery'))[1], /data-total="13 example pages"/);
 });
 
+test('sorting pages: by update, creation, views or title, featured pages first; searches too', async () => {
+  const view = (slug, n) => Promise.all(Array.from({ length: n }, () =>
+    fetch(`${base}/pages/${slug}`, { headers: { 'user-agent': 'Mozilla/5.0' } })));
+  await put('sort-b.html', '<title>Banana trip</title>');
+  await put('sort-a.html', '<title>Apple trip</title>');
+  await put('sort-c.html', '<title>Cherry trip</title>');
+  await put('sort-b.html', '<title>Banana trip</title><p>edited</p>'); // most recently updated
+  await view('sort-c.html', 3);
+  await view('sort-a.html', 1);
+  const order = async (qs) => (await req('GET', `/api/artifacts?${qs}`))[1].map((a) => a.slug).filter((s) => s.startsWith('sort-'));
+  assert.deepEqual(await order(''), ['sort-b.html', 'sort-c.html', 'sort-a.html']); // default: recently updated
+  assert.deepEqual(await order('sort=created'), ['sort-c.html', 'sort-a.html', 'sort-b.html']);
+  assert.deepEqual(await order('sort=views'), ['sort-c.html', 'sort-a.html', 'sort-b.html']);
+  assert.deepEqual(await order('sort=title'), ['sort-a.html', 'sort-b.html', 'sort-c.html']);
+
+  await req('POST', '/api/artifacts/sort-c.html/pin', { token: admin }); // featured stays on top whatever the sort
+  assert.deepEqual(await order('sort=title'), ['sort-c.html', 'sort-a.html', 'sort-b.html']);
+
+  const search = async (qs) => (await req('GET', `/api/search?q=trip&${qs}`))[1].results.map((a) => a.slug);
+  assert.deepEqual(await search('sort=title'), ['sort-a.html', 'sort-b.html', 'sort-c.html']);
+  assert.deepEqual(await search('sort=views'), ['sort-c.html', 'sort-a.html', 'sort-b.html']);
+  assert.equal((await req('GET', '/api/search?q=trip&sort=relevance'))[0], 200);
+
+  const [s, e] = await req('GET', '/api/artifacts?sort=popular');
+  assert.equal(s, 400);
+  assert.match(e.error, /sort must be one of updated, created, views, title/);
+  assert.equal((await req('GET', '/api/artifacts?sort=relevance'))[0], 400); // best match needs a query
+
+  const [, home] = await req('GET', '/?sort=views');
+  assert.match(home, /<select id="sort" name="sort">[^]*<option value="views" selected>Most viewed<\/option>/);
+  assert.match(home, /<option value="relevance" hidden disabled>Best match<\/option>/); // only while searching
+  assert.match(home, /data-view="list" href="\/\?view=list&amp;sort=views"/); // links keep the sort
+  const [, found] = await req('GET', '/?q=trip');
+  assert.match(found, /<option value="relevance" selected>Best match<\/option>/);
+});
+
 test('markdown notes: rendered pages, wikilinks across kinds, backlinks, tags, search, diff, graph', async () => {
   const review = '---\ntitle: Weekly Review\ntags: [planning, habits]\ndescription: What happened this week\n---\n'
     + '## Wins\n\nShipped the [[Launch Plan]]. See also [[Missing Note]].\n\n> [!tip] Keep going\n> Small steps.\n';

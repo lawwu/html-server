@@ -41,8 +41,11 @@ Use a running server:
                                         upload a Markdown/Quartz/Obsidian folder (notes, notebooks, .html, images), recursively;
                                         re-runnable; --prune trashes pages whose file is gone; --install-hook re-syncs
                                         on every git commit and pull. A Quartz repo syncs content/ and its ignorePatterns
-  ls                                    your pages and everyone's public ones
-  search WORDS... [--tag T] [--json]    search titles, file names and text; best matches first
+  ls [--sort updated|created|views|title]
+                                        your pages and everyone's public ones, featured first
+  search WORDS... [--tag T] [--sort S] [--json]
+                                        search titles, file names and text; best matches first
+                                        (--sort: updated, created, views or title instead)
   find WORDS...                         the same as search
   open NAME | review NAME               open the page, or its review page, in a browser
   diff NAME [FROM TO] [--source]        what changed (default: previous vs latest)

@@ -376,3 +376,7 @@ details[open] > summary > .chev { rotate: 90deg; }
 .tok-comment { color: var(--tok-comment); font-style: italic; }
 .tok-builtin { color: var(--tok-builtin); }
 .tok-decorator { color: var(--tok-decorator); }
+
+/* the Sort menu beside the layout toggle on the home page */
+.sort label { display: flex; align-items: center; gap: .35rem; font-size: 13px; color: var(--mute); }
+.sort select { font-size: 13px; padding: .28rem .5rem; border-radius: 8px; cursor: pointer; }

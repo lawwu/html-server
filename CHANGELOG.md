@@ -7,6 +7,14 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.6.1 (2026-10-22)
+
+- **Sort pages** by recently updated (the default), newest, most viewed or title: a Sort
+  menu on the home page (remembered per browser, `?sort=` in links), `ls --sort`,
+  `search --sort`, `?sort=` on `/api/artifacts` and `/api/search`, and the MCP list and
+  search tools. Searches sort by best match unless asked otherwise. Featured pages stay
+  on top whatever the order, and `ls` marks them `[featured]`.
+
 ## 0.6.0 (2026-10-22)
 
 HTML Server becomes a Quartz-style knowledge base: it hosts Markdown notes and Jupyter

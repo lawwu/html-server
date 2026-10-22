@@ -236,7 +236,7 @@ const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 function printList(items) {
   if (!items.length) return console.log('(nothing)');
   for (const a of items) {
-    const lock = a.visibility === 'private' ? ' [private]' : '';
+    const lock = `${a.pinned ? ' [featured]' : ''}${a.visibility === 'private' ? ' [private]' : ''}`;
     console.log(`${a.slug.padEnd(40)} v${String(a.latest_version).padEnd(3)} ${String(a.views).padStart(5)} views  ${day(a.updated_at)}  ${a.owner}${lock}  ${a.title}`);
     if (a.snippet) console.log(' '.repeat(42) + a.snippet);
   }
@@ -449,11 +449,12 @@ const clientCommands = {
     console.log(`${opts['dry-run'] ? '(dry run) ' : ''}${Object.entries(count).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'nothing to do'}`);
     if (count.failed) process.exitCode = 1;
   },
-  async ls() { printList(await api('GET', '/api/artifacts?limit=500')); },
+  async ls(args, opts) { printList(await api('GET', `/api/artifacts?limit=500${opts.sort ? `&sort=${enc(opts.sort)}` : ''}`)); },
   async search(words, opts) {
     if (!words.length) fail('usage: search WORDS... [--tag TAG] [--json]');
     const q = new URLSearchParams({ q: words.join(' ') });
     if (opts.tag) q.set('tag', opts.tag);
+    if (opts.sort) q.set('sort', opts.sort);
     const r = await api('GET', `/api/search?${q}`);
     if (opts.json) return console.log(JSON.stringify(r, null, 2));
     if (!r.results.length) return console.log('no matches');
@@ -563,6 +564,7 @@ export async function main(argv) {
       db: { type: 'string', default: DEFAULT_DB },
       host: { type: 'string', default: DEFAULT_HOST },
       'sandbox-allow': { type: 'string', multiple: true },
+      sort: { type: 'string' },
       port: { type: 'string', default: String(DEFAULT_PORT) },
       admin: { type: 'boolean', default: false },
       save: { type: 'boolean', default: false },

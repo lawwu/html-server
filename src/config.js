@@ -48,6 +48,12 @@ export const MASK_EMAILS_FOR_ANONYMOUS = true;
 // Top-level paths the server itself uses, so no page may take these names.
 export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'assets', 'docs', 'favicon.ico', 'robots.txt']);
 
+// How lists of pages can be sorted (?sort=, ls --sort), with their labels on the home
+// page. Featured pages stay on top whichever is chosen. Searches sort by relevance
+// unless asked otherwise.
+export const SORTS = { updated: 'Recently updated', created: 'Newest', views: 'Most viewed', title: 'Title A–Z' };
+export const SEARCH_SORT = 'relevance';
+
 export const VISIBILITIES = ['public', 'private'];
 export const DEFAULT_VISIBILITY = 'public'; // everything visible unless an upload says private
 

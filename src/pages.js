@@ -1,6 +1,6 @@
 // Server-rendered pages: your pages at /, the example gallery at /gallery, history,
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
-import { MAX_BODY_BYTES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, VERSION } from './config.js';
+import { MAX_BODY_BYTES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
 import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, tile } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
@@ -171,14 +171,33 @@ function totalLabel(total, items, section) {
 }
 
 /**
- * A browsable set of pages: your pages at / ("pages"), or the bundled examples at
- * /gallery ("gallery"). Category chips, search, grid/list and previews.
+ * The Sort menu on the home page: recently updated (the default), newest, most viewed,
+ * title; while searching, best match comes first and is the default. Featured pages stay
+ * on top whatever the order. A plain GET form, so it works without JS (public/gallery.js
+ * re-sorts in place).
  */
-export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages', total = items.length, explorer = null }) {
+function sortControl({ q, category, view, sort }) {
+  const current = sort || (q ? SEARCH_SORT : 'updated');
+  const options = [[SEARCH_SORT, 'Best match'], ...Object.entries(SORTS)].map(([v, label]) => {
+    const off = v === SEARCH_SORT && !q; // only while searching
+    return `<option value="${v}"${v === current ? ' selected' : ''}${off ? ' hidden disabled' : ''}>${esc(label)}</option>`;
+  }).join('');
+  const keep = Object.entries({ q, category, view: view === 'grid' ? '' : view }).filter(([, v]) => v)
+    .map(([k, v]) => `<input type="hidden" name="${k}" value="${esc(v)}">`).join('');
+  return `<form class="sort" method="get" action="/">${keep}<label><span>Sort</span><select id="sort" name="sort">${options}</select></label>`
+    + '<noscript><button>Go</button></noscript></form>';
+}
+
+/**
+ * A browsable set of pages: your pages at / ("pages"), or the bundled examples at
+ * /gallery ("gallery"). Category chips, search, sorting (your pages), grid/list and previews.
+ */
+export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages', total = items.length,
+  explorer = null, sort = '' }) {
   const base = section === 'gallery' ? '/gallery' : '/';
   // Links keep the other settings, so the page works fully without JS.
   const link = (over) => {
-    const p = new URLSearchParams(Object.entries({ q, category, view, ...over }).filter(([k, v]) => v && !(k === 'view' && v === 'grid')));
+    const p = new URLSearchParams(Object.entries({ q, category, view, sort, ...over }).filter(([k, v]) => v && !(k === 'view' && v === 'grid')));
     return `${base}${p.size ? `?${p}` : ''}`;
   };
   const chip = (value, label, count) => `<a class="chip${value === category ? ' on' : ''}" data-category="${esc(value)}"
@@ -193,9 +212,10 @@ export function galleryPage(items, { q = '', category = '', categories = [], vie
   return shell(section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section, { explorer, search: false })}<main class="wrap">
 ${intro}<form id="search" role="search" data-base="${base}"><input id="q" name="q" value="${esc(q)}" placeholder="${section === 'gallery' ? 'Search examples' : 'Search pages'}" autocomplete="off" autofocus>
 ${category ? `<input type="hidden" name="category" value="${esc(category)}">` : ''}
-${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : ''}</form>
+${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : ''}
+${sort ? `<input type="hidden" name="sort" value="${esc(sort)}">` : ''}</form>
 <div class="bar2"><nav class="chips" aria-label="Categories">${chip('', 'All')}${categories.map((c) => chip(c.category, categoryLabel(c.category), c.count)).join('')}</nav>
-<div class="tools">${section === 'pages' ? '<button type="button" id="select" class="select-btn">Select</button>' : ''}
+<div class="tools">${section === 'pages' ? sortControl({ q, category, view, sort }) + '<button type="button" id="select" class="select-btn">Select</button>' : ''}
 <div class="views" role="group" aria-label="Layout">${toggle('grid', 'Grid view', grid)}${toggle('list', 'List view', list)}</div></div></div>
 <p id="count" class="meta" data-total="${esc(totalLabel(total, items, section))}">${q ? plural(items.length, 'match') : esc(totalLabel(total, items, section))}</p>
 <section id="results" class="${view}">${resultsBody(items, q, { base })}</section>

@@ -22,7 +22,7 @@ const CID = '(?<cid>\\d+)';
 // renders from this table, so documenting a route means filling in its row; rows
 // with no description stay off the page. The bare /<slug> page route matches last.
 export const ROUTES = [
-  ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first); `?view=list` for the list layout'],
+  ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first); `?sort=updated|created|views|title` (featured pages stay on top); `?view=list` for the list layout'],
   ['GET', '/stats', 'stats', 'anyone*', 'Totals, views and uploads over time, most viewed and edited pages, tags, recent uploads'],
   ['GET', '/api/stats', 'statsData', 'anyone*', 'The same numbers as JSON'],
   ['GET', '/graph', 'graph', 'anyone*',
@@ -51,9 +51,9 @@ export const ROUTES = [
   ['GET', `/review/${SLUG}/changes`, 'reviewChanges', 'anyone*',
     'Side-by-side changes page. `?from=1&to=3` (default: previous vs latest), `?of=source` for HTML'],
   ['GET', '/api/artifacts/?', 'list', 'anyone*',
-    'List newest first. `?q=` search, `?category=`, `?owner=`, `?limit=`, `?state=trashed` (your own trash, token required)'],
+    'List pages, featured first, then recently updated. `?sort=updated|created|views|title`, `?q=` search, `?category=`, `?owner=`, `?limit=`, `?state=trashed` (your own trash, token required)'],
   ['GET', '/api/search', 'search', 'anyone*',
-    'Search pages: `?q=` (required; typo-tolerant, titles rank first), `&tag=`, `&limit=` (default 20). Results carry'
+    'Search pages: `?q=` (required; typo-tolerant, titles rank first), `&tag=`, `&limit=` (default 20), `&sort=` (default `relevance`; or updated, created, views, title). Results carry'
     + ' `title_highlight` and `snippet` with matched words in [brackets]. Answers cross-origin requests (sandboxed'
     + ' notes search with it), which carry no token: public pages only'],
   ['GET', `/assets/${SLUG}`, 'assetFile', 'anyone', 'An image or PDF that notes embed'],
@@ -352,8 +352,9 @@ const handlers = {
   gallery(c) {
     const q = (c.query.get('q') || '').trim();
     const category = c.query.get('category') || '';
-    const items = c.store.list(null, { q: q || undefined, category: category || undefined, limit: 500 });
-    c.listing(items, { q, category, categories: c.store.categories(null), section: 'pages', total: category ? items.length : c.store.countPages(null) });
+    const sort = c.query.get('sort') || '';
+    const items = c.store.list(null, { q: q || undefined, category: category || undefined, sort: sort || undefined, limit: 500 });
+    c.listing(items, { q, category, sort, categories: c.store.categories(null), section: 'pages', total: category ? items.length : c.store.countPages(null) });
   },
   stats(c) { c.html(statsPage(c.store.stats(c.viewerId()))); },
   statsData(c) { c.json(200, c.store.stats(c.viewerId())); },
@@ -418,6 +419,7 @@ const handlers = {
       owner: c.query.get('owner') || undefined,
       category: c.query.get('category') || undefined,
       source: c.query.get('source') || undefined,
+      sort: c.query.get('sort') || undefined,
     }));
   },
   categories(c) { c.json(200, c.store.categories(c.viewerId())); },
@@ -434,7 +436,7 @@ const handlers = {
     const q = (c.query.get('q') || '').trim();
     if (!q) throw new ApiError(400, 'search needs ?q=');
     const tag = c.query.get('tag') || undefined;
-    const results = c.store.list(c.viewerId(), { q, category: tag, limit: Math.min(c.int('limit') ?? 20, 200) });
+    const results = c.store.list(c.viewerId(), { q, category: tag, sort: c.query.get('sort') || undefined, limit: Math.min(c.int('limit') ?? 20, 200) });
     // Readable from sandboxed notes (their origin is opaque), whose ⌘K search calls this.
     // Anonymous there, so only public pages; a token can't ride along cross-origin.
     c.send(200, 'application/json', JSON.stringify({ query: q, tag: tag ?? null, count: results.length, results }, null, 2) + '\n',
