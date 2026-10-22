@@ -1,14 +1,18 @@
 // The HTTP server: the route table (which also generates the /api docs page) and
 // its handlers. The command line (serve, create-user, put, ls, ...) is src/cli.js.
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { gzipSync } from 'node:zlib';
+import { fileBytes, fileText } from './files.js';
 import {
-  MAX_BODY_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  MAX_BODY_BYTES, MAX_INLINE_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, diffPage, docsPage, galleryPage, graphPage, historyPage, resultsBody, reviewPage, statsPage } from './pages.js';
+import { VIEWS, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage } from './pages.js';
 import { exampleCategories, exampleHtml, findExamples } from './examples.js';
-import { Store } from './store.js';
+import { renderMarkdown } from './markdown.js';
+import { isNote, isNotebook, parseNotebook, renderNotebook } from './notebook.js';
+import { Store, pageMeta, summary } from './store.js';
+import { TOOLS as MCP_TOOLS } from './mcp.js';
 import { ApiError, unifiedDiff } from './text.js';
 
 const SLUG = '(?<slug>[A-Za-z0-9][\\w.-]*)';
@@ -27,10 +31,16 @@ export const ROUTES = [
     'The graph as JSON: `nodes` (pages, with links in and out) and `edges` (`source` → `target` page ids); same `?page=` and `?depth=`'],
   ['GET', '/gallery/?', 'examples', 'anyone', 'The example pages that ship with HTML Server, with the same filters and search'],
   ['GET', '/gallery/(?<file>[A-Za-z0-9][\\w.-]*\\.html)', 'example', 'anyone', 'One example page'],
-  ['GET', '/api/?', 'docs', 'anyone', 'This page'],
+  ['GET', '/docs/?', 'docs', 'anyone', 'This page: using HTML Server from the command line, MCP and HTTP'],
+  ['GET', '/api/?', 'docs', 'anyone', 'The same page'],
+  ['GET', '/docs\\.md', 'docsSource', 'anyone', 'This page as Markdown'],
+  ['GET', '/api/docs\\.md', 'docsSource', 'anyone', null],
   ['GET', '/_static/(?<file>[\\w.-]+)', 'static', 'anyone', null],
+  ['GET', '/_static/fonts/(?<font>[\\w.-]+\\.woff2)', 'font', 'anyone', null],
   ['GET', `/pages/${SLUG}`, 'render', 'anyone*',
-    'The page itself, e.g. `/pages/trip-plan` or `/pages/trip-plan.html` (`.html` optional). `?v=n` for an old version'],
+    'The page itself, e.g. `/pages/trip-plan` or `/pages/trip-plan.html` (`.html` optional). `?v=n` for an old version.'
+    + ' A note always renders in the site layout; an HTML page opened in a browser tab gets the site\'s frame, everything'
+    + ' else (iframes, curl, `?raw=1`) the page alone. `?embed=1`: the page as the frame shows it, sized to fit'],
   ['GET', `/${SLUG}`, 'render', 'anyone*', 'Short alias for `/pages/<slug>`, e.g. `/trip-plan.html`'],
   ['GET', '/v/(?<share>[\\w-]+)', 'renderShare', 'anyone with the link',
     'A page by its `share_url`; works for private pages. `?v=n` for an old version'],
@@ -42,6 +52,14 @@ export const ROUTES = [
     'Side-by-side changes page. `?from=1&to=3` (default: previous vs latest), `?of=source` for HTML'],
   ['GET', '/api/artifacts/?', 'list', 'anyone*',
     'List newest first. `?q=` search, `?category=`, `?owner=`, `?limit=`, `?state=trashed` (your own trash, token required)'],
+  ['GET', '/api/search', 'search', 'anyone*',
+    'Search pages: `?q=` (required; typo-tolerant, titles rank first), `&tag=`, `&limit=` (default 20). Results carry'
+    + ' `title_highlight` and `snippet` with matched words in [brackets]. Answers cross-origin requests (sandboxed'
+    + ' notes search with it), which carry no token: public pages only'],
+  ['GET', `/assets/${SLUG}`, 'assetFile', 'anyone', 'An image or PDF that notes embed'],
+  ['GET', '/api/assets', 'assets', 'anyone', 'Every asset (images, PDFs) with its size and sha256'],
+  ['PUT', `/api/assets/${SLUG}`, 'putAsset', 'token', 'Upload or replace an asset (png, jpg, gif, webp, avif, svg, pdf; up to 10 MB). Notes embed it by file name'],
+  ['DELETE', `/api/assets/${SLUG}`, 'deleteAsset', 'owner', 'Delete an asset'],
   ['GET', '/api/categories', 'categories', 'anyone', 'Tags in use, with counts, as `{category, count}` (older name)'],
   ['GET', '/api/tags', 'tags', 'anyone*', 'Tags in use on pages you can see, with counts'],
   ['POST', '/api/tags', 'tagPages', 'token',
@@ -55,7 +73,7 @@ export const ROUTES = [
   ['PUT', '/api/artifacts/?', 'putNoName', 'token', null],
   ['POST', `/api/artifacts/${SLUG}`, 'put', 'token', 'Same as PUT'],
   ['GET', `/api/artifacts/${SLUG}`, 'describe', 'anyone*', 'Metadata and version history'],
-  ['GET', `/api/artifacts/${SLUG}/versions/(?<n>\\d+)`, 'raw', 'anyone*', 'Raw HTML source of version n'],
+  ['GET', `/api/artifacts/${SLUG}/versions/(?<n>\\d+)`, 'raw', 'anyone*', 'The source of version n as text: HTML, or a note\'s Markdown'],
   ['GET', `/api/artifacts/${SLUG}/diff`, 'diff', 'anyone*',
     'What changed, as a unified diff. `?from=1&to=3` (default: previous vs latest), `?of=source` for HTML instead of visible text'],
   ['POST', `/api/artifacts/${SLUG}/versions/(?<n>\\d+)/restore`, 'restoreVersion', 'owner',
@@ -83,9 +101,9 @@ export const ROUTES = [
 ].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`) }))
   .sort((a, b) => (a.handler === 'render') - (b.handler === 'render'));
 
-const STATIC_DIR = new URL('../public/', import.meta.url);
-const TOC_SCRIPT = readFileSync(new URL('toc.js', STATIC_DIR), 'utf8');
-const VERSION_BADGE_SCRIPT = readFileSync(new URL('version-badge.js', STATIC_DIR), 'utf8');
+const TOC_SCRIPT = fileText('public/toc.js');
+const VERSION_BADGE_SCRIPT = fileText('public/version-badge.js');
+const EMBED_SIZE_SCRIPT = fileText('public/embed-size.js').replace(/^(\/\/.*\n)+/, ''); // without its header comment
 
 /** Insert a script just before the page's last </body> (or at the end). Display-time only. */
 function injectScript(html, attrs, code) {
@@ -103,6 +121,23 @@ export function withToc(doc) {
   return Buffer.from(injectScript(html, 'data-artifact-toc-script', TOC_SCRIPT));
 }
 
+/**
+ * An HTML page inside the site's frame (?embed=1): opt it in to responsive iframes
+ * (Chrome's frame-sizing: content-height; the meta tag has to be in the page as served,
+ * it can't be added later) and add the script that keeps the frame sized everywhere else
+ * (public/embed-size.js). A page that says <meta name="html-server-frame" content="window">
+ * isn't opted in: it stays at window height.
+ */
+export function withEmbedSizing(doc) {
+  let html = doc.toString('utf8');
+  if (!/<meta\b[^>]*name\s*=\s*["']?html-server-frame["']?[^>]*content\s*=\s*["']?window/i.test(html)) {
+    const meta = '<meta name="responsive-embedded-sizing" content="allow-origins=*">';
+    const head = html.search(/<head\b[^>]*>/i);
+    html = head === -1 ? meta + html : html.replace(/<head\b[^>]*>/i, (m) => m + meta);
+  }
+  return Buffer.from(injectScript(html, 'data-html-server-embed', EMBED_SIZE_SCRIPT));
+}
+
 /** On an old version, a small badge: "v2 of 6", with links to the current version and the history. */
 export function withVersionBadge(doc, { n, latest, current, history }) {
   const a = (k, v) => (v == null ? '' : ` data-${k}="${String(v).replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)}"`);
@@ -110,6 +145,9 @@ export function withVersionBadge(doc, { n, latest, current, history }) {
   return Buffer.from(injectScript(doc.toString('utf8'), attrs, VERSION_BADGE_SCRIPT));
 }
 
+const PREVIEW_NOTES = 40; // notes linked from one page that get a rendered preview
+const PREVIEW_HTML_CHARS = 6000; // how much of each (the card shows the start)
+const COMPRESSIBLE = /^(text\/|application\/json|image\/svg)/;
 const STATIC_TYPES = { css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', svg: 'image/svg+xml' };
 
 class Ctx {
@@ -118,7 +156,12 @@ class Ctx {
   }
 
   send(status, type, body, headers = {}) {
-    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
+    let buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
+    // Text goes gzipped to clients that take it: notes carry their styles and fonts inline.
+    if (buf.length > 1024 && COMPRESSIBLE.test(type) && /\bgzip\b/.test(this.req.headers['accept-encoding'] || '')) {
+      buf = gzipSync(buf);
+      headers = { ...headers, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' };
+    }
     this.res.writeHead(status, { 'Content-Type': type, 'Content-Length': buf.length, ...headers });
     this.res.end(buf);
   }
@@ -144,19 +187,126 @@ class Ctx {
     const base = opts.section === 'gallery' ? '/gallery' : '/';
     if (this.query.get('fragment')) return this.html(resultsBody(items, opts.q, { base }));
     const view = VIEWS.includes(this.query.get('view')) ? this.query.get('view') : 'grid';
-    this.html(galleryPage(items, { ...opts, view }));
+    this.html(galleryPage(items, { ...opts, view, explorer: opts.section === 'pages' ? this.store.explorer(null) : null }));
+  }
+
+  /**
+   * A Markdown note as a page: wikilinks resolved against pages this viewer can see
+   * (missing ones shown as such), and "Linked from" backlinks. Title and tags come from
+   * the version being shown, so an old version reads as it did.
+   */
+  note(page, source, n) {
+    const viewer = this.viewerId();
+    const text = source.toString('utf8');
+    const meta = pageMeta(page.slug, text);
+    const nb = isNotebook(page.slug) ? parseNotebook(text) : null;
+    const html = nb ? renderNotebook(nb, { ...this.resolvers(viewer), title: meta.title })
+      : renderMarkdown(text, { ...this.resolvers(viewer), title: meta.title });
+    const backlinks = this.store.backlinks(page, viewer);
+    const linked = [...html.matchAll(/href="\/pages\/([^"?#]+)/g)].map((m) => decodeURIComponent(m[1])).concat(backlinks.map((b) => b.slug));
+    return Buffer.from(notePage({
+      slug: page.slug, chrome: !this.preview(), latest: page.latest_version,
+      title: meta.title, description: meta.description, tags: meta.tags, version: n,
+      updated: n === page.latest_version ? page.updated_at : null,
+      html, backlinks, previews: this.preview() ? {} : this.previews(linked, viewer), source: text,
+      copyLabel: nb ? 'Copy notebook' : 'Copy markdown',
+      extra: nb ? [nb.kernel, `${nb.cells.filter((c) => c.type === 'code').length} code cells`].filter(Boolean).join(' · ') : '',
+      theme: (this.req.headers.cookie || '').match(/(?:^|;\s*)theme=(dark|light)/)?.[1],
+      path: page.path, explorer: this.preview() ? [] : this.store.explorer(viewer),
+      graph: this.preview() ? null : this.store.graph(viewer),
+    }));
+  }
+
+  /**
+   * How a note finds what it links to: `resolve` turns a wikilink name into a page this
+   * viewer can see (or null: drawn as "not written yet"); `asset` finds an image or PDF.
+   * Images go in as data: URIs (a sandboxed note may not load files) unless big, or
+   * `inline` is off (hover previews, which link to them instead).
+   */
+  resolvers(viewer, { inline = true } = {}) {
+    return {
+      resolve: (name) => {
+        try { const a = this.store.readable(name, viewer); return { exists: true, url: `/pages/${a.slug}` }; } catch { return null; }
+      },
+      asset: (name) => {
+        const a = this.store.asset(name);
+        if (!a) return null;
+        const url = `/assets/${encodeURIComponent(a.name)}`;
+        const small = inline && a.mime.startsWith('image/') && a.size <= MAX_INLINE_BYTES;
+        return { mime: a.mime, url, src: small ? `data:${a.mime};base64,${Buffer.from(a.data).toString('base64')}` : url };
+      },
+    };
+  }
+
+  /**
+   * Hover previews for the pages a page links to: title, tags and opening text for every
+   * page, and for notes the start of the note itself, rendered (Quartz shows the page).
+   * The browser cleans that HTML before showing it (public/popover.js).
+   */
+  previews(slugs, viewer) {
+    const out = this.store.previews(slugs, viewer);
+    for (const slug of Object.keys(out).filter(isNote).slice(0, PREVIEW_NOTES)) {
+      try {
+        const a = this.store.readable(slug, viewer);
+        const text = this.store.version(a, a.latest_version).toString('utf8');
+        const opts = { ...this.resolvers(viewer, { inline: false }), title: out[slug].title };
+        let html = isNotebook(slug) ? renderNotebook(parseNotebook(text), opts) : renderMarkdown(text, opts);
+        if (html.length > PREVIEW_HTML_CHARS) html = html.slice(0, html.lastIndexOf('>', PREVIEW_HTML_CHARS) + 1);
+        out[slug].html = html;
+      } catch { /* text preview only */ }
+    }
+    return out;
+  }
+
+  /**
+   * An HTML page opened directly in a browser tab gets the site's frame around it (see
+   * frame). Everything else gets the page itself: the frame's own iframe, gallery
+   * previews and the review page (all iframe loads), curl and other clients (which send
+   * no Sec-Fetch-Dest), and ?raw=1.
+   */
+  wantsFrame() {
+    return this.req.headers['sec-fetch-dest'] === 'document' && !this.query.get('raw') && !this.query.get('embed') && !this.preview();
+  }
+
+  /**
+   * The frame: the sidebar and explorer, the page's title, tags and links, the page
+   * itself in an iframe (where it stays sandboxed and keeps its own design), then its
+   * local graph and backlinks. The view is counted when the iframe loads the page.
+   */
+  frame(a) {
+    const viewer = this.viewerId();
+    const n = this.int('v') ?? a.latest_version;
+    this.store.version(a, n); // 404 for a version that doesn't exist
+    const backlinks = this.store.backlinks(a, viewer);
+    this.html(htmlFramePage({
+      page: summary(a, viewer), n, backlinks,
+      explorer: this.store.explorer(viewer), graph: this.store.graph(viewer),
+      previews: this.previews(backlinks.map((b) => b.slug), viewer),
+    }));
   }
 
   /** ?preview=1: a gallery-card thumbnail. Not a view, and no sidebar or badge drawn over it. */
   preview() { return !!this.query.get('preview'); }
 
   /** What we add to a page at display time: the contents sidebar, and on an old version a badge. */
-  decorate({ body, n, latest }, links) {
+  decorate({ body, n, latest, page }, links) {
+    const note = page && isNote(page.slug);
+    if (note) body = this.note(page, body, n);
     if (this.preview()) return body;
-    let doc = this.query.get('toc') === '0' ? body : withToc(body);
+    // In the site's frame the title bar shows the version, and a floating contents box
+    // would be pinned to the top of a frame as tall as the page: just size it.
+    if (!note && this.query.get('embed')) return withEmbedSizing(body);
+    // Notes carry their contents in the right sidebar already.
+    let doc = note || this.query.get('toc') === '0' ? body : withToc(body);
     if (n < latest) doc = withVersionBadge(doc, { n, latest, ...links });
     return doc;
   }
+
+  /** The docs page's Markdown: CLI, MCP and API (pages.js docsMarkdown). */
+  docs() { return docsMarkdown(this.origin(), ROUTES, { tools: MCP_TOOLS }); }
+
+  /** This server as the client reached it, for examples in the docs. */
+  origin() { return `http://${this.req.headers.host || 'localhost'}`; }
 
   int(name) {
     const v = this.query.get(name);
@@ -170,7 +320,7 @@ class Ctx {
     let size = 0;
     for await (const c of this.req) {
       size += c.length;
-      if (size > MAX_BODY_BYTES) throw new ApiError(413, `body over ${MAX_BODY_BYTES} bytes`);
+      if (size > MAX_BODY_BYTES) throw new ApiError(413, `too big: this server takes up to ${+(MAX_BODY_BYTES / 1024 / 1024).toFixed(1)} MB per upload`);
       chunks.push(c);
     }
     return Buffer.concat(chunks);
@@ -220,15 +370,25 @@ const handlers = {
     if (!body) throw new ApiError(404, 'no such example');
     c.page(c.preview() || c.query.get('toc') === '0' ? body : withToc(body));
   },
-  docs(c) { c.html(docsPage(`http://${c.req.headers.host || 'localhost'}`, ROUTES)); },
+  docs(c) { c.html(markdownPage({ title: 'Docs', md: c.docs(), active: 'docs', sourceUrl: '/docs.md' })); },
+  docsSource(c) { c.send(200, 'text/markdown; charset=utf-8', c.docs()); },
+  font(c, { font }) {
+    let body;
+    try { body = fileBytes(`public/fonts/${font}`); } catch { throw new ApiError(404, 'not found'); }
+    c.send(200, 'font/woff2', body, { 'Cache-Control': 'public, max-age=604800' });
+  },
   static(c, { file }) {
     const type = STATIC_TYPES[file.split('.').pop()];
     if (!type) throw new ApiError(404, 'not found');
     let body;
-    try { body = readFileSync(new URL(file, STATIC_DIR)); } catch { throw new ApiError(404, 'not found'); }
+    try { body = fileBytes(`public/${file}`); } catch { throw new ApiError(404, 'not found'); }
     c.send(200, type, body, { 'Cache-Control': 'no-cache' });
   },
   render(c, { slug }) {
+    if (c.wantsFrame()) {
+      const a = c.store.readable(slug, c.viewerId());
+      if (a.state === 'active' && !isNote(a.slug)) return c.frame(a);
+    }
     const r = c.store.render(slug, c.int('v'), c.viewerId(), c.preview() ? null : c.visit());
     const S = encodeURIComponent(r.slug);
     c.page(c.decorate(r, { current: `/pages/${S}`, history: `/history/${S}` }));
@@ -257,9 +417,29 @@ const handlers = {
       limit: Math.min(c.int('limit') ?? 50, 500),
       owner: c.query.get('owner') || undefined,
       category: c.query.get('category') || undefined,
+      source: c.query.get('source') || undefined,
     }));
   },
   categories(c) { c.json(200, c.store.categories(c.viewerId())); },
+  assetFile(c, { slug }) {
+    const a = c.store.asset(slug);
+    if (!a) throw new ApiError(404, 'no such asset');
+    // SVG can carry script: serve it (and everything) sandboxed and unsniffed.
+    c.send(200, a.mime, Buffer.from(a.data), { 'Content-Security-Policy': c.csp, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-cache' });
+  },
+  assets(c) { c.json(200, c.store.listAssets()); },
+  async putAsset(c, { slug }) { const u = c.user(); c.json(200, c.store.putAsset(u.id, slug, await c.body())); },
+  deleteAsset(c, { slug }) { c.store.deleteAsset(c.user().id, slug); c.json(200, { deleted: slug }); },
+  search(c) {
+    const q = (c.query.get('q') || '').trim();
+    if (!q) throw new ApiError(400, 'search needs ?q=');
+    const tag = c.query.get('tag') || undefined;
+    const results = c.store.list(c.viewerId(), { q, category: tag, limit: Math.min(c.int('limit') ?? 20, 200) });
+    // Readable from sandboxed notes (their origin is opaque), whose ⌘K search calls this.
+    // Anonymous there, so only public pages; a token can't ride along cross-origin.
+    c.send(200, 'application/json', JSON.stringify({ query: q, tag: tag ?? null, count: results.length, results }, null, 2) + '\n',
+      { 'Access-Control-Allow-Origin': '*' });
+  },
   tags(c) { c.json(200, c.store.tags(c.viewerId())); },
   async tagPages(c) {
     const u = c.user();
@@ -314,6 +494,9 @@ const handlers = {
       title: c.query.get('title') || h['x-title'],
       note: c.query.get('note') || h['x-note'] || '',
       visibility: c.query.get('visibility') || h['x-visibility'],
+      source: c.query.get('source') ?? undefined, // set by `sync`, so `--prune` only touches its own pages
+      nameKey: c.query.get('name') ?? undefined, //  set by `sync`: the note's bare file name, for [[wikilinks]]
+      path: c.query.get('path') ?? undefined, //     set by `sync`: where the note lives in its folder, for the explorer
       base: c.int('base') ?? (h['x-base'] && /^\d+$/.test(h['x-base']) ? Number(h['x-base']) : null),
     });
     c.json(res.latest_version === 1 ? 201 : 200, res);
@@ -353,7 +536,17 @@ const handlers = {
  */
 export function makeServer(store, { sandboxAllow = [] } = {}) {
   const csp = renderCsp(sandboxAllow);
-  return createServer(async (req, res) => {
+  return createServer((req, res) => handleRequest(store, req, res, { csp }));
+}
+
+/**
+ * One request, Node-style (`req`: method, url, headers, socket.remoteAddress, and the
+ * body as an async iterable; `res`: writeHead, end, headersSent). makeServer wires it to
+ * node:http; other runtimes adapt their own requests to it (cloudflare/worker.js).
+ * `csp`: the policy rendered pages are sent with (default: RENDER_CSP).
+ */
+export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) {
+  {
     const url = new URL(req.url, 'http://localhost');
     const c = new Ctx(store, req, res, url, csp);
     try {
@@ -368,7 +561,7 @@ export function makeServer(store, { sandboxAllow = [] } = {}) {
       if (!e.status) console.error(e);
       if (!res.headersSent) c.json(e.status || 500, { error: e.status ? e.message : 'internal error' });
     } finally {
-      process.stderr.write(`${req.method} ${url.pathname}\n`); // never log tokens or query strings
+      console.error(`${req.method} ${url.pathname}`); // never log tokens or query strings
     }
-  });
+  }
 }

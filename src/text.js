@@ -105,13 +105,18 @@ export function similarity(a, b) {
   return a.length + b.length ? (2 * matching(a, b)) / (a.length + b.length) : 1;
 }
 
-/** Up to n words from vocab at least `cutoff` similar to word, best first. */
+/**
+ * Up to n words from vocab at least `cutoff` similar to word, best first. A word also
+ * counts if its *beginning* is close to what was typed, so a typo while still typing
+ * ("gardn") finds the longer word ("gardening"); those rank just below whole-word matches.
+ */
 export function closeMatches(word, vocab, n = FUZZY_MAX_EXPANSIONS, cutoff = FUZZY_CUTOFF) {
   const hits = [];
   for (const w of vocab) {
+    let r = 0;
     // Cheap upper bound first: the ratio can't beat 2*min(len)/total.
-    if ((2 * Math.min(w.length, word.length)) / (w.length + word.length) < cutoff) continue;
-    const r = similarity(word, w);
+    if ((2 * Math.min(w.length, word.length)) / (w.length + word.length) >= cutoff) r = similarity(word, w);
+    if (r < cutoff && w.length > word.length && word.length >= 4) r = similarity(word, w.slice(0, word.length)) * 0.98;
     if (r >= cutoff) hits.push([r, w]);
   }
   return hits.sort((x, y) => y[0] - x[0] || (y[1] > x[1] ? 1 : -1)).slice(0, n).map(([, w]) => w);

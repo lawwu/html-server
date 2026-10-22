@@ -7,6 +7,106 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.6.0 (2026-10-22)
+
+HTML Server becomes a Quartz-style knowledge base: it hosts Markdown notes and Jupyter
+notebooks next to HTML pages, syncs a notes repo, links everything together, and can be
+used from AI apps over MCP or run on Cloudflare.
+
+**New kinds of page**
+
+- **Markdown notes**, hosted next to HTML pages like Quartz: frontmatter (title, tags,
+  description, aliases), `[[wikilinks]]` to notes, notebooks or HTML pages (missing ones
+  drawn faded), Obsidian/Quartz callouts, `==highlights==`, task lists, tables, and
+  embedded images and PDFs. Versions, search, tags, the graph, comments and featuring all
+  work for notes, and diffs show the Markdown. Adds one dependency, `marked` 18.1.0; the
+  Quartz and Obsidian extras are our own.
+- **Jupyter notebooks**: `.ipynb` pages render from the saved notebook: Markdown cells
+  with wikilinks and backlinks, highlighted code with In/Out prompts, and outputs (text,
+  HTML tables and charts, images, SVG, Markdown, JSON, errors). Formats 3 and 4;
+  frontmatter from a first raw cell or the metadata. Search covers code, diffs compare
+  cells, and nothing executes.
+- **Syntax highlighting** for code in notebooks and Markdown (Python,
+  JavaScript/TypeScript, shell, SQL, R), in light and dark; no library.
+- **Images and PDFs** for notes: `/assets/<name>`, and `GET`/`PUT`/`DELETE /api/assets`.
+
+**Sync a notes repo**
+
+- **`html-server sync DIR`**: one-way sync of a Quartz repo, an Obsidian vault or any
+  folder of notes, notebooks, HTML pages and images. It detects a Quartz repo, reads
+  `content/` and honours `ignorePatterns`; names pages by their Quartz path
+  (`plugins/Backlinks.md` → `/pages/plugins-Backlinks.md`, a folder's `index.md` is the
+  folder's page); and resolves wikilinks the way Quartz does (by file name, shortest path
+  first, by folder path and by `aliases`). Unchanged files are skipped, drafts left out,
+  and in a git checkout each version's note is the commit message. `--prune` trashes
+  pages whose file is gone, `--install-hook` re-syncs on every commit and pull, and
+  `--dry-run` previews. Tested against Quartz's own docs: 111 notes and 15 images, every
+  wikilink resolving.
+- **Tags:** nested tags (`plugin/emitter`) become `plugin-emitter`, and `[[tags/...]]`
+  links go to the tag. Tags a page declares (frontmatter tags, or an HTML page's
+  category) are added and removed with it; tags added by hand stay.
+
+**A Quartz-style site**
+
+- **Quartz's default theme** (MIT): its colours, its typefaces (Schibsted Grotesk,
+  Source Sans 3, IBM Plex Mono, now served from this server under the SIL Open Font
+  License, not Google Fonts) and its three-column layout.
+- **Left sidebar** on every page: search, a light/dark switch, the site's sections and an
+  **explorer** of folders and pages. The top header bar is gone.
+- **⌘K search** from any page (or `/`), with live results. `/api/search` answers
+  cross-origin requests so sandboxed notes can use it; where a browser blocks that, it
+  matches titles from the explorer.
+- **Hover previews** of linked pages: notes and notebooks rendered, HTML pages as their
+  title, tags and opening text.
+- **Notes** get breadcrumbs, date and reading time, tag pills, and a right sidebar with a
+  **live local graph**, the table of contents and **backlinks**. The graph's expand
+  button opens the **global graph** over the page.
+- **HTML pages in the frame:** a browser tab opening a page gets the sidebar, a title bar
+  with tags and links, the page in its own design, and its graph and backlinks. The frame
+  grows to the page's full height (natively with responsive iframes, `frame-sizing:
+  content-height`, else by a script that reports the height); window-filling pages keep
+  window height, and `<meta name="html-server-frame" content="window">` asks for it.
+  Iframes, previews, the review page, curl and API clients still get the page itself, as
+  does `?raw=1`, and the frame isn't counted as a view.
+- **Copy markdown** on notes and the docs page, **Copy notebook** on notebooks, **Copy
+  HTML** on framed pages.
+- **The `/graph` page** draws tags as nodes joined to their pages, so related pages
+  cluster; dots never overlap, unconnected pages settle on an outer ring, and it has
+  **Tags**, **Fit** and **Full screen** controls.
+- Light/dark is remembered in the browser, and passed to sandboxed notes by a `theme`
+  cookie. Responses are gzipped.
+
+**Publishing and tools**
+
+- **MCP server:** `html-server mcp` lets Claude Desktop, Claude Code, Cursor and other
+  MCP apps publish (HTML, Markdown or a notebook), search, list, read, diff and restore
+  pages, comment, tag and feature. Pages published over MCP are private unless asked
+  otherwise.
+- **Search everywhere:** `html-server search WORDS [--tag T] [--json]` and
+  `GET /api/search?q=` return ranked results with highlighted titles and snippets. Typos
+  in the start of a longer word now match ("gardn" finds "gardening").
+- **One Docs page** at `/docs` (and `/api`) for the command line, MCP and the HTTP API,
+  written as Markdown and built from the CLI's usage text, the MCP tools and the route
+  table; the Markdown itself is at `/docs.md`. `docs` is now a reserved page name.
+- **CLI help per command:** `html-server help sync` or `html-server sync --help`.
+- Page names resolve with `.md` and `.ipynb` as well as `.html` added, and ignoring case.
+
+**Running it**
+
+- **Deploy to Cloudflare** with `html-server deploy cloudflare`: a Worker and one Durable
+  Object holding the database in its SQLite, running the same request handler as
+  `serve`. It signs in, deploys, creates the first admin from an `ADMIN_TOKEN` secret and
+  signs the CLI in. Uploads are limited to 1.9 MB there (2 MB per SQLite row). Node stays
+  the main way to run it: the store takes any SQLite database with node:sqlite's small
+  interface, the request handler is separate from node:http, and the package's own files
+  are read through `src/files.js`.
+- A `latest` git tag points at the newest release.
+
+**Upgrading:** the database gains columns and tables on startup and nothing is changed or
+removed, so rolling back to 0.5.2 works: HTML pages are unaffected, and notes and
+notebooks added under 0.6.0 show as their source until you upgrade again. Take an
+`html-server backup` first anyway.
+
 ## 0.5.2 (2026-10-22)
 
 - **`--sandbox-allow` without a value** now says what it takes (an example and the valid

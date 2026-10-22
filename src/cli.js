@@ -3,73 +3,23 @@
 //
 // Server commands work on the database directly (no token needed; you need shell
 // access to the machine). Client commands talk to a running server over HTTP.
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { createInterface } from 'node:readline/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { VERSION } from './config.js';
+import { ClientError, SERVER, api, creds, saveCredentials, token } from './client.js';
+import { PAGE_EXT_RE, VERSION } from './config.js';
+import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
 
 
-// --- who and where: env vars win, then credentials.json, then the local default ---
-function readCredentials() {
-  try { return JSON.parse(readFileSync(CREDENTIALS_FILE, 'utf8')); } catch { return {}; }
-}
-const creds = readCredentials();
-const SERVER = (process.env.HTML_SERVER_URL || creds.url || FALLBACK_URL).replace(/\/+$/, '');
-const token = () => (process.env.HTML_SERVER_TOKEN || creds.token || '').trim();
+const USAGE = usage({ backupDir: BACKUP_DIR, homeDir: HOME_DIR, server: SERVER });
 
-function saveCredentials(url, tok) {
-  mkdirSync(HOME_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(CREDENTIALS_FILE, JSON.stringify({ url, token: tok }, null, 2) + '\n', { mode: 0o600 });
-  chmodSync(CREDENTIALS_FILE, 0o600);
-}
-
-const USAGE = `html-server ${VERSION} — store, version, search and render HTML pages
-
-Run the server (on this machine, straight to the database):
-  serve [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--db PATH] [--sandbox-allow PERMISSION]...
-                                        --sandbox-allow adds a sandbox permission for pages, e.g. allow-downloads
-  create-user NAME [--admin] [--save]    print a new user's token once (--save: also keep it for this CLI)
-  reset-token NAME [--save]              new token for a user who lost theirs; pages are kept
-  backup [PATH] [--keep N]               snapshot the database (safe while serving); default: ${BACKUP_DIR}
-                                        --keep N: then delete all but the newest N backups there
-  config [usernames name|email] [editing owner|open]
-                                        show or change this deployment's settings
-
-Sign this CLI in to a server (saved, so there's nothing to add to your shell profile):
-  login [--url URL] [--token TOKEN]     asks for anything missing; checks it before saving
-  logout
-
-Use a running server:
-  put FILE [NOTE] [--private] [--name NAME] [--base N]
-                                        upload; the page lives at /pages/<file name>.
-                                        --base N: refuse if someone added a version after vN
-  history NAME                          every version, with date, author and note
-  pin NAME | unpin NAME                 feature a page at the top of the home page (owner or admin)
-  tag add TAG NAME... | tag rm TAG NAME...   tag or untag many pages at once
-  tags                                  every tag in use, with counts
-  import DIR [--private]                upload every .html file in DIR (re-runnable: unchanged files are skipped)
-  ls                                    your pages and everyone's public ones
-  find WORDS...                         search (typos are fine)
-  open NAME | review NAME               open the page, or its review page, in a browser
-  diff NAME [FROM TO] [--source]        what changed (default: previous vs latest)
-  restore NAME N                        make version N current again (adds a copy)
-  views NAME                            page views report
-  rm NAME [--purge]                     trash; --purge deletes for good (trash first)
-  whoami
-  --version                             print the version
-
-Data lives in ${HOME_DIR} (HTML_SERVER_HOME moves it).
-Client commands use the server and token saved by login (or by the first serve on
-this machine). HTML_SERVER_URL and HTML_SERVER_TOKEN override them for one shell.
-Currently: ${SERVER}`;
-
-class CliError extends Error {}
+const CliError = ClientError; // CLI mistakes and API errors print the same way
 const fail = (msg) => { throw new CliError(msg); };
 
 // --- server commands --------------------------------------------------------------
@@ -237,6 +187,22 @@ function askHidden(question) {
   });
 }
 
+const deployCommands = {
+  async deploy(args, opts) {
+    if (args[0] !== 'cloudflare') fail('usage: html-server deploy cloudflare [--name NAME] [--user NAME]  (more targets may come; any machine with Node runs `serve`)');
+    const { deployCloudflare } = await import('./deploy.js');
+    await deployCloudflare({ name: opts.name, user: opts.user || defaultAdminName(), fail });
+  },
+};
+
+const mcpCommands = {
+  async mcp() {
+    const { serveStdio } = await import('./mcp.js');
+    serveStdio();
+    await new Promise(() => {}); // runs until the app closes stdin
+  },
+};
+
 const accountCommands = {
   async login(args, opts) {
     const tty = process.stdin.isTTY;
@@ -264,21 +230,6 @@ const accountCommands = {
 // --- client commands -------------------------------------------------------------
 
 /** Call the API. Returns parsed JSON, or text for non-JSON responses. */
-async function api(method, path, { body, auth = 'optional', json: sendJson = false } = {}) {
-  const t = token();
-  if (auth === 'required' && !t) fail('not signed in: run `html-server login` (or set HTML_SERVER_TOKEN)');
-  let r;
-  try {
-    r = await fetch(SERVER + path, { method, body, headers: { ...(t ? { Authorization: `Bearer ${t}` } : {}), ...(sendJson ? { 'Content-Type': 'application/json' } : {}) } });
-  } catch {
-    fail(`can't reach ${SERVER} (is the server running?)`);
-  }
-  const text = await r.text();
-  const json = r.headers.get('content-type')?.includes('json') ? JSON.parse(text) : null;
-  if (!r.ok) fail(json?.error || `HTTP ${r.status}`);
-  return json ?? text;
-}
-
 const enc = encodeURIComponent;
 const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 
@@ -382,7 +333,137 @@ const clientCommands = {
     }
     console.log(`changes: html-server diff ${a.slug} FROM TO   ·   ${SERVER}/history/${enc(a.slug)}`);
   },
+  /**
+   * Bring a Markdown knowledge base in, one way: Quartz, Obsidian, or any folder of
+   * notes. Every .md, .ipynb (and .html) file under DIR becomes a page named after its file the
+   * way Quartz does it, so [[wikilinks]] resolve; images and PDFs become assets that
+   * notes embed. Unchanged files are skipped and changed ones become new versions, so
+   * it's safe to re-run after every edit. Drafts (draft: true / publish: false) are left
+   * out. In a git checkout, each new version's note is the last commit to touch it.
+   *
+   * Given a Quartz repo (a quartz.config.* next to content/), it syncs content/ and
+   * honours the config's ignorePatterns. A folder's index.md is that folder's page.
+   * --prune trashes pages that came from this folder but whose file is gone (only
+   * those: pages uploaded any other way are never touched). --install-hook adds git
+   * hooks so every commit and pull re-syncs in the background.
+   */
+  async sync([dir], opts) {
+    if (!dir || !existsSync(dir) || !statSync(dir).isDirectory()) fail('usage: sync DIR [--private] [--prune] [--dry-run] [--install-hook]');
+    const { noteSlug, notePathSlug, parseFrontmatter, ASSET_RE } = await import('./markdown.js');
+    const { parseNotebook } = await import('./notebook.js');
+    let root = resolvePath(dir);
+    const quartz = quartzConfig(root);
+    if (quartz) {
+      root = join(root, 'content');
+      console.log(`Quartz repo: syncing content/${quartz.ignore.length ? `, ignoring ${quartz.ignore.join(', ')}` : ''}`);
+    }
+    if (opts['install-hook']) return installHook(root, opts);
+    const ignored = (rel) => (quartz?.ignore ?? []).some((pat) => globMatch(pat, rel));
+
+    const files = [];
+    (function walk(d) {
+      for (const f of readdirSync(d).sort()) {
+        if (f.startsWith('.') || f === 'node_modules') continue; // .obsidian, .git, .trash, …
+        const p = join(d, f);
+        const rel = p.slice(root.length + 1);
+        if (ignored(rel)) continue;
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.(md|markdown|html?|ipynb)$/i.test(f) || ASSET_RE.test(f)) files.push(p);
+      }
+    })(root);
+    if (!files.length) fail(`no notes, pages or images under ${root}`);
+
+    let inGit = false;
+    try { inGit = execFileSync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() === 'true'; } catch { /* not git */ }
+    const commitNote = (rel) => {
+      if (!inGit) return '';
+      try { return execFileSync('git', ['-C', root, 'log', '-1', '--format=%s', '--', rel], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return ''; }
+    };
+
+    const count = { new: 0, updated: 0, unchanged: 0, skipped: 0, failed: 0, trashed: 0 };
+    const say = (what, rel, extra = '') => console.log(`${what.padEnd(9)} ${rel}${extra}`);
+    const seen = new Map(); // page name (lowercase) → file, to catch two notes that would share a URL
+    const known = new Map((await api('GET', '/api/assets')).map((a) => [a.name.toLowerCase(), a.sha256]));
+
+    for (const file of files) {
+      const rel = file.slice(root.length + 1);
+      const body = readFileSync(file);
+      const sha = createHash('sha256').update(body).digest('hex');
+      try {
+        if (ASSET_RE.test(file)) { // images and PDFs: by file name, replaced when changed
+          const name = basename(file).trim().replace(/\s+/g, '-');
+          if (known.get(name.toLowerCase()) === sha) { count.unchanged++; continue; }
+          const isNew = !known.has(name.toLowerCase());
+          if (opts['dry-run']) { count[isNew ? 'new' : 'updated']++; say(isNew ? 'would add' : 'would update', rel, ` → /assets/${name}`); continue; }
+          await api('PUT', `/api/assets/${enc(name)}`, { body, auth: 'required' });
+          count[isNew ? 'new' : 'updated']++;
+          say(isNew ? 'new' : 'updated', rel);
+          continue;
+        }
+        // Page names follow Quartz's paths: plugins/Backlinks.md → plugins-Backlinks.md, so notes
+        // sharing a file name in different folders stay distinct; a folder's index.md is the
+        // folder's page (features/index.md → features.md). nameKey lets [[Backlinks]] find it.
+        const parts = rel.split('/');
+        const isIndex = /^index\.(md|markdown)$/i.test(parts.at(-1)) && parts.length > 1;
+        const name = isIndex ? `${notePathSlug(parts.slice(0, -1).join('/'))}.md` : notePathSlug(rel);
+        const nameKey = (isIndex ? noteSlug(parts.at(-2)) : noteSlug(parts.at(-1)).replace(PAGE_EXT_RE, '')).toLowerCase();
+        if (/\.(md|markdown|ipynb)$/i.test(file)) { // drafts stay out, for notes and notebooks alike
+          const { data } = /\.ipynb$/i.test(file) ? (({ front, metadata }) => ({ data: { ...metadata, ...front } }))(parseNotebook(body.toString('utf8')))
+            : parseFrontmatter(body.toString('utf8'));
+          if (data.draft === true || data.publish === false) { count.skipped++; say('draft', rel); continue; }
+        }
+        if (seen.has(name.toLowerCase())) {
+          count.skipped++;
+          console.error(`skipped   ${rel}: same page name as ${seen.get(name.toLowerCase())} (${name}); rename one`);
+          continue;
+        }
+        seen.set(name.toLowerCase(), rel);
+        let latest = null;
+        try { latest = (await api('GET', `/api/artifacts/${enc(name)}`)).versions.at(-1); } catch (e) {
+          if (e.message !== 'no such artifact') throw e;
+        }
+        if (latest?.sha256 === sha) { count.unchanged++; continue; }
+        if (opts['dry-run']) { count[latest ? 'updated' : 'new']++; say(latest ? 'would update' : 'would add', rel, ` → /pages/${name}`); continue; }
+        const q = new URLSearchParams({ note: commitNote(rel) || (latest ? 'synced' : 'imported'), source: root, name: nameKey, path: rel });
+        if (opts.private && !latest) q.set('visibility', 'private');
+        const a = await api('PUT', `/api/artifacts/${enc(name)}?${q}`, { body, auth: 'required' });
+        count[latest ? 'updated' : 'new']++;
+        say(latest ? 'updated' : 'new', rel, ` → ${SERVER}${a.url}`);
+      } catch (e) {
+        count.failed++;
+        console.error(`failed    ${rel}: ${e.message}`);
+      }
+    }
+
+    if (opts.prune) { // pages synced from this folder whose file is gone → trash (restorable)
+      const mine = await api('GET', `/api/artifacts?source=${enc(root)}&limit=500`, { auth: 'required' });
+      for (const p of mine) {
+        if (seen.has(p.slug.toLowerCase())) continue;
+        if (opts['dry-run']) { count.trashed++; say('would trash', p.slug); continue; }
+        try { await api('DELETE', `/api/artifacts/${enc(p.slug)}`, { auth: 'required' }); count.trashed++; say('trashed', p.slug, ' (its file is gone; restorable)'); } catch (e) {
+          count.failed++;
+          console.error(`failed    trashing ${p.slug}: ${e.message}`);
+        }
+      }
+    }
+    console.log(`${opts['dry-run'] ? '(dry run) ' : ''}${Object.entries(count).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'nothing to do'}`);
+    if (count.failed) process.exitCode = 1;
+  },
   async ls() { printList(await api('GET', '/api/artifacts?limit=500')); },
+  async search(words, opts) {
+    if (!words.length) fail('usage: search WORDS... [--tag TAG] [--json]');
+    const q = new URLSearchParams({ q: words.join(' ') });
+    if (opts.tag) q.set('tag', opts.tag);
+    const r = await api('GET', `/api/search?${q}`);
+    if (opts.json) return console.log(JSON.stringify(r, null, 2));
+    if (!r.results.length) return console.log('no matches');
+    for (const a of r.results) {
+      console.log(`${a.title_highlight || a.title}`);
+      console.log(`  ${SERVER}${a.url}  ·  v${a.latest_version}${a.tags.length ? `  ·  ${a.tags.join(', ')}` : ''}`);
+      if (a.snippet) console.log(`  ${a.snippet}`);
+    }
+    console.log(`${r.count} match${r.count === 1 ? '' : 'es'}`);
+  },
   async find(words) {
     if (!words.length) fail('usage: find WORDS...');
     printList(await api('GET', `/api/artifacts?q=${enc(words.join(' '))}`));
@@ -416,6 +497,57 @@ const clientCommands = {
   },
 };
 
+// --- sync helpers -----------------------------------------------------------------------
+/** A Quartz repo's settings, if DIR is one: { ignore: [patterns] } from quartz.config.yaml (or .ts), or null. */
+function quartzConfig(dir) {
+  if (!existsSync(join(dir, 'content')) || !statSync(join(dir, 'content')).isDirectory()) return null;
+  const cfg = ['quartz.config.yaml', 'quartz.config.yml', 'quartz.config.default.yaml', 'quartz.config.ts']
+    .map((f) => join(dir, f)).find((f) => existsSync(f));
+  if (!cfg) return null;
+  const text = readFileSync(cfg, 'utf8');
+  let ignore = [];
+  if (cfg.endsWith('.ts')) {
+    const m = text.match(/ignorePatterns\s*:\s*\[([^\]]*)\]/);
+    if (m) ignore = [...m[1].matchAll(/["'`]([^"'`]+)["'`]/g)].map((x) => x[1]);
+  } else {
+    const m = text.match(/^(\s*)ignorePatterns:\s*\n((?:\1\s+-\s*.+\n?)+)/m);
+    if (m) ignore = [...m[2].matchAll(/-\s*["']?([^"'\n]+?)["']?\s*$/gm)].map((x) => x[1]);
+  }
+  return { ignore };
+}
+
+/** Quartz-style ignore patterns: a bare name matches that folder or file anywhere; *, ** and ? glob. */
+function globMatch(pat, rel) {
+  if (!/[*?]/.test(pat)) return rel.split('/').includes(pat.replace(/\/$/, ''));
+  const re = pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\/?/g, '\0').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\0/g, '.*');
+  return new RegExp(`(^|/)${re}(/|$)`).test(rel);
+}
+
+/** Git hooks in the repo holding DIR, so each commit and pull re-syncs it (in the background). */
+function installHook(root, opts) {
+  let hooks;
+  try { hooks = execFileSync('git', ['-C', root, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch {
+    fail(`${root} isn't in a git repository`);
+  }
+  const MARK = '# html-server sync hook';
+  const cmd = [process.execPath, fileURLToPath(import.meta.url), 'sync', root, '--prune', ...(opts.private ? ['--private'] : [])]
+    .map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ');
+  const script = `#!/bin/sh\n${MARK} (installed by html-server ${VERSION}; delete this file to stop)\n(${cmd} >> '${join(HOME_DIR, 'sync.log')}' 2>&1 &)\n`;
+  mkdirSync(hooks, { recursive: true });
+  for (const name of ['post-commit', 'post-merge']) {
+    const f = join(hooks, name);
+    if (existsSync(f) && !readFileSync(f, 'utf8').includes(MARK)) {
+      console.error(`${f} already exists and isn't ours; add this line to it yourself:\n  ${cmd} &`);
+      process.exitCode = 1;
+      continue;
+    }
+    writeFileSync(f, script, { mode: 0o755 });
+    chmodSync(f, 0o755);
+    console.log(`installed ${f}`);
+  }
+  console.log(`Each commit and pull now runs: html-server sync ${root} --prune (log: ${join(HOME_DIR, 'sync.log')})`);
+}
+
 export async function main(argv) {
   // A flag given without its value (`--sandbox-allow` alone): say what it takes.
   const bare = argv.findIndex((a, i) => a === '--sandbox-allow' && (i === argv.length - 1 || argv[i + 1].startsWith('-')));
@@ -440,21 +572,43 @@ export async function main(argv) {
       name: { type: 'string' },
       base: { type: 'string' },
       keep: { type: 'string' },
+      tag: { type: 'string' },
+      'dry-run': { type: 'boolean', default: false },
+      prune: { type: 'boolean', default: false },
+      'install-hook': { type: 'boolean', default: false },
+      json: { type: 'boolean', default: false },
       url: { type: 'string' },
       token: { type: 'string' },
+      user: { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
       version: { type: 'boolean', short: 'v', default: false },
     },
   });
   const [cmd, ...args] = positionals;
   if (opts.version || cmd === 'version') return console.log(VERSION);
-  const run = serverCommands[cmd] || accountCommands[cmd] || clientCommands[cmd];
+  const run = serverCommands[cmd] || deployCommands[cmd] || accountCommands[cmd] || mcpCommands[cmd] || clientCommands[cmd];
+  if (cmd === 'help' && args[0]) return console.log(commandHelp(args[0]));
+  if (run && opts.help) return console.log(commandHelp(cmd));
   if (!run || opts.help) {
     console.log(USAGE);
     if (cmd && !run && cmd !== 'help') process.exitCode = 2;
     return;
   }
   await run(args, opts);
+}
+
+/**
+ * One command's lines from USAGE (`html-server help sync`, `html-server sync --help`):
+ * its usage line, the lines continuing it, and the footer. Unknown: the whole usage.
+ */
+export function commandHelp(name) {
+  const lines = USAGE.split('\n');
+  const starts = (l) => new RegExp(`^  (\\S+ \\S+ \\| )?${name.replace(/[^\w-]/g, '')}( |$)`).test(l) || l.includes(`| ${name} `);
+  const at = lines.findIndex(starts);
+  if (at === -1) return USAGE;
+  const out = [`html-server ${lines[at].trim()}`];
+  for (let i = at + 1; i < lines.length && /^ {10,}\S/.test(lines[i]); i++) out.push(`  ${lines[i].trim()}`);
+  return `${out.join('\n')}\n\nAll commands: html-server --help`;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === (await import('node:fs')).realpathSync(process.argv[1])) {

@@ -1,8 +1,11 @@
 // Server-rendered pages: your pages at /, the example gallery at /gallery, history,
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
 import { MAX_BODY_BYTES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, VERSION } from './config.js';
+import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, tile } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
+import { renderMarkdown } from './markdown.js';
+import { usage } from './usage.js';
 
 const CATEGORY_LABELS = {
   featured: 'Featured',
@@ -19,12 +22,40 @@ export const categoryLabel = (c) => CATEGORY_LABELS[c] || c.replace(/-/g, ' ').r
 
 /** On every page the server draws itself (never on uploaded pages): which version is running, and where it lives. */
 export const footer = () => `<footer class="site-foot"><a href="${RELEASE_URL}">HTML Server v${esc(VERSION)}</a>
-  · <a href="${REPO_URL}">Source on GitHub</a> · <a href="/api">API</a></footer>`;
+  · <a href="${REPO_URL}">Source on GitHub</a> · <a href="/docs">Docs</a></footer>`;
 
-const shell = (title, body, { scripts = [], bodyAttrs = '' } = {}) => `<!doctype html>
+// Light or dark: the viewer's choice if they made one, else the system's. The switch saves it
+// in this site's storage and in a cookie; notes are sandboxed and can't read storage, so the
+// server stamps the cookie's choice onto them (notePage's `theme`).
+// Runs in <head> so the page never flashes the wrong theme.
+export const THEME_HEAD = `<script>try{const t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch{}</script>`;
+const THEME_TOGGLE = `<script>document.querySelectorAll('[data-theme-toggle]').forEach((b)=>b.addEventListener('click',()=>{
+const r=document.documentElement,dark=(r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))==='dark';
+r.dataset.theme=dark?'light':'dark';try{localStorage.setItem('theme',r.dataset.theme)}catch{}
+try{document.cookie='theme='+r.dataset.theme+'; path=/; max-age=31536000; samesite=lax'}catch{}}));
+if(matchMedia('(max-width: 800px)').matches)document.querySelectorAll('details.explorer').forEach((d)=>d.removeAttribute('open'));</script>`;
+
+// Search (⌘K) and hover previews: inlined, since a sandboxed note may not load scripts.
+// Modules, so each keeps its own scope.
+const inlineScript = (f) => `<script type="module">${fileText(`public/${f}`).replace(/<\/script/gi, '<\\/script')}</script>`;
+let SCRIPTS = null;
+const inlined = () => (SCRIPTS ??= { search: inlineScript('search.js'), popover: inlineScript('popover.js'), graph: inlineScript('minigraph.js'),
+  copy: inlineScript('copy.js') });
+
+/** A page's source, carried in the page for its "copy source" button (public/copy.js). JSON, so any text survives. */
+const sourceData = (text) => `<script id="page-source" type="application/json">${JSON.stringify(text).replace(/</g, '\\u003c')}</script>`;
+const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const copyButton = (label = 'Copy markdown') => `<button type="button" class="copy-source" data-copy-source="page-source">${COPY_ICON}<span>${label}</span></button>`;
+
+/**
+ * Every page the server draws itself, in Quartz's frame: the sidebar on the left
+ * (from siteNav), the page in the middle, an optional sidebar on the right, the footer.
+ * `frame: false` (the review page) is just the body.
+ */
+const shell = (title, body, { scripts = [], bodyAttrs = '', frame = true } = {}) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title><link rel="stylesheet" href="/_static/style.css"></head>
-<body ${bodyAttrs}>${body}${footer()}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
+<title>${esc(title)}</title>${THEME_HEAD}<link rel="stylesheet" href="/_static/style.css"><link rel="stylesheet" href="/_static/note.css"></head>
+<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${THEME_TOGGLE}${frame ? inlined().search : ''}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
 
 const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('ch') ? 'es' : 's'}`;
@@ -32,12 +63,57 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('ch') ? 'es' : 's
 // GitHub's mark (Octicons, MIT), linking to the release that's running.
 const GITHUB_MARK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
 
-/** The bar at the top of the server's own pages. */
-export function siteNav(active) {
-  const item = (href, label, key) => `<a href="${href}"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a>`;
-  return `<header class="site"><a class="brand" href="/">HTML Server</a>
-<nav>${item('/', 'Pages', 'pages')}${item('/graph', 'Graph', 'graph')}${item('/stats', 'Stats', 'stats')}${item('/gallery', 'Gallery', 'gallery')}${item('/api', 'API', 'api')}</nav>
-<a class="gh" href="${RELEASE_URL}" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a></header>`;
+const ICONS = {
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  sun: '<svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>',
+  moon: '<svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>',
+  chevron: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>',
+  expand: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>',
+};
+
+/**
+ * The left sidebar on every page the server draws, laid out like Quartz's: the site
+ * title, search and the light/dark switch, the site's sections, then (on notes and the
+ * home page) the explorer. Links use target="_top" so they work from a framed note too.
+ */
+export function siteNav(active, { explorer = null, current = null, search = true } = {}) {
+  const item = (href, label, key) => `<li><a href="${href}" target="_top"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a></li>`;
+  const toggle = `<button type="button" class="icon-btn" data-theme-toggle aria-label="Switch light or dark">${ICONS.sun}${ICONS.moon}</button>`;
+  return `<aside class="sidebar left">
+<div class="side-top"><h2 class="page-title"><a href="/" target="_top">HTML Server</a></h2>
+<a class="gh" href="${RELEASE_URL}" target="_top" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a>${search ? '' : toggle}</div>
+${search ? `<div class="side-row"><form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>${toggle}</div>` : ''}
+<nav class="side-nav" aria-label="Site"><ul>${item('/', 'Pages', 'pages')}${item('/graph', 'Graph', 'graph')}${item('/stats', 'Stats', 'stats')}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}</ul></nav>
+${explorer ? explorerNav(explorer, current) : ''}
+</aside>`;
+}
+
+/**
+ * Quartz's explorer: folders (from where synced notes live, see `path`) above loose
+ * pages, each sorted by title; the folder holding the current page starts open. A
+ * folder's index note is the folder's own link.
+ */
+export function explorerNav(items, current) {
+  const root = { folders: new Map(), files: [], index: null };
+  for (const it of items) {
+    const parts = it.path ? it.path.split('/') : [it.slug];
+    let node = root;
+    for (const dir of parts.slice(0, -1)) {
+      if (!node.folders.has(dir)) node.folders.set(dir, { folders: new Map(), files: [], index: null });
+      node = node.folders.get(dir);
+    }
+    if (parts.length > 1 && /^index\.(md|markdown)$/i.test(parts.at(-1))) node.index = it;
+    else node.files.push(it);
+  }
+  const holds = (node) => node.index?.slug === current || node.files.some((f) => f.slug === current) || [...node.folders.values()].some(holds);
+  const link = (it, label) => `<a href="${esc(it.url)}" target="_top"${it.slug === current ? ' class="on" aria-current="page"' : ''}>${esc(label)}</a>`;
+  const render = (node) => {
+    const folders = [...node.folders].sort(([a], [b]) => a.localeCompare(b)).map(([name, f]) => `<li class="folder"><details${holds(f) ? ' open' : ''}>
+<summary>${ICONS.chevron}${f.index ? link(f.index, f.index.title || name) : `<span>${esc(name)}</span>`}</summary><ul>${render(f)}</ul></details></li>`).join('');
+    const files = node.files.slice().sort((a, b) => a.title.localeCompare(b.title)).map((f) => `<li>${link(f, f.title)}</li>`).join('');
+    return folders + files;
+  };
+  return `<details class="explorer" open><summary><span>Explorer</span>${ICONS.chevron}</summary><ul class="tree">${render(root)}</ul></details>`;
 }
 
 const PIN = '<svg class="pin" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.8 1.5 14.5 6.2l-1.4.4-2.5 2.5.3 3.3-1.4 1.4-2.7-2.7-3.5 3.5-.7-.7 3.5-3.5L3.4 7.7l1.4-1.4 3.3.3 2.5-2.5z"/></svg>';
@@ -98,7 +174,7 @@ function totalLabel(total, items, section) {
  * A browsable set of pages: your pages at / ("pages"), or the bundled examples at
  * /gallery ("gallery"). Category chips, search, grid/list and previews.
  */
-export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages', total = items.length }) {
+export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages', total = items.length, explorer = null }) {
   const base = section === 'gallery' ? '/gallery' : '/';
   // Links keep the other settings, so the page works fully without JS.
   const link = (over) => {
@@ -114,7 +190,7 @@ export function galleryPage(items, { q = '', category = '', categories = [], vie
   const intro = section === 'gallery'
     ? '<p class="intro">Example pages that ship with HTML Server: what single-file HTML can do, from explainers and diagrams to small tools. Open one, or use it as a starting point for your own.</p>'
     : '';
-  return shell(section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section)}<main class="wrap">
+  return shell(section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section, { explorer, search: false })}<main class="wrap">
 ${intro}<form id="search" role="search" data-base="${base}"><input id="q" name="q" value="${esc(q)}" placeholder="${section === 'gallery' ? 'Search examples' : 'Search pages'}" autocomplete="off" autofocus>
 ${category ? `<input type="hidden" name="category" value="${esc(category)}">` : ''}
 ${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : ''}</form>
@@ -147,12 +223,14 @@ export function graphPage(data) {
     ? `<p class="intro">Pages linked to or from <a href="${esc(focus.url)}">${esc(focus.title)}</a> (ringed).
 <a href="/graph">See all pages</a> · <a href="/history/${encodeURIComponent(focus.slug)}">History</a></p>`
     : `<p class="intro">Your pages, and the links between them. A dot is a page, sized by how many links it has; a line is
-a link from one page to another (<code>/pages/x</code>, <code>/x</code> or a relative <code>x.html</code>). Hover to see a
-page's neighbours, click to open it, drag a dot or the background, scroll to zoom: labels appear as you zoom in.</p>`;
+a link from one page to another (<code>/pages/x</code>, <code>/x</code> or a relative <code>x.html</code>); a small ring is a
+tag, joined to the pages that carry it. Hover to see a node's neighbours, click to open it, drag dots or the background,
+scroll to zoom.</p>`;
   return shell(focus ? `Graph: ${focus.title} · HTML Server` : 'Graph · HTML Server', `${siteNav('graph')}<main class="wrap graph-wrap">
 ${intro}
 <p class="meta">${plural(data.nodes.length, 'page')} · ${plural(data.edges.length, 'link')} · ${plural(linked, 'page')} with links</p>
-<div id="graph" class="graph" role="img" aria-label="Graph of pages and links"></div>
+<div id="graph-frame" class="graph-frame"><div id="graph-tools" class="graph-tools"></div>
+<div id="graph" class="graph" role="img" aria-label="Graph of pages, tags and links"></div></div>
 <div id="legend" class="legend"></div>
 <script id="graph-data" type="application/json">${json}</script></main>`, { scripts: ['graph.js'] });
 }
@@ -192,6 +270,146 @@ ${barList(s.tags.slice(0, 12).map((x) => ({ label: categoryLabel(x.tag), value: 
 <p class="meta">Counts cover the pages you can see. Views exclude previews, bots and command-line tools. Data as JSON: <a href="/api/stats">/api/stats</a>.</p>
 <div id="tip" class="tip" role="tooltip" hidden></div>
 </main>`, { scripts: ['stats.js'] });
+}
+
+// Notes are served sandboxed (like every page), and a sandboxed page may not be allowed
+// to load stylesheets or fonts, so the site's styles are inlined into each note, with the
+// main typefaces as data: URIs (the rarer italic and mono bold keep their URLs). Read once;
+// responses are gzipped, which takes back most of the base64.
+const INLINE_FONTS = new Set(['schibsted-grotesk.woff2', 'source-sans-3.woff2', 'ibm-plex-mono-400.woff2']);
+let NOTE_CSS = null;
+const noteCss = () => (NOTE_CSS ??= ['style.css', 'note.css']
+  .map((f) => fileText(`public/${f}`)).join('\n')
+  .replace(/url\(\/_static\/fonts\/([\w.-]+)\)/g, (m, f) => (INLINE_FONTS.has(f)
+    ? `url(data:font/woff2;base64,${fileBytes(`public/fonts/${f}`).toString('base64')})` : m))
+  .replace(/<\/style/gi, '<\\/style'));
+
+/**
+ * A Markdown note as a page of the site, laid out like a Quartz page: the sidebar and
+ * explorer on the left; breadcrumbs, title, date, reading time and tags above the note;
+ * on the right a local graph, the contents and backlinks. Notes are served sandboxed
+ * (like every page), and a sandboxed page may not load stylesheets, so the site's
+ * styles are inlined. `chrome: false` (gallery-card previews) is just the note. Links
+ * that leave the note use target="_top", so they work inside the review page's frame too.
+ */
+export function notePage({ slug, title, tags = [], html, backlinks = [], updated, version, latest, description, chrome = true,
+  explorer = [], path = '', graph = null, theme = null, previews = {}, source = null, copyLabel, extra = '' }) {
+  const S = encodeURIComponent(slug);
+  const day = updated ? new Date(updated * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+  const words = html.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
+  const top = (s) => s.replace(/<a (?![^>]*target=)/g, '<a target="_top" '); // site links break out of any frame
+  const head = `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(path, title, explorer)}</nav>
+<h1 class="article-title">${esc(title)}</h1>
+<p class="content-meta">${day ? `${esc(day)}, ` : ''}${Math.max(1, Math.round(words / 200))} min read${extra ? ` · ${esc(extra)}` : ''}
+  · v${version}${latest && version < latest ? ` of ${latest}` : ''} · <a href="/history/${S}" target="_top">history</a> · <a href="/review/${S}" target="_top">comments</a></p>
+${source != null ? `<p class="page-actions">${copyButton(copyLabel)}</p>` : ''}
+${tags.length ? `<ul class="note-tags">${tags.map((t) => `<li><a class="tag-link" href="/?category=${encodeURIComponent(t)}" target="_top">${esc(t)}</a></li>`).join('')}</ul>` : ''}`;
+  const toc = [...html.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h\1>/g)]
+    .map(([, d, id, inner]) => `<li class="d${d}"><a href="#${esc(id)}">${inner.replace(/<[^>]+>/g, '')}</a></li>`);
+  const right = `<aside class="sidebar right">
+${graph ? localGraph(graph, slug) : ''}
+${toc.length > 1 ? `<details class="toc" open><summary><h3>Table of Contents</h3>${ICONS.chevron}</summary><ul>${toc.join('')}</ul></details>` : ''}
+${backlinksSection(backlinks)}
+</aside>`;
+  const main = `<main class="center note">${chrome ? head : `<h1 class="article-title">${esc(title)}</h1>`}<article class="content">${html}</article></main>`;
+  return `<!doctype html><html lang="en"${theme === 'dark' || theme === 'light' ? ` data-theme="${theme}"` : ''}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)} · HTML Server</title>${description ? `<meta name="description" content="${esc(description)}">` : ''}
+${THEME_HEAD}<style>${noteCss()}</style></head>
+<body class="note-body">${chrome ? `<div class="page">${siteNav('pages', { explorer, current: slug })}${main}${right}${top(footer())}</div>${THEME_TOGGLE}
+${previewData(previews)}${source != null ? sourceData(source) + inlined().copy : ''}${inlined().search}${inlined().popover}` : main}</body></html>`;
+}
+
+const backlinksSection = (backlinks) => `<section class="backlinks"><h3>Backlinks</h3>${backlinks.length
+  ? `<ul>${backlinks.map((b) => `<li><a href="${esc(b.url)}" target="_top">${esc(b.title)}</a></li>`).join('')}</ul>`
+  : '<p class="none">No backlinks found</p>'}</section>`;
+
+const previewData = (previews) => `<script id="page-previews" type="application/json">${JSON.stringify(previews).replace(/</g, '\\u003c')}</script>`;
+
+/**
+ * An HTML page in the site's frame (what a browser tab gets at /pages/<name>.html): the
+ * sidebar, a title bar with the page's tags and links, then the page itself in an iframe,
+ * sized to the window so its own scrolling, sticky headers and full-height layouts work.
+ * Below it, its local graph and backlinks. ?raw=1 is the page alone.
+ */
+export function htmlFramePage({ page, n, backlinks, explorer, graph, previews = {} }) {
+  const S = encodeURIComponent(page.slug);
+  const old = n !== page.latest_version;
+  const src = `/pages/${S}${old ? `?v=${n}` : ''}`;
+  const embed = `/pages/${S}?${old ? `v=${n}&` : ''}embed=1`;
+  const day = new Date(page.updated_at * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  return shell(`${page.title} · HTML Server`, `${siteNav('pages', { explorer, current: page.slug })}<main class="center framed">
+<header class="frame-head"><div class="frame-title">
+<nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="/">Home</a><span class="sep" aria-hidden="true">❯</span><span aria-current="page">${esc(page.title)}</span></nav>
+<h1 class="article-title">${esc(page.title)}</h1>
+<p class="content-meta">${old ? '' : `${esc(day)} · `}v${n}${old ? ` of ${page.latest_version}` : ''} · ${plural(page.views ?? 0, 'view')}
+  · <a href="/history/${S}">history</a> · <a href="/review/${S}${old ? `?v=${n}` : ''}">comments</a>
+  · <a href="${src}${old ? '&amp;' : '?'}raw=1">full page ↗</a></p>
+<p class="page-actions"><button type="button" class="copy-source" data-src="/api/artifacts/${S}/versions/${n}">${COPY_ICON}<span>Copy HTML</span></button></p>
+</div>${page.tags.length ? `<ul class="note-tags">${page.tags.map((t) => `<li><a class="tag-link" href="/?category=${encodeURIComponent(t)}">${esc(t)}</a></li>`).join('')}</ul>` : ''}</header>
+<iframe class="page-frame auto" src="${esc(embed)}" title="${esc(page.title)}"></iframe>
+<div class="frame-foot">${graph ? localGraph(graph, page.slug) : ''}${backlinksSection(backlinks)}</div>
+</main>${previewData(previews)}${inlined().popover}${inlined().copy}${FRAME_SIZE}`);
+}
+
+// The frame's half of the sizing (the page's half is public/embed-size.js): with native
+// responsive iframes the browser sizes it; otherwise take the height the page reports.
+// Either way, a page that asks for window height gets it.
+const FRAME_SIZE = `<script>(()=>{const f=document.querySelector('.page-frame');if(!f)return;
+const native=CSS.supports('frame-sizing','content-height');
+addEventListener('message',(e)=>{if(e.source!==f.contentWindow||e.data?.htmlServer!=='size')return;
+if(e.data.mode==='window'){f.classList.remove('auto');f.style.height='';return}
+if(!native&&f.classList.contains('auto')&&e.data.height>=40)f.style.height=Math.min(e.data.height,100000)+'px'})})()</script>`;
+
+/** Home › folder › note, from where the note lives; a folder with an index note links to it. */
+function crumbs(path, title, explorer) {
+  const parts = path ? path.split('/').slice(0, -1) : [];
+  const isIndex = /(^|\/)index\.(md|markdown)$/i.test(path);
+  const byPath = new Map(explorer.map((e) => [e.path.toLowerCase(), e]));
+  const out = ['<a href="/" target="_top">Home</a>'];
+  parts.forEach((dir, i) => {
+    if (isIndex && i === parts.length - 1) return; // a folder's own index note: the folder is the page itself
+    const idx = byPath.get(`${parts.slice(0, i + 1).join('/')}/index.md`.toLowerCase());
+    out.push(idx ? `<a href="${esc(idx.url)}" target="_top">${esc(idx.title)}</a>` : `<span>${esc(dir)}</span>`);
+  });
+  out.push(`<span aria-current="page">${esc(title)}</span>`);
+  return out.join('<span class="sep" aria-hidden="true">❯</span>');
+}
+
+/**
+ * The "Graph View" box: this page and the pages linked to or from it. Drawn here as a
+ * static picture, which public/minigraph.js (inlined, with the site's graph as data)
+ * turns into Quartz's live local graph, and whose expand button opens the global one.
+ */
+export function localGraph(data, slug) {
+  const W = 280, H = 190, cx = W / 2, cy = H / 2;
+  const me = data.nodes.find((n) => n.slug === slug);
+  if (!me) return '';
+  const near = new Set(data.edges.flatMap((e) => (e.source === me.id ? [e.target] : e.target === me.id ? [e.source] : [])));
+  const others = data.nodes.filter((n) => near.has(n.id)).sort((a, b) => a.title.localeCompare(b.title)).slice(0, 30);
+  const pos = new Map([[me.id, [cx, cy]]]);
+  // One ring, or two when crowded (alternating, so neighbours' labels don't collide).
+  const two = others.length > 10;
+  others.forEach((n, i) => {
+    const a = (i / others.length) * Math.PI * 2 - Math.PI / 2;
+    const r = two ? (i % 2 ? 78 : 50) : 62;
+    pos.set(n.id, [cx + Math.cos(a) * r * 1.35, cy + Math.sin(a) * r]);
+  });
+  const edges = data.edges.filter((e) => pos.has(e.source) && pos.has(e.target)).map((e) => {
+    const [x1, y1] = pos.get(e.source), [x2, y2] = pos.get(e.target);
+    return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>`;
+  }).join('');
+  const short = (t) => (t.length > 22 ? `${t.slice(0, 21)}…` : t);
+  const node = (n) => {
+    const [x, y] = pos.get(n.id);
+    return `<a href="${esc(n.url)}" target="_top" class="${n === me ? 'me' : ''}"><title>${esc(n.title)}</title>
+<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${n === me ? 5.5 : 4}"/><text x="${x.toFixed(1)}" y="${(y + 13).toFixed(1)}">${esc(short(n.title))}</text></a>`;
+  };
+  return `<section class="graph-view"><h3>Graph View</h3><div class="graph-box${two ? ' crowded' : ''}">
+<a class="graph-expand" href="/graph?page=${encodeURIComponent(slug)}" target="_top" aria-label="Open the full graph" title="Open the full graph">${ICONS.expand}</a>
+<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pages linked to or from this one"><g class="edges">${edges}</g><g class="nodes">${others.map(node).join('')}${node(me)}</g></svg>
+</div></section>
+<script id="site-graph" type="application/json">${JSON.stringify({ current: me.id, nodes: data.nodes.map((n) => [n.id, n.title, n.url]),
+    edges: data.edges.map((e) => [e.source, e.target]) }).replace(/</g, '\\u003c')}</script>${inlined().graph}`;
 }
 
 /** Every version, newest first: view it, see what it changed, or compare any two. */
@@ -234,7 +452,7 @@ export function reviewPage(slug) {
 <input id="tok" type="password" autocomplete="off"> <p><button id="save">Save</button></p></details>
 <form id="new"><textarea id="body" placeholder="Comment on this version"></textarea>
 <p><button>Post</button> <span id="err" class="err"></span></p></form>
-<div id="list"></div></aside></div>`, { scripts: ['review.js'], bodyAttrs: `data-slug="${esc(slug)}"` });
+<div id="list"></div></aside></div>`, { scripts: ['review.js'], bodyAttrs: `data-slug="${esc(slug)}"`, frame: false });
 }
 
 /** Side-by-side changes. Served sandboxed (it shows page content), so styles are inline. */
@@ -272,45 +490,128 @@ td.del{background:var(--del);color:var(--deltx)}td.ins{background:var(--ins);col
 </style></head><body>${back ? `<a class="back" href="${esc(back)}" target="_top">← History</a>` : ''}${body}</body></html>`;
 }
 
-export function docsPage(base, routes) {
-  const md = (text) => esc(text).replace(/`([^`]+)`/g, '<code>$1</code>');
+/**
+ * The docs, as Markdown: how to use HTML Server from the command line, from AI apps over
+ * MCP, and over HTTP. Built from the same sources the code uses (the CLI's usage text,
+ * the MCP tools, the ROUTES table), so it can't drift. Served as is at /docs.md (for
+ * agents, and for anyone who wants the source) and rendered at /docs (and /api).
+ */
+export function docsMarkdown(base, routes, { tools = [] } = {}) {
   const display = (pattern) => pattern.replace(/\(\?<(\w+)>[^)]*\)/g, '<$1>').replace(/\/\?/g, '/').replace(/\(\?:|\)\?/g, '') || '/';
-  const rows = routes.filter((r) => r.doc).map((r) =>
-    `<tr><td><b>${r.method}</b></td><td><code>${esc(display(r.path))}</code></td><td>${esc(r.who)}</td><td>${md(r.doc)}</td></tr>`).join('');
-  return shell('API · HTML Server', `${siteNav('api')}<main class="wrap docs"><h1>API</h1>
-<p class="lead">The HTTP API of this server, running <a href="${RELEASE_URL}">HTML Server v${esc(VERSION)}</a>
-(<a href="${RELEASE_URL}">release notes</a>). Source, changelog and every release:
-<a href="${REPO_URL}">${esc(REPO_URL.replace('https://', ''))}</a>. Install the command-line client with
-<code>npm install -g github:lawwu/html-server#v${esc(VERSION)}</code>.</p>
-<h2>Quickstart</h2>
-<pre>A=${esc(base)}
+  const cell = (t) => t.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  const rows = routes.filter((r) => r.doc).map((r) => `| ${r.method} | \`${display(r.path)}\` | ${cell(r.who)} | ${cell(r.doc)} |`).join('\n');
+  const cli = usage({ backupDir: '~/.html-server/backups', homeDir: '~/.html-server' }).split('\n').slice(2).join('\n');
+  const toolRows = tools.map((t) => `| \`${t.name}\` | ${cell(t.title || '')} | ${cell(t.description.split(/(?<=\.)\s/)[0])} |`).join('\n');
+  return `# Docs
+
+[HTML Server v${VERSION}](${RELEASE_URL}) hosts, versions, searches and links HTML pages and Markdown notes.
+There are three ways in: the **command line**, **AI apps over MCP**, and the **HTTP API**. Source, changelog
+and every release: [${REPO_URL.replace('https://', '')}](${REPO_URL}). This page is Markdown: [/docs.md](/docs.md).
+
+## Command line
+
+Install it, sign in once, and publish:
+
+\`\`\`sh
+npm install -g github:lawwu/html-server#v${VERSION}
+html-server login --url ${base}      # asks for your token, checks it, saves it
+html-server put trip-plan.html "first draft"
+\`\`\`
+
+Every command (\`html-server help COMMAND\` shows one):
+
+\`\`\`text
+${cli}
+\`\`\`
+
+## MCP: Claude and other AI apps
+
+\`html-server mcp\` runs HTML Server as an MCP server, so Claude Code, Claude Desktop, Cursor and other MCP
+clients can publish and manage pages. The app starts it; it uses the server and token the CLI is signed in to.
+
+\`\`\`sh
+claude mcp add html-server -- html-server mcp
+\`\`\`
+
+Other apps take the same command in their MCP settings:
+
+\`\`\`json
+{ "mcpServers": { "html-server": { "command": "html-server", "args": ["mcp"] } } }
+\`\`\`
+
+**Pages published over MCP are private** unless the call says \`public: true\`, so a model can't put something
+in the public gallery by accident.
+
+| Tool | | What it does |
+| --- | --- | --- |
+${toolRows}
+
+## HTTP API
+
+### Quickstart
+
+\`\`\`sh
+A=${base}
 H="Authorization: Bearer $HTML_SERVER_TOKEN"
 
 # upload, or add a version (the URL must end in / so curl appends the file name)
 curl -T trip-plan.html -H "$H" -H "X-Note: first draft" $A/api/artifacts/
 
-# or with the html-server CLI (it finds your token in ~/.html-server/token)
-html-server put trip-plan.html "first draft"
+# a Markdown note works the same way
+curl -T weekly-review.md -H "$H" $A/api/artifacts/
 
 # view it, search, trash, then delete for good
 open $A/pages/trip-plan
-curl "$A/api/artifacts?q=shelling"
+curl "$A/api/search?q=shelling"
 curl -X DELETE -H "$H" $A/api/artifacts/trip-plan.html
-curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"</pre>
-<h2>Rules</h2><ul>
-<li><b>The URL is the file name</b>: <code>trip-plan.html</code> is served at <code>/pages/trip-plan.html</code>, and <code>/pages/trip-plan</code> works too. Names are shared across the whole server: the first user to upload a name owns it.</li>
-<li><b>Everything is public</b> unless uploaded with <code>X-Visibility: private</code>. <b>anyone*</b> below means
-anyone for public pages, and only the owner (by token) for private or trashed ones.</li>
-<li><b>Gallery:</b> a page's <code>&lt;meta name="description"&gt;</code> and <code>&lt;meta name="category"&gt;</code>
-become its card text and category on <a href="/">the home page</a>.</li>
-<li><b>Editing:</b> by default only a page's owner adds versions. On a server with open editing
-(<code>html-server config editing open</code>), anyone signed in can add or restore versions of public pages; only the
-owner trashes, deletes or changes visibility. Every version records who uploaded it, and <code>?base=n</code> refuses an
-upload if the page has moved past version n. Each page's versions are listed at <code>/history/&lt;name&gt;</code>.</li>
-<li><b>Lifecycle:</b> active → trashed → purged, or trashed → active again. A trashed page can't take new
-versions, and only trashed pages can be purged; anything else returns 409 with the allowed actions.</li>
-<li>Pages run in a sandbox: their JavaScript works, but it can't use browser storage or call this API. Links they open in a new tab load as ordinary tabs. <code>html-server serve --sandbox-allow PERMISSION</code> adds permissions (README, "The sandbox").</li>
-<li>Errors are JSON: <code>{"error": "..."}</code>. Max ${MAX_BODY_BYTES / (1024 * 1024)} MB per upload.
-Reserved names: ${esc([...RESERVED_SLUGS].sort().join(', '))}.</li></ul>
-<h2>Endpoints</h2><div class="scroll"><table class="routes">${rows}</table></div></main>`);
+curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"
+\`\`\`
+
+### Rules
+
+- **The URL is the file name:** \`trip-plan.html\` is served at \`/pages/trip-plan.html\`, and \`/pages/trip-plan\`
+  works too. Names are shared across the whole server: the first user to upload a name owns it.
+- **HTML pages, Markdown notes and notebooks:** a \`.md\` upload is a note, rendered in the site's layout, with
+  \`[[wikilinks]]\`, frontmatter tags and backlinks; an \`.ipynb\` is a Jupyter notebook, shown with its saved
+  outputs. Images and PDFs that notes embed are assets (\`/api/assets\`).
+- **Everything is public** unless uploaded with \`X-Visibility: private\`. **anyone\*** below means anyone for
+  public pages, and only the owner (by token) for private or trashed ones.
+- **In a browser tab** an HTML page sits in the site's frame (sidebar, title bar, graph, backlinks), sized to
+  the page. Iframes, curl and other clients get the page itself, as does \`?raw=1\`.
+- **Gallery:** a page's \`<meta name="description">\` and \`<meta name="category">\` become its card text and
+  category on [the home page](/).
+- **Editing:** by default only a page's owner adds versions. On a server with open editing
+  (\`html-server config editing open\`), anyone signed in can add or restore versions of public pages; only the
+  owner trashes, deletes or changes visibility. Every version records who uploaded it, and \`?base=n\` refuses an
+  upload if the page has moved past version n. Each page's versions are listed at \`/history/<name>\`.
+- **Lifecycle:** active → trashed → purged, or trashed → active again. A trashed page can't take new versions,
+  and only trashed pages can be purged; anything else returns 409 with the allowed actions.
+- **Pages run in a sandbox:** their JavaScript works, but it can't use browser storage or call this API. Links
+  they open in a new tab load as ordinary tabs. \`html-server serve --sandbox-allow PERMISSION\` adds permissions.
+- **Errors** are JSON: \`{"error": "..."}\`. Max ${+(MAX_BODY_BYTES / (1024 * 1024)).toFixed(1)} MB per upload. Reserved
+  names: ${[...RESERVED_SLUGS].sort().map((x) => `\`${x}\``).join(', ')}.
+
+### Endpoints
+
+| Method | Path | Who | What |
+| --- | --- | --- | --- |
+${rows}
+`;
+}
+
+/**
+ * A Markdown document the server itself publishes (the API docs), in the site's note
+ * layout: the sidebar, the document, its contents on the right, and a copy-source button.
+ */
+export function markdownPage({ title, md, active, sourceUrl }) {
+  const html = renderMarkdown(md, { title });
+  const toc = [...html.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h\1>/g)]
+    .map(([, d, id, inner]) => `<li class="d${d}"><a href="#${esc(id)}">${inner.replace(/<[^>]+>/g, '')}</a></li>`);
+  return shell(`${title} · HTML Server`, `${siteNav(active)}<main class="center note doc">
+<h1 class="article-title">${esc(title)}</h1>
+<p class="content-meta">HTML Server v${esc(VERSION)} · <a href="${esc(sourceUrl)}">Markdown</a></p>
+<p class="page-actions">${copyButton()}</p>
+<article class="content">${html}</article></main>
+<aside class="sidebar right">${toc.length > 1 ? `<details class="toc" open><summary><h3>Table of Contents</h3>${ICONS.chevron}</summary><ul>${toc.join('')}</ul></details>` : ''}</aside>
+${sourceData(md)}${inlined().copy}`);
 }

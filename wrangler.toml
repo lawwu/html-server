@@ -1,0 +1,22 @@
+# HTML Server on Cloudflare Workers, one of its deploy targets (`html-server serve` on
+# any machine with Node is the other). `html-server deploy cloudflare` runs Wrangler
+# with this file; see README "Deploy to Cloudflare". Change `name` to deploy more than
+# one, and add `routes` for your own domain.
+name = "html-server"
+main = "cloudflare/worker.js"
+compatibility_date = "2026-09-15"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+command = "node cloudflare/bundle-files.js"
+
+[[durable_objects.bindings]]
+name = "HTML_SERVER"
+class_name = "HtmlServer"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["HtmlServer"]
+
+[observability]
+enabled = true

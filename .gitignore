@@ -6,3 +6,6 @@
 .token
 node_modules/
 .DS_Store
+cloudflare/files.generated.js
+.wrangler/
+.dev.vars
