@@ -51,7 +51,35 @@ export const DEFAULT_VISIBILITY = 'public'; // everything visible unless an uplo
 
 // Rendered artifacts run in an opaque origin: scripts and forms work, but they
 // cannot read this origin's storage or call the API as the viewer.
-export const RENDER_CSP = 'sandbox allow-scripts allow-forms allow-popups allow-modals';
+// allow-popups-to-escape-sandbox: a link a page opens in a new tab (target="_blank",
+// window.open) gets an ordinary, unsandboxed tab. Without it the new tab inherits the
+// sandbox, and sites like Jira that need their own storage and cookies only half load.
+// The page itself stays sandboxed either way.
+export const SANDBOX_DEFAULT = ['allow-scripts', 'allow-forms', 'allow-popups', 'allow-popups-to-escape-sandbox', 'allow-modals'];
+
+// Every allow-* token the HTML sandbox accepts: what `serve --sandbox-allow` may add.
+export const SANDBOX_TOKENS = [
+  'allow-downloads', 'allow-forms', 'allow-modals', 'allow-orientation-lock', 'allow-pointer-lock', 'allow-popups',
+  'allow-popups-to-escape-sandbox', 'allow-presentation', 'allow-same-origin', 'allow-scripts',
+  'allow-storage-access-by-user-activation', 'allow-top-navigation', 'allow-top-navigation-by-user-activation',
+  'allow-top-navigation-to-custom-protocols',
+];
+
+/**
+ * The Content-Security-Policy for rendered pages: the default sandbox plus any extra
+ * allow-* permissions this server instance was started with. Throws on a token the
+ * sandbox doesn't know, naming the valid ones.
+ */
+export function renderCsp(extra = []) {
+  const unknown = extra.filter((t) => !SANDBOX_TOKENS.includes(t));
+  if (unknown.length) {
+    throw new Error(`unknown sandbox permission${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}. `
+      + `Valid: ${SANDBOX_TOKENS.join(', ')}`);
+  }
+  return `sandbox ${[...new Set([...SANDBOX_DEFAULT, ...extra])].join(' ')}`;
+}
+
+export const RENDER_CSP = renderCsp();
 
 // Fuzzy search: each typed word also matches indexed words at least this similar
 // (Ratcliff/Obershelp ratio, 0-1, the same measure as Python's difflib), so

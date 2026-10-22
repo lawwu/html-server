@@ -32,7 +32,8 @@ function saveCredentials(url, tok) {
 const USAGE = `html-server ${VERSION} — store, version, search and render HTML pages
 
 Run the server (on this machine, straight to the database):
-  serve [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--db PATH]
+  serve [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--db PATH] [--sandbox-allow PERMISSION]...
+                                        --sandbox-allow adds a sandbox permission for pages, e.g. allow-downloads
   create-user NAME [--admin] [--save]    print a new user's token once (--save: also keep it for this CLI)
   reset-token NAME [--save]              new token for a user who lost theirs; pages are kept
   backup [PATH] [--keep N]               snapshot the database (safe while serving); default: ${BACKUP_DIR}
@@ -115,10 +116,20 @@ function bootstrap(store, opts) {
 
 const serverCommands = {
   async serve(args, opts) {
+    const sandboxAllow = opts['sandbox-allow'] ?? [];
+    const { renderCsp } = await import('./config.js');
+    let csp;
+    try { csp = renderCsp(sandboxAllow); } catch (e) { fail(e.message); }
+    if (sandboxAllow.includes('allow-same-origin')) {
+      console.error('warning: allow-same-origin with allow-scripts lets every page\'s scripts act as this site:'
+        + ' read the token a reviewer saved in the browser, call the API as them, and lift their own sandbox.'
+        + ' Only use it if you trust every page on this server.');
+    }
+    if (sandboxAllow.length) console.error(`pages are served with: ${csp}`);
     const store = await openStore(opts.db);
     bootstrap(store, opts);
     const { makeServer } = await import('./server.js');
-    makeServer(store).listen(Number(opts.port), opts.host, () =>
+    makeServer(store, { sandboxAllow }).listen(Number(opts.port), opts.host, () =>
       console.error(`html-server ${VERSION} on http://${opts.host}:${opts.port}  (db: ${opts.db})`));
   },
   async 'create-user'([name], opts) {
@@ -412,6 +423,7 @@ export async function main(argv) {
     options: {
       db: { type: 'string', default: DEFAULT_DB },
       host: { type: 'string', default: DEFAULT_HOST },
+      'sandbox-allow': { type: 'string', multiple: true },
       port: { type: 'string', default: String(DEFAULT_PORT) },
       admin: { type: 'boolean', default: false },
       save: { type: 'boolean', default: false },

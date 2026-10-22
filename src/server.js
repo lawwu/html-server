@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import {
-  MAX_BODY_BYTES, RENDER_CSP, TOC_MIN_HEADINGS,
+  MAX_BODY_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { VIEWS, diffPage, docsPage, galleryPage, graphPage, historyPage, resultsBody, reviewPage, statsPage } from './pages.js';
@@ -113,8 +113,8 @@ export function withVersionBadge(doc, { n, latest, current, history }) {
 const STATIC_TYPES = { css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', svg: 'image/svg+xml' };
 
 class Ctx {
-  constructor(store, req, res, url) {
-    Object.assign(this, { store, req, res, url, query: url.searchParams });
+  constructor(store, req, res, url, csp = RENDER_CSP) {
+    Object.assign(this, { store, req, res, url, query: url.searchParams, csp });
   }
 
   send(status, type, body, headers = {}) {
@@ -129,7 +129,7 @@ class Ctx {
 
   /** An artifact (or anything showing its content): sandboxed so its scripts can't reach the API. */
   page(body) {
-    this.send(200, 'text/html; charset=utf-8', body, { 'Content-Security-Policy': RENDER_CSP, 'X-Content-Type-Options': 'nosniff' });
+    this.send(200, 'text/html; charset=utf-8', body, { 'Content-Security-Policy': this.csp, 'X-Content-Type-Options': 'nosniff' });
   }
 
   /** ?page=<name>[&depth=n]: a local graph around one page (depth 1-3, default 1). */
@@ -347,10 +347,15 @@ const handlers = {
   views(c, { slug }) { c.json(200, c.store.views(c.user().id, slug)); },
 };
 
-export function makeServer(store) {
+/**
+ * `sandboxAllow`: extra sandbox permissions for this server's rendered pages, on top of
+ * the default (see renderCsp in config.js). Checked here, so a typo fails at startup.
+ */
+export function makeServer(store, { sandboxAllow = [] } = {}) {
+  const csp = renderCsp(sandboxAllow);
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
-    const c = new Ctx(store, req, res, url);
+    const c = new Ctx(store, req, res, url, csp);
     try {
       let path = url.pathname;
       try { path = decodeURIComponent(path); } catch { throw new ApiError(400, 'bad URL encoding'); }

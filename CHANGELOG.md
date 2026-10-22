@@ -7,6 +7,17 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.5.1 (2026-10-22)
+
+- **Links that pages open in a new tab now load fully.** Rendered pages add
+  `allow-popups-to-escape-sandbox` to their sandbox, so a `target="_blank"` link or
+  `window.open()` opens an ordinary tab instead of one that inherits the sandbox. Sites
+  like Jira only half loaded before. Pages themselves stay sandboxed; no flag needed.
+- **`serve --sandbox-allow PERMISSION`** (repeatable) adds sandbox permissions for that
+  server instance's pages, e.g. `allow-downloads`. Unknown values stop the server with
+  the list of valid ones, and `allow-same-origin` prints a warning about what it opens up.
+  See README, "The sandbox".
+
 ## 0.5.0 (2026-10-20)
 
 - **Featured pages:** pin pages to a "Featured" section at the top of the home page,
