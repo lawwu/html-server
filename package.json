@@ -1,6 +1,6 @@
 {
   "name": "@lawwu/html-server",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "description": "Store, version, search, review and render HTML pages from the command line. Zero dependencies.",
   "license": "MIT",
