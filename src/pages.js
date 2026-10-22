@@ -309,7 +309,7 @@ owner trashes, deletes or changes visibility. Every version records who uploaded
 upload if the page has moved past version n. Each page's versions are listed at <code>/history/&lt;name&gt;</code>.</li>
 <li><b>Lifecycle:</b> active → trashed → purged, or trashed → active again. A trashed page can't take new
 versions, and only trashed pages can be purged; anything else returns 409 with the allowed actions.</li>
-<li>Pages run in a sandbox: their JavaScript works, but it can't use browser storage or call this API.</li>
+<li>Pages run in a sandbox: their JavaScript works, but it can't use browser storage or call this API. Links they open in a new tab load as ordinary tabs. <code>html-server serve --sandbox-allow PERMISSION</code> adds permissions (README, "The sandbox").</li>
 <li>Errors are JSON: <code>{"error": "..."}</code>. Max ${MAX_BODY_BYTES / (1024 * 1024)} MB per upload.
 Reserved names: ${esc([...RESERVED_SLUGS].sort().join(', '))}.</li></ul>
 <h2>Endpoints</h2><div class="scroll"><table class="routes">${rows}</table></div></main>`);

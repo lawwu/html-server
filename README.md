@@ -356,9 +356,8 @@ a 409 and has to pick another name.
   close misspelling of an indexed word (`sheling` finds "shelling", `ubr` finds
   "uber"). How close is close is set by the `FUZZY_*` constants in `src/config.js`.
   Words of one or two letters only match as prefixes.
-- **Rendered pages are sandboxed.** They are sent with
-  `Content-Security-Policy: sandbox …`, which still lets artifact JavaScript run, but
-  in an opaque origin, so it can't reach the API or any other artifact.
+- **Rendered pages are sandboxed** (see [The sandbox](#the-sandbox) below): their
+  JavaScript runs, but in an opaque origin, so it can't reach the API or any other artifact.
 - **Pass options as headers with `curl -T`.** curl only appends the file name when
   the URL ends in `/`, so `.../api/artifacts/?note=x` arrives without a name and gets
   a 400 that explains this. Query parameters still work when the name is spelled out
@@ -382,7 +381,52 @@ a 409 and has to pick another name.
 - **Versions are immutable** and keep a sha256 and an optional note. Nothing is
   overwritten except by purge.
 
-## Not built (yet)
+## The sandbox
+
+Every rendered page (artifacts, old versions, share links, gallery examples, diffs) is
+sent with this header by default:
+
+```
+Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals
+```
+
+- **The page runs in an opaque origin.** Its scripts, forms, `alert()`/`confirm()` and
+  popups work, but it can't read this site's cookies or local storage (where a reviewer's
+  token is saved) or call the API as the viewer, and pages can't reach each other.
+- **Links it opens in a new tab are not sandboxed** (`allow-popups-to-escape-sandbox`).
+  A link with `target="_blank"` or a `window.open()` gets an ordinary tab, so sites like
+  Jira or Google Docs load fully. Without it the new tab inherited the sandbox and such
+  sites only half loaded.
+
+**Adding permissions.** `serve --sandbox-allow` adds a permission for every page on that
+server, and can be repeated. It applies to that server process only; other servers and
+other runs keep the default.
+
+```bash
+html-server serve --sandbox-allow allow-downloads
+html-server serve --sandbox-allow allow-downloads --sandbox-allow allow-top-navigation-by-user-activation
+```
+
+Values are the sandbox's own `allow-*` tokens (`allow-downloads`, `allow-forms`,
+`allow-modals`, `allow-orientation-lock`, `allow-pointer-lock`, `allow-popups`,
+`allow-popups-to-escape-sandbox`, `allow-presentation`, `allow-same-origin`,
+`allow-scripts`, `allow-storage-access-by-user-activation`, `allow-top-navigation`,
+`allow-top-navigation-by-user-activation`, `allow-top-navigation-to-custom-protocols`).
+Anything else stops the server at startup with an error listing them. What the common
+ones change:
+
+- **`allow-downloads`:** a page can save files (`<a download>`, generated CSVs).
+  Reasonable for trusted pages.
+- **`allow-top-navigation-by-user-activation`:** a link the reader clicks can replace the
+  whole tab. `allow-top-navigation` lets a page do it without a click, which a hostile
+  page can use to send readers elsewhere.
+- **`allow-same-origin`: avoid it.** Together with `allow-scripts`, which every page has,
+  it puts each page's scripts in this site's origin: they can read the token a reviewer
+  saved in the browser, call the API as that reviewer (edit, delete, comment), read
+  other pages, and remove their own sandbox. The server prints a warning when it's used.
+  Only consider it on a server whose every page you wrote and trust.
+
+
 
 Per-version deletion, rotating a share link, an MCP server (the CLI covers
 this for coding agents), and per-user
@@ -392,7 +436,7 @@ folders (`/alice/x.html`) if one shared namespace for names gets crowded. Each o
 
 Releases are git tags, `vX.Y.Z`, following semantic versioning; [`CHANGELOG.md`](CHANGELOG.md)
 says what each one changed, and `html-server --version` says which one you're on.
-Install a specific release with `npm install -g github:lawwu/html-server#v0.5.0`;
+Install a specific release with `npm install -g github:lawwu/html-server#v0.5.1`;
 without the `#…` you get the latest `main`.
 
 To cut a release, add its notes to the changelog's "Unreleased" section, then:
