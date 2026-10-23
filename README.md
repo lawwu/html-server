@@ -290,9 +290,24 @@ arrows, and tags as small rings joined to their pages, so pages that share a tag
 Links are read from each page's latest version: wikilinks, `/pages/x`, `/x` or a relative
 `x.html`.
 
-**Stats** (`/stats`): totals, views per day, uploads per week, the most viewed and most
-edited pages, pages per tag and recent uploads, counted over the pages you can see. Hover
-any bar for its value, or open "Show as table".
+**Stats** (`/stats`): views over the last 30 days (with a trend line and the change from the
+30 days before), pages, versions and visitors; views per day and uploads per week; the most
+viewed and most edited pages, pages per tag, and recent uploads, all counted over the pages
+you can see. Hover any bar for its value, or open "Show as table".
+
+**API and MCP usage**, for admins, at the bottom of `/stats` (and as JSON at
+`/api/stats/usage`): API calls over the last 30 days by kind of client (MCP tools, the
+CLI, browsers, other HTTP such as curl and scripts), per day, the most used MCP tools and
+CLI commands, the busiest routes and the error rate. The page uses the admin token your
+browser saved (or asks for one). The CLI and MCP label their requests with an
+`X-HTML-Server-Client` header (`cli/<command>`, `mcp/<tool>`), since MCP runs on your
+machine and calls the API like any client. Pick 30 days, 90 days, 1 year or all time; longer
+periods show weekly or monthly bars. Each `/api` request is kept for 90 days as its route's
+pattern, client, status and user (never its query string, body or token), then folded into
+daily totals per client, tool or command and route, which are kept for good: the long-run
+numbers stay, only who made each call goes. MCP calls
+that fail on your machine before reaching the server (not signed in, server down) aren't
+counted.
 
 **Gallery** (`/gallery`) shows the example pages that ship in this package's `gallery/`
 folder, read-only, so every install has them and they never mix with your own. To make one

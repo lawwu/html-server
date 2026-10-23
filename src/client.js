@@ -1,6 +1,7 @@
 // Talking to a running server, for the CLI's client commands and the MCP server:
 // which server, as whom, and one request helper. Env vars win, then the login saved
 // in credentials.json, then the local default.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { CREDENTIALS_FILE, FALLBACK_URL, HOME_DIR } from './config.js';
 
@@ -17,6 +18,18 @@ export function saveCredentials(url, tok) {
   chmodSync(CREDENTIALS_FILE, 0o600);
 }
 
+/**
+ * Who is calling, sent with every request as X-HTML-Server-Client so the server's
+ * usage stats can tell the CLI from MCP from everything else: "cli/<command>" for the
+ * whole of a CLI run, or "mcp/<tool>" for the requests one MCP tool call makes
+ * (withClient, scoped to that call, since an MCP server may run calls side by side).
+ */
+let defaultClient = '';
+const callScope = new AsyncLocalStorage();
+export const setClient = (label) => { defaultClient = label; };
+export const withClient = (label, fn) => callScope.run(label, fn);
+const clientLabel = () => callScope.getStore() || defaultClient;
+
 /** A mistake the user can fix (bad input, not signed in, server unreachable): one line, no stack. */
 export class ClientError extends Error {}
 
@@ -30,7 +43,11 @@ export async function api(method, path, { body, auth = 'optional', json = false 
   let r;
   try {
     r = await fetch(SERVER + path, {
-      method, body, headers: { ...(t ? { Authorization: `Bearer ${t}` } : {}), ...(json ? { 'Content-Type': 'application/json' } : {}) },
+      method, body, headers: {
+        ...(t ? { Authorization: `Bearer ${t}` } : {}),
+        ...(json ? { 'Content-Type': 'application/json' } : {}),
+        ...(clientLabel() ? { 'X-HTML-Server-Client': clientLabel() } : {}),
+      },
     });
   } catch {
     throw new ClientError(`can't reach ${SERVER} (is the server running?)`);

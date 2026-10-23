@@ -666,11 +666,79 @@ test('stats: totals and series over the pages you can see', async () => {
   const [code, page] = await req('GET', '/stats');
   assert.equal(code, 200);
   assert.match(page, /<title>Stats · HTML Server<\/title>/);
-  assert.match(page, /<b>2<\/b><span>pages<\/span>/);
-  assert.match(page, /<figcaption>Views per day, last 30 days<\/figcaption>/);
+  assert.match(page, /<span class="ht-label">Pages<\/span><b>2<\/b>/); // public pages only for an anonymous visitor
+  assert.match(page, /<svg class="spark"[^>]*aria-label="Views per day, last 30 days">/); // the headline's trend line
+  assert.match(page, /<figcaption><span>Views per day<\/span><b>3 in 30 days<\/b><\/figcaption>/);
+  assert.match(page, /<section id="usage"[^]*Admins<\/span>/); // the usage section, filled in for admins by stats.js
+  assert.doesNotMatch(page, /API calls per day/); // never drawn into the public page
   assert.match(page, /data-tip="Alpha: 2 views"/);
   assert.match(page, /<details class="tview"><summary>Show as table<\/summary>/); // every chart has a table view
   assert.equal((await put('stats', '<p>x</p>'))[0], 400); // reserved
+});
+
+test('API usage: each /api call recorded by kind of client, shown to admins only', async () => {
+  const call = (path, headers = {}, method = 'GET') => fetch(`${base}${path}`, { method, headers });
+  const usage = async () => (await req('GET', '/api/stats/usage', { token: admin }))[1];
+  const before = (await usage()).totals;
+  await call('/api/artifacts?q=secret-words', { 'x-html-server-client': 'mcp/search_pages' });
+  await call('/api/artifacts/nope.html', { 'x-html-server-client': 'mcp/get_page' }); // 404, still counted
+  await call('/api/artifacts', { 'x-html-server-client': 'cli/ls', authorization: `Bearer ${admin}` });
+  await call('/api/search?q=x', { 'sec-fetch-site': 'same-origin' }); // a browser (the ⌘K box)
+  await call('/api/tags'); // curl, a script
+  await call('/api/tags', { 'x-html-server-client': 'mcp/<script>' }); // a label that isn't one: plain HTTP
+  await call('/pages/nothing-here'); // not /api: not counted
+  const u = await usage();
+  const d = (k) => u.totals[k] - before[k];
+  // http: the two plain calls, plus the first usage() reading itself (recorded once it has answered).
+  assert.deepEqual([d('mcp'), d('cli'), d('browser'), d('http')], [2, 1, 1, 3]);
+  assert.ok(u.mcp_tools.some((r) => r.name === 'get_page' && r.errors >= 1));
+  assert.ok(u.cli_commands.some((r) => r.name === 'ls'));
+  assert.ok(u.routes.some((r) => r.route === '/api/artifacts/<slug>' && r.method === 'GET')); // the pattern, not the page name
+  assert.equal(u.series.length, 30);
+  assert.equal(u.unit, 'day');
+  assert.equal(u.retention_days, 90);
+  const rows = store.all('SELECT * FROM api_calls');
+  assert.ok(!JSON.stringify(rows).includes('secret-words')); // never the query string
+  assert.ok(!JSON.stringify(rows).includes(admin)); // never the token
+  assert.ok(rows.some((r) => r.client === 'cli' && r.user_id != null)); // who, when signed in
+
+  assert.equal((await req('GET', '/api/stats/usage'))[0], 401); // admins only
+  const bob = store.createUser('usage-bob');
+  assert.equal((await req('GET', '/api/stats/usage', { token: bob }))[0], 403);
+  assert.equal((await req('GET', '/api/stats/usage?days=0', { token: admin }))[0], 400);
+  assert.equal((await req('GET', '/api/stats/usage?days=soon', { token: admin }))[0], 400);
+  const year = (await req('GET', '/api/stats/usage?days=365', { token: admin }))[1];
+  assert.equal(year.unit, 'week'); // longer periods group the bars
+  assert.ok(year.series.length >= 52 && year.series.length <= 54);
+  const frag = await (await call('/stats/usage', { authorization: `Bearer ${admin}` })).text();
+  assert.match(frag, /API calls per day, by client/);
+  assert.match(frag, /<nav class="range-picker"[^]*data-days="all">All time<\/a>/);
+  assert.match(frag, /<ul class="legend-row"><li><i class="sw s1"><\/i>MCP<\/li>/); // more than one series: a legend
+  assert.match(frag, /<code>GET \/api\/artifacts\/&lt;slug&gt;<\/code>/);
+  assert.equal((await call('/stats/usage')).status, 401);
+
+  // Past the retention period a request's details go, but it stays counted in the daily totals, for good.
+  const old = Date.now() / 1000 - 200 * 86400;
+  const insert = (at, status) => store.run('INSERT INTO api_calls (at, client, name, method, route, status, user_id) VALUES (?,?,?,?,?,?,?)',
+    at, 'mcp', 'get_page', 'GET', '/api/old', status, 1);
+  insert(old, 200); insert(old + 60, 404);
+  const allBefore = (await req('GET', '/api/stats/usage?days=all', { token: admin }))[1];
+  store.lastPrune = 0;
+  store.recordApiCall({ client: 'http', method: 'GET', route: '/api/tags', status: 200 }); // triggers the hourly fold
+  assert.equal(store.one("SELECT COUNT(*) AS n FROM api_calls WHERE route = '/api/old'").n, 0); // details gone
+  assert.deepEqual({ ...store.one("SELECT calls, errors FROM api_calls_daily WHERE route = '/api/old'") }, { calls: 2, errors: 1 });
+  insert(old + 120, 200); // another from that day, folded later: added to the same day's totals
+  store.rollUpApiCalls(Date.now() / 1000 - 90 * 86400);
+  assert.equal(store.one("SELECT calls FROM api_calls_daily WHERE route = '/api/old'").calls, 3);
+  const all = (await req('GET', '/api/stats/usage?days=all', { token: admin }))[1];
+  assert.equal(all.days, null);
+  assert.equal(all.unit, 'week'); // 200 days back: weekly bars
+  assert.equal(all.totals.mcp - allBefore.totals.mcp, 1); // the third old call; the first two were already counted
+  assert.ok(all.mcp_tools.some((r) => r.name === 'get_page' && r.calls >= 3));
+  assert.ok(all.routes.some((r) => r.route === '/api/old' && r.calls === 3 && r.errors === 1));
+  assert.equal(all.series.reduce((n, p) => n + p.mcp + p.cli + p.browser + p.http, 0), all.totals.calls); // nothing counted twice
+  const recent = (await req('GET', '/api/stats/usage?days=30', { token: admin }))[1];
+  assert.ok(!recent.routes.some((r) => r.route === '/api/old')); // outside the last 30 days
 });
 
 test('home shows the page count; header links to GitHub with the version', async () => {

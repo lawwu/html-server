@@ -6,7 +6,7 @@
 // still go through tx() so a failure leaves nothing half-done.
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  ASSET_TYPES, BOT_UA_RE, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
+  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
   PAGE_EXT_RE, SEARCH_SORT, SLUG_RE, SORTS, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
@@ -104,6 +104,31 @@ CREATE TABLE IF NOT EXISTS views (
     via TEXT NOT NULL               -- 'url' (/<slug>) or 'share' (/v/<id>)
 );
 CREATE INDEX IF NOT EXISTS views_by_artifact ON views (artifact_id, at);
+-- One row per /api request, for the usage stats admins see (0.7.0). Never a query string,
+-- request body or token: the route's pattern, who called and how it went.
+CREATE TABLE IF NOT EXISTS api_calls (
+    id INTEGER PRIMARY KEY,
+    at REAL NOT NULL,
+    client TEXT NOT NULL,           -- mcp, cli, browser or http (see CLIENT_KINDS)
+    name TEXT NOT NULL DEFAULT '',  -- the MCP tool or CLI command, when the client said
+    method TEXT NOT NULL,
+    route TEXT NOT NULL,            -- e.g. /api/artifacts/<slug>
+    status INTEGER NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS api_calls_by_time ON api_calls (at);
+-- The same, totalled per day, once the detailed rows pass API_CALL_RETENTION_DAYS. Kept for good.
+CREATE TABLE IF NOT EXISTS api_calls_daily (
+    day TEXT NOT NULL,              -- YYYY-MM-DD, the server's local day
+    client TEXT NOT NULL,
+    name TEXT NOT NULL,
+    method TEXT NOT NULL,
+    route TEXT NOT NULL,
+    calls INTEGER NOT NULL,
+    errors INTEGER NOT NULL,        -- 4xx and 5xx
+    server_errors INTEGER NOT NULL, -- 5xx
+    PRIMARY KEY (day, client, name, method, route)
+);
 CREATE TABLE IF NOT EXISTS comments (
     id INTEGER PRIMARY KEY,
     artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
@@ -670,6 +695,9 @@ export class Store {
     const recentViews = this.one(`SELECT COUNT(*) AS n, COUNT(DISTINCT x.visitor || date(x.at, 'unixepoch', 'localtime')) AS d`
       + ` FROM views x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ?`, v, since);
     Object.assign(totals, { views_recent: recentViews.n, visitor_days_recent: recentViews.d });
+    // The 30 days before those, so the page can say whether views are up or down.
+    totals.views_previous = this.one(`SELECT COUNT(*) AS n FROM views x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ? AND x.at < ?`,
+      v, since - days * 86400, since).n;
 
     const byDay = new Map(this.all("SELECT date(x.at, 'unixepoch', 'localtime') AS day, COUNT(*) AS n FROM views x"
       + ` JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ? GROUP BY day`, v, since).map((r) => [r.day, r.n]));
@@ -831,6 +859,90 @@ export class Store {
     const body = this.version(a, n);
     this.countView(a, n, visit, 'share');
     return { body, slug: a.slug, n: n || a.latest_version, latest: a.latest_version, page: a };
+  }
+
+  /**
+   * Record one API request (handleRequest calls this). At most hourly, requests older
+   * than the retention period are folded into the daily totals, then deleted.
+   */
+  recordApiCall({ client, name = '', method, route, status, userId = null }) {
+    const t = now();
+    this.run('INSERT INTO api_calls (at, client, name, method, route, status, user_id) VALUES (?,?,?,?,?,?,?)',
+      t, client, name, method, route, status, userId);
+    if (!this.lastPrune || t - this.lastPrune > 3600) {
+      this.lastPrune = t;
+      this.rollUpApiCalls(t - API_CALL_RETENTION_DAYS * 86400);
+    }
+  }
+
+  /** Fold requests from before `cutoff` into api_calls_daily (adding to any day already there), then drop them. */
+  rollUpApiCalls(cutoff) {
+    this.tx(() => {
+      this.run("INSERT INTO api_calls_daily (day, client, name, method, route, calls, errors, server_errors)"
+        + " SELECT date(at, 'unixepoch', 'localtime'), client, name, method, route, COUNT(*), SUM(status >= 400), SUM(status >= 500)"
+        + ' FROM api_calls WHERE at < ? GROUP BY 1, 2, 3, 4, 5 ORDER BY 1'
+        + ' ON CONFLICT (day, client, name, method, route) DO UPDATE SET calls = calls + excluded.calls,'
+        + ' errors = errors + excluded.errors, server_errors = server_errors + excluded.server_errors', cutoff);
+      this.run('DELETE FROM api_calls WHERE at < ?', cutoff);
+    });
+  }
+
+  /**
+   * API usage for admins, over the last `days` (server's local days), or all of it when
+   * `days` is null: recent requests and the daily totals they're folded into, read as one
+   * (a request is only ever in one of the two). Totals by kind of client, calls over time
+   * split by kind (per day up to 120 days, per week up to two years, else per month; every
+   * period present), the most used MCP tools and CLI commands, the busiest routes, errors.
+   * Signed-in users are counted from the detailed records, so over the last 90 days at most.
+   */
+  usage({ days = 30, top = 10 } = {}) {
+    const today = new Date();
+    const dayStr = (d) => d.toLocaleDateString('en-CA');
+    const ago = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return d; };
+    const sinceDay = days == null ? '' : dayStr(ago(days - 1));
+    const since = days == null ? 0 : new Date(`${sinceDay}T00:00`).getTime() / 1000;
+    const ALL = "(SELECT date(at, 'unixepoch', 'localtime') AS day, client, name, method, route, 1 AS calls,"
+      + ' (status >= 400) AS errors, (status >= 500) AS server_errors FROM api_calls WHERE at >= ?'
+      + ' UNION ALL SELECT day, client, name, method, route, calls, errors, server_errors FROM api_calls_daily WHERE day >= ?)';
+    const q = (sql, ...more) => this.all(sql.replace('$ALL', ALL), since, sinceDay, ...more);
+
+    const kinds = Object.fromEntries(CLIENT_KINDS.map((k) => [k, 0]));
+    for (const r of q('SELECT client, SUM(calls) AS n FROM $ALL GROUP BY client')) kinds[r.client] = r.n;
+    const t = q('SELECT SUM(calls) AS calls, SUM(errors) AS errors, SUM(server_errors) AS server_errors, MIN(day) AS first FROM $ALL')[0];
+    const users = this.one('SELECT COUNT(DISTINCT user_id) AS n FROM api_calls WHERE at >= ?', since).n;
+
+    // Periods from the start (or the first record, for all time) to today.
+    const start = days == null ? new Date(`${t.first || dayStr(today)}T12:00`) : ago(days - 1);
+    const span = Math.round((today - start) / 86400000) + 1;
+    const unit = span <= 120 ? 'day' : span <= 730 ? 'week' : 'month';
+    const periodOf = (dayText) => {
+      const d = new Date(`${dayText}T12:00`);
+      if (unit === 'week') d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // weeks start on Monday
+      if (unit === 'month') d.setDate(1);
+      return dayStr(d);
+    };
+    const series = new Map();
+    for (let d = new Date(`${periodOf(dayStr(start))}T12:00`); d <= today;) {
+      series.set(dayStr(d), Object.fromEntries(CLIENT_KINDS.map((k) => [k, 0])));
+      if (unit === 'day') d.setDate(d.getDate() + 1); else if (unit === 'week') d.setDate(d.getDate() + 7); else d.setMonth(d.getMonth() + 1);
+    }
+    for (const r of q('SELECT day, client, SUM(calls) AS n FROM $ALL GROUP BY day, client')) {
+      const p = series.get(periodOf(r.day));
+      if (p) p[r.client] = (p[r.client] || 0) + r.n;
+    }
+    const named = (client) => q('SELECT name, SUM(calls) AS calls, SUM(errors) AS errors FROM $ALL'
+      + " WHERE client = ? AND name != '' GROUP BY name ORDER BY calls DESC, name LIMIT ?", client, top);
+    return {
+      days,
+      unit,
+      retention_days: API_CALL_RETENTION_DAYS,
+      totals: { calls: t.calls || 0, ...kinds, errors: t.errors || 0, server_errors: t.server_errors || 0, users },
+      series: [...series].map(([period, counts]) => ({ period, ...counts })),
+      mcp_tools: named('mcp'),
+      cli_commands: named('cli'),
+      routes: q('SELECT method, route, SUM(calls) AS calls, SUM(errors) AS errors FROM $ALL'
+        + ' GROUP BY method, route ORDER BY calls DESC, route LIMIT ?', top),
+    };
   }
 
   countView(a, n, visit, via) {

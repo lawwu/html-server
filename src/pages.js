@@ -2,7 +2,7 @@
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
 import { MAX_BODY_BYTES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
 import { fileBytes, fileText } from './files.js';
-import { barList, columnChart, tile } from './charts.js';
+import { barList, columnChart, heroTile, sparkline, stackedColumnChart } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
 import { renderMarkdown } from './markdown.js';
 import { usage } from './usage.js';
@@ -255,41 +255,107 @@ ${intro}
 <script id="graph-data" type="application/json">${json}</script></main>`, { scripts: ['graph.js'] });
 }
 
-/** /stats: headline numbers, then views and uploads over time, top pages, tags, recent changes. */
+/** /stats: headline numbers, then views and uploads over time, top pages, tags, recent changes; for admins, API usage. */
 export function statsPage(s) {
   const t = s.totals;
   const kb = (n) => (n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
   const md = (d) => new Date(`${d}T12:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const when = (ts) => { const d = new Date(ts * 1000); return `${d.toLocaleDateString('en-CA')} ${d.toTimeString().slice(0, 5)}`; };
-  const recent = s.recent.length ? `<ol class="activity">${s.recent.map((r) => `<li><a href="${esc(r.url)}">${esc(r.title)}</a>
-  <span class="meta">v${r.n} · ${esc(r.author)} · ${esc(when(r.created_at))}${r.note ? ` · ${esc(r.note)}` : ''}</span></li>`).join('')}</ol>`
+  const ago = (ts) => {
+    const m = Math.round((Date.now() / 1000 - ts) / 60);
+    return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago`
+      : new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  const change = (now, before) => (before ? Math.round(((now - before) / before) * 100) : null);
+  const viewsTotal = s.views_by_day.reduce((n, d) => n + d.views, 0);
+  const uploadsTotal = s.uploads_by_week.reduce((n, w) => n + w.versions, 0);
+  const recent = s.recent.length ? `<ol class="timeline">${s.recent.map((r) => `<li><span class="when">${esc(ago(r.created_at))}</span>
+  <a href="${esc(r.url)}">${esc(r.title)}</a><span class="meta">v${r.n} · ${esc(r.author)}${r.note ? ` · ${esc(r.note)}` : ''}</span></li>`).join('')}</ol>`
     : '<p class="empty">Nothing yet.</p>';
+  const minor = [[t.tags, 'tags'], [t.comments, 'comments'], [t.authors, t.authors === 1 ? 'author' : 'authors'], [kb(t.bytes), 'of pages']];
   return shell('Stats · HTML Server', `${siteNav('stats')}<main class="wrap stats">
-<h1>Stats</h1>
-<section class="tiles">
-${tile(t.pages, 'pages', t.featured ? `${t.featured} featured` : '')}
-${tile(t.versions, 'versions', `${(t.versions / Math.max(t.pages, 1)).toFixed(1)} per page`)}
-${tile(t.views_recent, 'views, 30 days', `${plural(t.visitor_days_recent, 'visitor-day')}`)}
-${tile(t.views, 'views, all time')}
-${tile(t.tags, 'tags')}
-${tile(t.comments, 'comments')}
-${tile(t.authors, t.authors === 1 ? 'author' : 'authors')}
-${tile(kb(t.bytes), 'of HTML', 'latest versions')}
+<header class="stats-head"><h1>Stats</h1>
+<p class="lede">Across the ${plural(t.pages, 'page')} you can see${t.featured ? `, ${t.featured} featured` : ''}. Views leave out previews, bots and command-line tools.</p></header>
+<section class="hero" aria-label="Headline numbers">
+${heroTile(t.views_recent, 'Views, last 30 days', { delta: change(t.views_recent, t.views_previous),
+    spark: sparkline(s.views_by_day.map((d) => d.views), { label: 'Views per day, last 30 days' }) })}
+${heroTile(t.pages, 'Pages', { sub: t.featured ? `${t.featured} featured` : 'none featured yet' })}
+${heroTile(t.versions, 'Versions', { sub: `${(t.versions / Math.max(t.pages, 1)).toFixed(1)} per page` })}
+${heroTile(t.visitor_days_recent, 'Visitor-days, 30 days', { sub: `${fmtNum(t.views)} views all time` })}
 </section>
-<div class="charts">
+<ul class="minor" aria-label="More counts">${minor.map(([v, l]) => `<li><b>${typeof v === 'number' ? fmtNum(v) : esc(v)}</b> ${esc(l)}</li>`).join('')}</ul>
+
+<h2 class="section-label">Activity</h2>
+<div class="charts two-one">
 ${columnChart(s.views_by_day.map((d) => ({ label: d.day, short: md(d.day), value: d.views, tip: `${md(d.day)}: ${d.views} view${d.views === 1 ? '' : 's'}` })),
-    { title: 'Views per day, last 30 days', unit: 'views' })}
+    { title: 'Views per day', unit: 'views', headline: `${fmtNum(viewsTotal)} in 30 days`, caption: 'Views per day, last 30 days' })}
 ${columnChart(s.uploads_by_week.map((w) => ({ label: `Week of ${w.week}`, short: md(w.week), value: w.versions,
     tip: `Week of ${md(w.week)}: ${w.versions} version${w.versions === 1 ? '' : 's'} uploaded` })),
-    { title: 'Versions uploaded per week, last 12 weeks', unit: 'versions' })}
+    { title: 'Uploads per week', unit: 'versions', headline: `${fmtNum(uploadsTotal)} in 12 weeks`, caption: 'Versions uploaded per week, last 12 weeks', width: 300, height: 196 })}
+</div>
+
+<h2 class="section-label">Pages</h2>
+<div class="charts three">
 ${barList(s.most_viewed.map((p) => ({ label: p.title, value: p.views, href: p.url })), { title: 'Most viewed', unit: 'views', empty: 'No views yet.' })}
 ${barList(s.most_edited.map((p) => ({ label: p.title, value: p.versions, href: p.url })), { title: 'Most edited', unit: 'versions', empty: 'No page has a second version yet.' })}
-${barList(s.tags.slice(0, 12).map((x) => ({ label: categoryLabel(x.tag), value: x.count, href: `/?category=${encodeURIComponent(x.tag)}` })), { title: 'Pages per tag', unit: 'pages', empty: 'No tags yet.' })}
-<figure class="chart"><figcaption>Recent uploads</figcaption>${recent}</figure>
+${barList(s.tags.slice(0, 10).map((x) => ({ label: categoryLabel(x.tag), value: x.count, href: `/?category=${encodeURIComponent(x.tag)}` })), { title: 'Pages per tag', unit: 'pages', empty: 'No tags yet.' })}
 </div>
-<p class="meta">Counts cover the pages you can see. Views exclude previews, bots and command-line tools. Data as JSON: <a href="/api/stats">/api/stats</a>.</p>
+<figure class="chart recent"><figcaption><span>Recent uploads</span></figcaption>${recent}</figure>
+
+<section id="usage" class="usage-slot" aria-labelledby="usage-title">
+<h2 class="section-label" id="usage-title">API &amp; MCP usage <span class="badge">Admins</span></h2>
+<div id="usage-body"><p class="meta">Who's calling the API: MCP tools, the CLI, browsers and scripts. Only admins see this.</p>
+<form id="usage-signin" class="usage-signin" hidden><label>Admin token <input id="usage-token" type="password" autocomplete="off" placeholder="ak_…"></label>
+<button>Show usage</button> <span id="usage-msg" class="meta"></span></form></div>
+</section>
+
+<p class="meta foot-note">Data as JSON: <a href="/api/stats">/api/stats</a> · API usage, for admins: <a href="/api/stats/usage">/api/stats/usage</a>.</p>
 <div id="tip" class="tip" role="tooltip" hidden></div>
 </main>`, { scripts: ['stats.js'] });
+}
+
+const fmtNum = (n) => Number(n || 0).toLocaleString('en-US');
+const USAGE_SERIES = [{ key: 'mcp', label: 'MCP' }, { key: 'cli', label: 'CLI' }, { key: 'browser', label: 'Browser' }, { key: 'http', label: 'Other HTTP' }];
+
+/**
+ * The API usage section of /stats, for admins (loaded by public/stats.js with the
+ * saved token): calls by kind of client, per day, the most used MCP tools and CLI
+ * commands, and the busiest routes with their errors.
+ */
+const USAGE_RANGES = [[30, '30 days'], [90, '90 days'], [365, '1 year'], ['all', 'All time']];
+
+export function usageSection(u) {
+  const t = u.totals;
+  const range = u.days == null ? 'all time' : u.days === 365 ? 'the last year' : `the last ${u.days} days`;
+  const md = (d) => new Date(`${d}T12:00`).toLocaleDateString('en-US', u.unit === 'month' ? { month: 'short', year: 'numeric' } : { month: 'short', day: 'numeric' });
+  const periodName = (p) => (u.unit === 'day' ? md(p) : u.unit === 'week' ? `Week of ${md(p)}` : md(p));
+  const share = (n) => (t.calls ? `${Math.round((n / t.calls) * 100)}% of calls` : '');
+  const totals = u.series.map((d) => USAGE_SERIES.reduce((n, s) => n + d[s.key], 0));
+  const picker = `<nav class="range-picker" aria-label="Period">${USAGE_RANGES.map(([v, label]) => {
+    const on = (u.days ?? 'all') === v;
+    return `<a href="?days=${v}#usage" data-days="${v}"${on ? ' class="on" aria-current="true"' : ''}>${label}</a>`;
+  }).join('')}</nav>`;
+  const routes = u.routes.length ? `<div class="scroll"><table class="routes-table"><thead><tr><th>Route</th><th class="num">Calls</th><th class="num">Errors</th></tr></thead>
+<tbody>${u.routes.map((r) => `<tr><td><code>${esc(r.method)} ${esc(r.route)}</code></td><td class="num">${fmtNum(r.calls)}</td>`
+    + `<td class="num">${r.errors ? `<span class="err-count">${fmtNum(r.errors)}</span>` : '0'}</td></tr>`).join('')}</tbody></table></div>`
+    : '<p class="empty">No API calls yet.</p>';
+  return `${picker}<section class="hero" aria-label="API usage numbers">
+${heroTile(t.calls, u.days == null ? 'API calls, all time' : `API calls, ${USAGE_RANGES.find(([v]) => v === u.days)?.[1] ?? `${u.days} days`}`,
+    { sub: `${plural(t.users, 'signed-in user')}${u.days == null || u.days > u.retention_days ? ` in the last ${u.retention_days} days` : ''}`,
+      spark: sparkline(totals, { label: `API calls per ${u.unit}` }) })}
+${heroTile(t.mcp, 'MCP tool calls', { sub: share(t.mcp) })}
+${heroTile(t.cli, 'CLI calls', { sub: share(t.cli) })}
+${heroTile(t.calls ? `${((t.errors / t.calls) * 100).toFixed(1)}%` : '0%', 'Errors (4xx/5xx)', { sub: `${fmtNum(t.errors)} calls${t.server_errors ? `, ${fmtNum(t.server_errors)} server errors` : ''}` })}
+</section>
+<div class="charts">
+${stackedColumnChart(u.series.map((d) => ({ label: periodName(d.period), short: md(d.period), values: d })), USAGE_SERIES,
+    { title: `API calls per ${u.unit}, by client`, unit: 'calls', headline: `${fmtNum(t.calls)} in ${range}`, caption: `API calls per ${u.unit}, ${range}, by client` })}
+</div>
+<div class="charts">
+${barList(u.mcp_tools.map((r) => ({ label: r.name, value: r.calls })), { title: 'Most used MCP tools', unit: 'calls', empty: 'No MCP calls yet.' })}
+${barList(u.cli_commands.map((r) => ({ label: r.name, value: r.calls })), { title: 'Most used CLI commands', unit: 'calls', empty: 'No CLI calls yet.' })}
+</div>
+<figure class="chart"><figcaption><span>Busiest routes</span><b>errors are 4xx/5xx answers</b></figcaption>${routes}</figure>
+<p class="meta">Every <code>/api</code> request: who called (the MCP tool or CLI command; browsers and other HTTP clients by kind), the route's pattern and the status, never query strings, request bodies or tokens. Each request's details are kept ${u.retention_days} days, then folded into daily totals that are kept for good. MCP calls that fail on your machine before reaching the server aren't counted.</p>`;
 }
 
 // Notes are served sandboxed (like every page), and a sandboxed page may not be allowed

@@ -6,7 +6,7 @@
 //
 // Safety default: pages published through MCP are private unless the call says
 // public: true, so a model can't put something in a public gallery by accident.
-import { SERVER, api } from './client.js';
+import { SERVER, api, withClient } from './client.js';
 import { VERSION } from './config.js';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']; // newest first
@@ -257,7 +257,7 @@ export async function handle(msg) {
       const tool = TOOLS.find((t) => t.name === msg.params?.name);
       if (!tool) return error(-32602, `unknown tool: ${msg.params?.name}`);
       try {
-        const out = await tool.run(msg.params.arguments ?? {});
+        const out = await withClient(`mcp/${tool.name}`, () => tool.run(msg.params.arguments ?? {})); // labelled for usage stats
         const text = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
         return reply({ content: [{ type: 'text', text }], ...(typeof out === 'object' && !Array.isArray(out) ? { structuredContent: out } : {}) });
       } catch (e) {
