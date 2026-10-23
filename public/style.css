@@ -427,7 +427,7 @@ details[open] > summary > .chev { rotate: 90deg; }
 .popover .pop-body ul, .popover .pop-body ol { padding-left: 1.2rem; }
 .popover .pop-body pre { font-size: .8rem; padding: .4rem .6rem; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
 .popover .pop-body img { max-width: 100%; height: auto; border-radius: 4px; }
-.popover .pop-body .callout { --c: #448aff; margin: .5rem 0; padding: 0 .7rem; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 33%, transparent);
+.popover .pop-body .callout { margin: .5rem 0; padding: 0 .7rem; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--c) 33%, transparent);
   background: color-mix(in srgb, var(--c) 10%, transparent); }
 .popover .pop-body .callout-title { display: block; padding: .4rem 0; font-weight: 600; color: var(--c); }
 .popover .pop-body table { border-collapse: collapse; font-size: .82rem; }

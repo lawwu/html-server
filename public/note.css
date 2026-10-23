@@ -39,8 +39,10 @@
 .note li input[type=checkbox] { margin-right: .5rem; accent-color: var(--accent); }
 .note mark { background: var(--mark); border-radius: 5px; padding: 0 .1rem; }
 
-/* callouts: Quartz's colours */
-.note .callout { --c: #448aff; margin: 1rem 0; border: 1px solid color-mix(in srgb, var(--c) 33%, transparent);
+/* callouts: Quartz's colours. The colour is set on .callout alone, below the type rules'
+   own specificity, so .callout-warning and the rest win (here and in hover previews). */
+.callout { --c: #448aff; }
+.note .callout { margin: 1rem 0; border: 1px solid color-mix(in srgb, var(--c) 33%, transparent);
   background: color-mix(in srgb, var(--c) 10%, transparent); border-radius: 5px; padding: 0 1rem; }
 .note .callout-title { font-weight: 600; color: var(--c); padding: 1rem 0; display: block; }
 .note .callout-title::before { content: ""; display: inline-block; width: .55rem; height: .55rem; border-radius: 50%;

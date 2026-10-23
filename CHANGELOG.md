@@ -7,6 +7,12 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.7.1 (2026-10-22)
+
+- **Callouts have their colours again.** Since 0.6.0 every callout in a note was blue
+  whatever its type, so a warning, a tip and a success looked the same. The per-type
+  colours apply again, in notes and in hover previews.
+
 ## 0.7.0 (2026-10-22)
 
 Upgrading adds two tables, `api_calls` and `api_calls_daily`; nothing existing changes, so
