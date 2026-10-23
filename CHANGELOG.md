@@ -7,6 +7,24 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.7.0 (2026-10-22)
+
+Upgrading adds two tables, `api_calls` and `api_calls_daily`; nothing existing changes, so
+rolling back to 0.6.2 works (it ignores them).
+
+- **API and MCP usage on `/stats`, for admins:** every `/api` request is recorded (route
+  pattern, kind of client, MCP tool or CLI command, status, user; never query strings,
+  bodies or tokens) and shown as calls by client (MCP, CLI, browser, other
+  HTTP), a stacked chart per day, the most used MCP tools and CLI commands, the busiest
+  routes and the error rate, over 30 days, 90 days, a year or all time. Each request's
+  details are kept 90 days, then folded into daily totals kept for good, so long-run
+  history stays. `GET /api/stats/usage` (`?days=N` or `?days=all`) has the same as JSON. The CLI and MCP
+  label their requests (`X-HTML-Server-Client: cli/<command>` or `mcp/<tool>`). Works on
+  Cloudflare too.
+- **A redesigned stats page:** headline cards (views with a trend line and the change from
+  the previous 30 days, pages, versions, visitors), a strip for the smaller counts, chart
+  cards with their totals, a timeline of recent uploads, and charts sized to their space.
+
 ## 0.6.2 (2026-10-22)
 
 - **HEAD requests work:** every GET route answers HEAD with the same status and headers

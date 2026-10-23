@@ -54,6 +54,15 @@ export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history',
 export const SORTS = { updated: 'Recently updated', created: 'Newest', views: 'Most viewed', title: 'Title A–Z' };
 export const SEARCH_SORT = 'relevance';
 
+// Usage of the API, for admins on /stats: one row per /api request, with who called
+// (the MCP tool or CLI command, from the client's X-HTML-Server-Client header; else
+// "browser" when a browser sent it, or plain "http"), the route's pattern (never the
+// query string, body or token) and the status. After this many days a request's row is
+// folded into daily totals (per day, client, tool or command, method and route), which are
+// kept for good: the long-run numbers stay, only who made each call goes.
+export const API_CALL_RETENTION_DAYS = 90;
+export const CLIENT_KINDS = ['mcp', 'cli', 'browser', 'http'];
+
 export const VISIBILITIES = ['public', 'private'];
 export const DEFAULT_VISIBILITY = 'public'; // everything visible unless an upload says private
 
