@@ -11,7 +11,7 @@ import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { ClientError, SERVER, api, creds, saveCredentials, token } from './client.js';
+import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
 import { PAGE_EXT_RE, VERSION } from './config.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
@@ -596,6 +596,7 @@ export async function main(argv) {
     if (cmd && !run && cmd !== 'help') process.exitCode = 2;
     return;
   }
+  setClient(`cli/${cmd}`); // labels this run's requests for the server's usage stats
   await run(args, opts);
 }
 

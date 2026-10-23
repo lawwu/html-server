@@ -24,3 +24,31 @@ document.addEventListener('focusin', (e) => {
   show(mark, r.left + r.width / 2, r.top);
 });
 document.addEventListener('focusout', () => { tip.hidden = true; });
+
+// API & MCP usage, for admins: fetched with the token this browser saved (the review
+// page's "Sign in to comment" and the home page's Select both save it), or one pasted
+// here. The server checks it's an admin's; nobody else gets the numbers.
+const usageBody = document.getElementById('usage-body');
+const form = document.getElementById('usage-signin');
+const msg = document.getElementById('usage-msg');
+const KEY = 'artifact_token';
+const saved = () => { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } };
+
+async function loadUsage(token, { fromForm = false } = {}) {
+  if (!token) { form.hidden = false; return; }
+  let r;
+  try { r = await fetch('/stats/usage', { headers: { Authorization: `Bearer ${token}` } }); } catch { msg.textContent = 'Couldn’t reach the server.'; return; }
+  if (r.ok) {
+    if (fromForm) { try { localStorage.setItem(KEY, token); } catch { /* this visit only */ } }
+    usageBody.innerHTML = await r.text();
+    return;
+  }
+  form.hidden = false;
+  msg.textContent = r.status === 403 ? 'That token isn’t an admin’s.' : r.status === 401 && fromForm ? 'That token isn’t valid here.' : '';
+}
+
+form?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  loadUsage(document.getElementById('usage-token').value.trim(), { fromForm: true });
+});
+if (usageBody) loadUsage(saved());

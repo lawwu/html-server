@@ -6,7 +6,7 @@
 // still go through tx() so a failure leaves nothing half-done.
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  ASSET_TYPES, BOT_UA_RE, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
+  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
   PAGE_EXT_RE, SEARCH_SORT, SLUG_RE, SORTS, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
@@ -104,6 +104,19 @@ CREATE TABLE IF NOT EXISTS views (
     via TEXT NOT NULL               -- 'url' (/<slug>) or 'share' (/v/<id>)
 );
 CREATE INDEX IF NOT EXISTS views_by_artifact ON views (artifact_id, at);
+-- One row per /api request, for the usage stats admins see (0.7.0). Never a query string,
+-- request body or token: the route's pattern, who called and how it went.
+CREATE TABLE IF NOT EXISTS api_calls (
+    id INTEGER PRIMARY KEY,
+    at REAL NOT NULL,
+    client TEXT NOT NULL,           -- mcp, cli, browser or http (see CLIENT_KINDS)
+    name TEXT NOT NULL DEFAULT '',  -- the MCP tool or CLI command, when the client said
+    method TEXT NOT NULL,
+    route TEXT NOT NULL,            -- e.g. /api/artifacts/<slug>
+    status INTEGER NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS api_calls_by_time ON api_calls (at);
 CREATE TABLE IF NOT EXISTS comments (
     id INTEGER PRIMARY KEY,
     artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
@@ -670,6 +683,9 @@ export class Store {
     const recentViews = this.one(`SELECT COUNT(*) AS n, COUNT(DISTINCT x.visitor || date(x.at, 'unixepoch', 'localtime')) AS d`
       + ` FROM views x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ?`, v, since);
     Object.assign(totals, { views_recent: recentViews.n, visitor_days_recent: recentViews.d });
+    // The 30 days before those, so the page can say whether views are up or down.
+    totals.views_previous = this.one(`SELECT COUNT(*) AS n FROM views x JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ? AND x.at < ?`,
+      v, since - days * 86400, since).n;
 
     const byDay = new Map(this.all("SELECT date(x.at, 'unixepoch', 'localtime') AS day, COUNT(*) AS n FROM views x"
       + ` JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ? GROUP BY day`, v, since).map((r) => [r.day, r.n]));
@@ -831,6 +847,53 @@ export class Store {
     const body = this.version(a, n);
     this.countView(a, n, visit, 'share');
     return { body, slug: a.slug, n: n || a.latest_version, latest: a.latest_version, page: a };
+  }
+
+  /** Record one API request (handleRequest calls this); now and then, drop rows past the retention. */
+  recordApiCall({ client, name = '', method, route, status, userId = null }) {
+    const t = now();
+    this.run('INSERT INTO api_calls (at, client, name, method, route, status, user_id) VALUES (?,?,?,?,?,?,?)',
+      t, client, name, method, route, status, userId);
+    if (!this.lastPrune || t - this.lastPrune > 3600) {
+      this.lastPrune = t;
+      this.run('DELETE FROM api_calls WHERE at < ?', t - API_CALL_RETENTION_DAYS * 86400);
+    }
+  }
+
+  /**
+   * API usage over the last `days` (server's local days), for admins: totals by kind of
+   * client, calls per day split by kind (every day present), the most used MCP tools and
+   * CLI commands, the busiest routes with their errors, and errors (4xx/5xx) overall.
+   */
+  usage({ days = 30, top = 10 } = {}) {
+    const since = now() - days * 86400;
+    const kinds = Object.fromEntries(CLIENT_KINDS.map((k) => [k, 0]));
+    for (const r of this.all('SELECT client, COUNT(*) AS n FROM api_calls WHERE at >= ? GROUP BY client', since)) kinds[r.client] = r.n;
+    const t = this.one('SELECT COUNT(*) AS calls, SUM(status >= 400) AS errors, SUM(status >= 500) AS server_errors,'
+      + ' COUNT(DISTINCT user_id) AS users FROM api_calls WHERE at >= ?', since);
+    const perDay = new Map();
+    for (const r of this.all("SELECT date(at, 'unixepoch', 'localtime') AS day, client, COUNT(*) AS n FROM api_calls"
+      + ' WHERE at >= ? GROUP BY day, client', since)) {
+      if (!perDay.has(r.day)) perDay.set(r.day, {});
+      perDay.get(r.day)[r.client] = r.n;
+    }
+    const byDay = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const day = new Date(Date.now() - i * 86400000).toLocaleDateString('en-CA');
+      byDay.push({ day, ...Object.fromEntries(CLIENT_KINDS.map((k) => [k, perDay.get(day)?.[k] || 0])) });
+    }
+    const named = (client) => this.all('SELECT name, COUNT(*) AS calls, SUM(status >= 400) AS errors FROM api_calls'
+      + " WHERE at >= ? AND client = ? AND name != '' GROUP BY name ORDER BY calls DESC, name LIMIT ?", since, client, top);
+    return {
+      days,
+      retention_days: API_CALL_RETENTION_DAYS,
+      totals: { calls: t.calls, ...kinds, errors: t.errors || 0, server_errors: t.server_errors || 0, users: t.users },
+      by_day: byDay,
+      mcp_tools: named('mcp'),
+      cli_commands: named('cli'),
+      routes: this.all('SELECT method, route, COUNT(*) AS calls, SUM(status >= 400) AS errors FROM api_calls WHERE at >= ?'
+        + ' GROUP BY method, route ORDER BY calls DESC, route LIMIT ?', since, top),
+    };
   }
 
   countView(a, n, visit, via) {
