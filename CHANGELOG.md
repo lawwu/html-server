@@ -7,6 +7,11 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.7.0 (2026-10-22)
+
+Upgrading adds two tables, `api_calls` and `api_calls_daily`; nothing existing changes, so
+rolling back to 0.6.2 works (it ignores them).
+
 - **API and MCP usage on `/stats`, for admins:** every `/api` request is recorded (route
   pattern, kind of client, MCP tool or CLI command, status, user; never query strings,
   bodies or tokens) and shown as calls by client (MCP, CLI, browser, other
