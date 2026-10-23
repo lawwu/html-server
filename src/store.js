@@ -117,6 +117,18 @@ CREATE TABLE IF NOT EXISTS api_calls (
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS api_calls_by_time ON api_calls (at);
+-- The same, totalled per day, once the detailed rows pass API_CALL_RETENTION_DAYS. Kept for good.
+CREATE TABLE IF NOT EXISTS api_calls_daily (
+    day TEXT NOT NULL,              -- YYYY-MM-DD, the server's local day
+    client TEXT NOT NULL,
+    name TEXT NOT NULL,
+    method TEXT NOT NULL,
+    route TEXT NOT NULL,
+    calls INTEGER NOT NULL,
+    errors INTEGER NOT NULL,        -- 4xx and 5xx
+    server_errors INTEGER NOT NULL, -- 5xx
+    PRIMARY KEY (day, client, name, method, route)
+);
 CREATE TABLE IF NOT EXISTS comments (
     id INTEGER PRIMARY KEY,
     artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
@@ -849,50 +861,87 @@ export class Store {
     return { body, slug: a.slug, n: n || a.latest_version, latest: a.latest_version, page: a };
   }
 
-  /** Record one API request (handleRequest calls this); now and then, drop rows past the retention. */
+  /**
+   * Record one API request (handleRequest calls this). At most hourly, requests older
+   * than the retention period are folded into the daily totals, then deleted.
+   */
   recordApiCall({ client, name = '', method, route, status, userId = null }) {
     const t = now();
     this.run('INSERT INTO api_calls (at, client, name, method, route, status, user_id) VALUES (?,?,?,?,?,?,?)',
       t, client, name, method, route, status, userId);
     if (!this.lastPrune || t - this.lastPrune > 3600) {
       this.lastPrune = t;
-      this.run('DELETE FROM api_calls WHERE at < ?', t - API_CALL_RETENTION_DAYS * 86400);
+      this.rollUpApiCalls(t - API_CALL_RETENTION_DAYS * 86400);
     }
   }
 
+  /** Fold requests from before `cutoff` into api_calls_daily (adding to any day already there), then drop them. */
+  rollUpApiCalls(cutoff) {
+    this.tx(() => {
+      this.run("INSERT INTO api_calls_daily (day, client, name, method, route, calls, errors, server_errors)"
+        + " SELECT date(at, 'unixepoch', 'localtime'), client, name, method, route, COUNT(*), SUM(status >= 400), SUM(status >= 500)"
+        + ' FROM api_calls WHERE at < ? GROUP BY 1, 2, 3, 4, 5 ORDER BY 1'
+        + ' ON CONFLICT (day, client, name, method, route) DO UPDATE SET calls = calls + excluded.calls,'
+        + ' errors = errors + excluded.errors, server_errors = server_errors + excluded.server_errors', cutoff);
+      this.run('DELETE FROM api_calls WHERE at < ?', cutoff);
+    });
+  }
+
   /**
-   * API usage over the last `days` (server's local days), for admins: totals by kind of
-   * client, calls per day split by kind (every day present), the most used MCP tools and
-   * CLI commands, the busiest routes with their errors, and errors (4xx/5xx) overall.
+   * API usage for admins, over the last `days` (server's local days), or all of it when
+   * `days` is null: recent requests and the daily totals they're folded into, read as one
+   * (a request is only ever in one of the two). Totals by kind of client, calls over time
+   * split by kind (per day up to 120 days, per week up to two years, else per month; every
+   * period present), the most used MCP tools and CLI commands, the busiest routes, errors.
+   * Signed-in users are counted from the detailed records, so over the last 90 days at most.
    */
   usage({ days = 30, top = 10 } = {}) {
-    const since = now() - days * 86400;
+    const today = new Date();
+    const dayStr = (d) => d.toLocaleDateString('en-CA');
+    const ago = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return d; };
+    const sinceDay = days == null ? '' : dayStr(ago(days - 1));
+    const since = days == null ? 0 : new Date(`${sinceDay}T00:00`).getTime() / 1000;
+    const ALL = "(SELECT date(at, 'unixepoch', 'localtime') AS day, client, name, method, route, 1 AS calls,"
+      + ' (status >= 400) AS errors, (status >= 500) AS server_errors FROM api_calls WHERE at >= ?'
+      + ' UNION ALL SELECT day, client, name, method, route, calls, errors, server_errors FROM api_calls_daily WHERE day >= ?)';
+    const q = (sql, ...more) => this.all(sql.replace('$ALL', ALL), since, sinceDay, ...more);
+
     const kinds = Object.fromEntries(CLIENT_KINDS.map((k) => [k, 0]));
-    for (const r of this.all('SELECT client, COUNT(*) AS n FROM api_calls WHERE at >= ? GROUP BY client', since)) kinds[r.client] = r.n;
-    const t = this.one('SELECT COUNT(*) AS calls, SUM(status >= 400) AS errors, SUM(status >= 500) AS server_errors,'
-      + ' COUNT(DISTINCT user_id) AS users FROM api_calls WHERE at >= ?', since);
-    const perDay = new Map();
-    for (const r of this.all("SELECT date(at, 'unixepoch', 'localtime') AS day, client, COUNT(*) AS n FROM api_calls"
-      + ' WHERE at >= ? GROUP BY day, client', since)) {
-      if (!perDay.has(r.day)) perDay.set(r.day, {});
-      perDay.get(r.day)[r.client] = r.n;
+    for (const r of q('SELECT client, SUM(calls) AS n FROM $ALL GROUP BY client')) kinds[r.client] = r.n;
+    const t = q('SELECT SUM(calls) AS calls, SUM(errors) AS errors, SUM(server_errors) AS server_errors, MIN(day) AS first FROM $ALL')[0];
+    const users = this.one('SELECT COUNT(DISTINCT user_id) AS n FROM api_calls WHERE at >= ?', since).n;
+
+    // Periods from the start (or the first record, for all time) to today.
+    const start = days == null ? new Date(`${t.first || dayStr(today)}T12:00`) : ago(days - 1);
+    const span = Math.round((today - start) / 86400000) + 1;
+    const unit = span <= 120 ? 'day' : span <= 730 ? 'week' : 'month';
+    const periodOf = (dayText) => {
+      const d = new Date(`${dayText}T12:00`);
+      if (unit === 'week') d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // weeks start on Monday
+      if (unit === 'month') d.setDate(1);
+      return dayStr(d);
+    };
+    const series = new Map();
+    for (let d = new Date(`${periodOf(dayStr(start))}T12:00`); d <= today;) {
+      series.set(dayStr(d), Object.fromEntries(CLIENT_KINDS.map((k) => [k, 0])));
+      if (unit === 'day') d.setDate(d.getDate() + 1); else if (unit === 'week') d.setDate(d.getDate() + 7); else d.setMonth(d.getMonth() + 1);
     }
-    const byDay = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const day = new Date(Date.now() - i * 86400000).toLocaleDateString('en-CA');
-      byDay.push({ day, ...Object.fromEntries(CLIENT_KINDS.map((k) => [k, perDay.get(day)?.[k] || 0])) });
+    for (const r of q('SELECT day, client, SUM(calls) AS n FROM $ALL GROUP BY day, client')) {
+      const p = series.get(periodOf(r.day));
+      if (p) p[r.client] = (p[r.client] || 0) + r.n;
     }
-    const named = (client) => this.all('SELECT name, COUNT(*) AS calls, SUM(status >= 400) AS errors FROM api_calls'
-      + " WHERE at >= ? AND client = ? AND name != '' GROUP BY name ORDER BY calls DESC, name LIMIT ?", since, client, top);
+    const named = (client) => q('SELECT name, SUM(calls) AS calls, SUM(errors) AS errors FROM $ALL'
+      + " WHERE client = ? AND name != '' GROUP BY name ORDER BY calls DESC, name LIMIT ?", client, top);
     return {
       days,
+      unit,
       retention_days: API_CALL_RETENTION_DAYS,
-      totals: { calls: t.calls, ...kinds, errors: t.errors || 0, server_errors: t.server_errors || 0, users: t.users },
-      by_day: byDay,
+      totals: { calls: t.calls || 0, ...kinds, errors: t.errors || 0, server_errors: t.server_errors || 0, users },
+      series: [...series].map(([period, counts]) => ({ period, ...counts })),
       mcp_tools: named('mcp'),
       cli_commands: named('cli'),
-      routes: this.all('SELECT method, route, COUNT(*) AS calls, SUM(status >= 400) AS errors FROM api_calls WHERE at >= ?'
-        + ' GROUP BY method, route ORDER BY calls DESC, route LIMIT ?', since, top),
+      routes: q('SELECT method, route, SUM(calls) AS calls, SUM(errors) AS errors FROM $ALL'
+        + ' GROUP BY method, route ORDER BY calls DESC, route LIMIT ?', top),
     };
   }
 

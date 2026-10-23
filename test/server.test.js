@@ -694,7 +694,8 @@ test('API usage: each /api call recorded by kind of client, shown to admins only
   assert.ok(u.mcp_tools.some((r) => r.name === 'get_page' && r.errors >= 1));
   assert.ok(u.cli_commands.some((r) => r.name === 'ls'));
   assert.ok(u.routes.some((r) => r.route === '/api/artifacts/<slug>' && r.method === 'GET')); // the pattern, not the page name
-  assert.equal(u.by_day.length, 30);
+  assert.equal(u.series.length, 30);
+  assert.equal(u.unit, 'day');
   assert.equal(u.retention_days, 90);
   const rows = store.all('SELECT * FROM api_calls');
   assert.ok(!JSON.stringify(rows).includes('secret-words')); // never the query string
@@ -704,18 +705,40 @@ test('API usage: each /api call recorded by kind of client, shown to admins only
   assert.equal((await req('GET', '/api/stats/usage'))[0], 401); // admins only
   const bob = store.createUser('usage-bob');
   assert.equal((await req('GET', '/api/stats/usage', { token: bob }))[0], 403);
-  assert.equal((await req('GET', '/api/stats/usage?days=91', { token: admin }))[0], 400);
+  assert.equal((await req('GET', '/api/stats/usage?days=0', { token: admin }))[0], 400);
+  assert.equal((await req('GET', '/api/stats/usage?days=soon', { token: admin }))[0], 400);
+  const year = (await req('GET', '/api/stats/usage?days=365', { token: admin }))[1];
+  assert.equal(year.unit, 'week'); // longer periods group the bars
+  assert.ok(year.series.length >= 52 && year.series.length <= 54);
   const frag = await (await call('/stats/usage', { authorization: `Bearer ${admin}` })).text();
   assert.match(frag, /API calls per day, by client/);
+  assert.match(frag, /<nav class="range-picker"[^]*data-days="all">All time<\/a>/);
   assert.match(frag, /<ul class="legend-row"><li><i class="sw s1"><\/i>MCP<\/li>/); // more than one series: a legend
   assert.match(frag, /<code>GET \/api\/artifacts\/&lt;slug&gt;<\/code>/);
   assert.equal((await call('/stats/usage')).status, 401);
 
-  // Rows past the retention period go.
-  store.run('INSERT INTO api_calls (at, client, method, route, status) VALUES (?, ?, ?, ?, ?)', Date.now() / 1000 - 91 * 86400, 'http', 'GET', '/api/old', 200);
+  // Past the retention period a request's details go, but it stays counted in the daily totals, for good.
+  const old = Date.now() / 1000 - 200 * 86400;
+  const insert = (at, status) => store.run('INSERT INTO api_calls (at, client, name, method, route, status, user_id) VALUES (?,?,?,?,?,?,?)',
+    at, 'mcp', 'get_page', 'GET', '/api/old', status, 1);
+  insert(old, 200); insert(old + 60, 404);
+  const allBefore = (await req('GET', '/api/stats/usage?days=all', { token: admin }))[1];
   store.lastPrune = 0;
-  store.recordApiCall({ client: 'http', method: 'GET', route: '/api/tags', status: 200 });
-  assert.equal(store.one("SELECT COUNT(*) AS n FROM api_calls WHERE route = '/api/old'").n, 0);
+  store.recordApiCall({ client: 'http', method: 'GET', route: '/api/tags', status: 200 }); // triggers the hourly fold
+  assert.equal(store.one("SELECT COUNT(*) AS n FROM api_calls WHERE route = '/api/old'").n, 0); // details gone
+  assert.deepEqual({ ...store.one("SELECT calls, errors FROM api_calls_daily WHERE route = '/api/old'") }, { calls: 2, errors: 1 });
+  insert(old + 120, 200); // another from that day, folded later: added to the same day's totals
+  store.rollUpApiCalls(Date.now() / 1000 - 90 * 86400);
+  assert.equal(store.one("SELECT calls FROM api_calls_daily WHERE route = '/api/old'").calls, 3);
+  const all = (await req('GET', '/api/stats/usage?days=all', { token: admin }))[1];
+  assert.equal(all.days, null);
+  assert.equal(all.unit, 'week'); // 200 days back: weekly bars
+  assert.equal(all.totals.mcp - allBefore.totals.mcp, 1); // the third old call; the first two were already counted
+  assert.ok(all.mcp_tools.some((r) => r.name === 'get_page' && r.calls >= 3));
+  assert.ok(all.routes.some((r) => r.route === '/api/old' && r.calls === 3 && r.errors === 1));
+  assert.equal(all.series.reduce((n, p) => n + p.mcp + p.cli + p.browser + p.http, 0), all.totals.calls); // nothing counted twice
+  const recent = (await req('GET', '/api/stats/usage?days=30', { token: admin }))[1];
+  assert.ok(!recent.routes.some((r) => r.route === '/api/old')); // outside the last 30 days
 });
 
 test('home shows the page count; header links to GitHub with the version', async () => {

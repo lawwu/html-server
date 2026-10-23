@@ -9,9 +9,11 @@ change that couldn't be migrated would be a major version.
 
 - **API and MCP usage on `/stats`, for admins:** every `/api` request is recorded (route
   pattern, kind of client, MCP tool or CLI command, status, user; never query strings,
-  bodies or tokens; kept 90 days) and shown as calls by client (MCP, CLI, browser, other
+  bodies or tokens) and shown as calls by client (MCP, CLI, browser, other
   HTTP), a stacked chart per day, the most used MCP tools and CLI commands, the busiest
-  routes and the error rate. `GET /api/stats/usage` has the same as JSON. The CLI and MCP
+  routes and the error rate, over 30 days, 90 days, a year or all time. Each request's
+  details are kept 90 days, then folded into daily totals kept for good, so long-run
+  history stays. `GET /api/stats/usage` (`?days=N` or `?days=all`) has the same as JSON. The CLI and MCP
   label their requests (`X-HTML-Server-Client: cli/<command>` or `mcp/<tool>`). Works on
   Cloudflare too.
 - **A redesigned stats page:** headline cards (views with a trend line and the change from

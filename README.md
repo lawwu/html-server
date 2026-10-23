@@ -301,8 +301,11 @@ CLI, browsers, other HTTP such as curl and scripts), per day, the most used MCP 
 CLI commands, the busiest routes and the error rate. The page uses the admin token your
 browser saved (or asks for one). The CLI and MCP label their requests with an
 `X-HTML-Server-Client` header (`cli/<command>`, `mcp/<tool>`), since MCP runs on your
-machine and calls the API like any client. Each `/api` request is kept for 90 days as its
-route's pattern, client, status and user, never its query string, body or token. MCP calls
+machine and calls the API like any client. Pick 30 days, 90 days, 1 year or all time; longer
+periods show weekly or monthly bars. Each `/api` request is kept for 90 days as its route's
+pattern, client, status and user (never its query string, body or token), then folded into
+daily totals per client, tool or command and route, which are kept for good: the long-run
+numbers stay, only who made each call goes. MCP calls
 that fail on your machine before reaching the server (not signed in, server down) aren't
 counted.
 
