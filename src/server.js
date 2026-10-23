@@ -176,7 +176,17 @@ class Ctx {
 
   /** An artifact (or anything showing its content): sandboxed so its scripts can't reach the API. */
   page(body) {
-    this.send(200, 'text/html; charset=utf-8', body, { 'Content-Security-Policy': this.csp, 'X-Content-Type-Options': 'nosniff' });
+    this.send(200, 'text/html; charset=utf-8', body, { 'Content-Security-Policy': this.pageCsp(), 'X-Content-Type-Options': 'nosniff' });
+  }
+
+  /**
+   * The sandbox a page is served with. Inside the site's frame (?embed=1) a page may also
+   * send the whole tab somewhere when the reader clicks a link: without that, a plain link
+   * opens inside the frame, where Jira, GitHub and most apps refuse to load. Only on a
+   * click (by-user-activation); the page itself stays sandboxed.
+   */
+  pageCsp() {
+    return this.query.get('embed') && !/allow-top-navigation/.test(this.csp) ? `${this.csp} allow-top-navigation-by-user-activation` : this.csp;
   }
 
   /** ?page=<name>[&depth=n]: a local graph around one page (depth 1-3, default 1). */

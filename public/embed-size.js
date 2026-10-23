@@ -7,6 +7,11 @@
 // overflow hidden, content that exactly fills the frame when first measured (height:
 // 100% or 100vh layouts), or a height that keeps chasing the frame's; and any page with
 // <meta name="html-server-frame" content="window">.
+//
+// It also makes links and forms leave the frame: a plain link (no target, or _self or
+// _parent) opens in the whole tab, as it does on the page's own, rather than inside the
+// frame, where most sites (Jira, GitHub) refuse to load. Links within the page (#section),
+// downloads and links that already choose a target (_blank, a named window) are left alone.
 (() => {
   const post = (msg) => parent.postMessage({ htmlServer: 'size', ...msg }, '*');
   const root = document.documentElement;
@@ -63,4 +68,21 @@
   requestAnimationFrame(start);
   setTimeout(start, 50);
   addEventListener('load', measure);
+})();
+
+(() => {
+  const here = location.href.split('#')[0];
+  const ownTarget = (t) => !t || t === '_self' || t === '_parent';
+  addEventListener('click', (e) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return; // new-tab and new-window clicks do their own thing
+    const a = e.target.closest?.('a[href]');
+    if (!a || a.hasAttribute('download') || !ownTarget(a.getAttribute('target'))) return;
+    if (a.href.split('#')[0] === here) return; // a section of this page
+    if (/^(javascript|mailto|tel|sms):/i.test(a.getAttribute('href'))) return;
+    a.target = '_top';
+  }, true);
+  addEventListener('submit', (e) => {
+    const f = e.target;
+    if (f instanceof HTMLFormElement && ownTarget(f.getAttribute('target')) && (f.method || 'get').toLowerCase() !== 'dialog') f.target = '_top';
+  }, true);
 })();

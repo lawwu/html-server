@@ -901,6 +901,11 @@ test('an HTML page opened in a browser tab gets the frame; iframes, clients and 
   assert.match(embedded, /<script data-html-server-embed>/);
   assert.doesNotMatch(embedded, /data-artifact-toc-script|data-artifact-version-badge/);
   await put('app.html', '<html><head><meta name="html-server-frame" content="window"></head><body>app</body></html>');
+  const [, eh] = await get('/pages/framed?embed=1', 'iframe');
+  assert.match(eh.get('content-security-policy'), /allow-top-navigation-by-user-activation/); // links can leave the frame, on a click
+  assert.match(embedded, /a\.target = '_top'/); // plain links open in the whole tab, not inside the frame
+  const [, rh] = await get('/pages/framed?raw=1', 'document');
+  assert.doesNotMatch(rh.get('content-security-policy'), /allow-top-navigation/); // only the framed copy gets it
   const [app] = await get('/pages/app?embed=1', 'iframe'); // a page can ask to stay at window height
   assert.doesNotMatch(app, /<meta name="responsive-embedded-sizing"/);
   assert.match(app, /data-html-server-embed/);
