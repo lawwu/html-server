@@ -7,6 +7,14 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Links in framed HTML pages open in the whole tab again.** Since 0.6.0 a plain link
+  (no `target`) in a page shown in the site's frame opened inside the frame, where Jira,
+  GitHub and most apps refuse to load. The framed page now sends such links, and forms,
+  to the whole tab, and gets `allow-top-navigation-by-user-activation` (on a click only)
+  so it may. Links to a section of the page, downloads and `target="_blank"` links are
+  unchanged; `?raw=1` pages are untouched.
+- **The usage chart no longer drops today before noon:** its days were compared as times.
+
 ## 0.7.0 (2026-10-22)
 
 Upgrading adds two tables, `api_calls` and `api_calls_daily`; nothing existing changes, so
