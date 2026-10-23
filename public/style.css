@@ -446,3 +446,8 @@ details[open] > summary > .chev { rotate: 90deg; }
 /* the Sort menu beside the layout toggle on the home page */
 .sort label { display: flex; align-items: center; gap: .35rem; font-size: 13px; color: var(--mute); }
 .sort select { font-size: 13px; padding: .28rem .5rem; border-radius: 8px; cursor: pointer; }
+/* the usage section's period picker */
+.range-picker { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 .9rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.range-picker a { font: 600 12.5px/1 var(--body-font); color: var(--mute); padding: .4rem .7rem; border-radius: 7px; }
+.range-picker a:hover { color: var(--fg); }
+.range-picker a.on { color: var(--fg); background: var(--accent-soft); }

@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { fileBytes, fileText } from './files.js';
 import {
-  API_CALL_RETENTION_DAYS, MAX_BODY_BYTES, MAX_INLINE_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  MAX_BODY_BYTES, MAX_INLINE_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { VIEWS, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
@@ -26,7 +26,7 @@ export const ROUTES = [
   ['GET', '/stats', 'stats', 'anyone*', 'Totals, views and uploads over time, most viewed and edited pages, tags, recent uploads'],
   ['GET', '/api/stats', 'statsData', 'anyone*', 'The same numbers as JSON'],
   ['GET', '/api/stats/usage', 'usageData', 'admin',
-    'API usage, last 30 days (`?days=` up to 90): calls by kind of client (MCP, CLI, browser, other HTTP), per day, the most used MCP tools and CLI commands, the busiest routes, errors'],
+    'API usage, last 30 days (`?days=365`, or `?days=all`): calls by kind of client (MCP, CLI, browser, other HTTP), over time, the most used MCP tools and CLI commands, the busiest routes, errors. Details are kept 90 days, daily totals for good'],
   ['GET', '/stats/usage', 'usage', 'admin', null], // the same, as the section /stats shows admins
   ['GET', '/graph', 'graph', 'anyone*',
     'Your pages and the links between them, as an interactive graph. `?page=<name>` (and `&depth=2`) for one page\'s neighbourhood'],
@@ -309,10 +309,11 @@ class Ctx {
   /** The docs page's Markdown: CLI, MCP and API (pages.js docsMarkdown). */
   docs() { return docsMarkdown(this.origin(), ROUTES, { tools: MCP_TOOLS }); }
 
-  /** ?days= for the usage stats: 1 to the retention period, default 30. */
+  /** ?days= for the usage stats: a number of days (default 30), or `all`. */
   usageDays() {
+    if (this.query.get('days') === 'all') return null;
     const d = this.int('days') ?? 30;
-    if (d < 1 || d > API_CALL_RETENTION_DAYS) throw new ApiError(400, `days must be 1 to ${API_CALL_RETENTION_DAYS}`);
+    if (!Number.isInteger(d) || d < 1 || d > 36500) throw new ApiError(400, 'days must be a number of days, or all');
     return d;
   }
 

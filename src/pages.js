@@ -321,31 +321,41 @@ const USAGE_SERIES = [{ key: 'mcp', label: 'MCP' }, { key: 'cli', label: 'CLI' }
  * saved token): calls by kind of client, per day, the most used MCP tools and CLI
  * commands, and the busiest routes with their errors.
  */
+const USAGE_RANGES = [[30, '30 days'], [90, '90 days'], [365, '1 year'], ['all', 'All time']];
+
 export function usageSection(u) {
   const t = u.totals;
-  const md = (d) => new Date(`${d}T12:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const range = u.days == null ? 'all time' : u.days === 365 ? 'the last year' : `the last ${u.days} days`;
+  const md = (d) => new Date(`${d}T12:00`).toLocaleDateString('en-US', u.unit === 'month' ? { month: 'short', year: 'numeric' } : { month: 'short', day: 'numeric' });
+  const periodName = (p) => (u.unit === 'day' ? md(p) : u.unit === 'week' ? `Week of ${md(p)}` : md(p));
   const share = (n) => (t.calls ? `${Math.round((n / t.calls) * 100)}% of calls` : '');
-  const daily = u.by_day.map((d) => USAGE_SERIES.reduce((n, s) => n + d[s.key], 0));
+  const totals = u.series.map((d) => USAGE_SERIES.reduce((n, s) => n + d[s.key], 0));
+  const picker = `<nav class="range-picker" aria-label="Period">${USAGE_RANGES.map(([v, label]) => {
+    const on = (u.days ?? 'all') === v;
+    return `<a href="?days=${v}#usage" data-days="${v}"${on ? ' class="on" aria-current="true"' : ''}>${label}</a>`;
+  }).join('')}</nav>`;
   const routes = u.routes.length ? `<div class="scroll"><table class="routes-table"><thead><tr><th>Route</th><th class="num">Calls</th><th class="num">Errors</th></tr></thead>
 <tbody>${u.routes.map((r) => `<tr><td><code>${esc(r.method)} ${esc(r.route)}</code></td><td class="num">${fmtNum(r.calls)}</td>`
     + `<td class="num">${r.errors ? `<span class="err-count">${fmtNum(r.errors)}</span>` : '0'}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="empty">No API calls yet.</p>';
-  return `<section class="hero" aria-label="API usage numbers">
-${heroTile(t.calls, `API calls, last ${u.days} days`, { sub: `${plural(t.users, 'signed-in user')}`, spark: sparkline(daily, { label: 'API calls per day' }) })}
+  return `${picker}<section class="hero" aria-label="API usage numbers">
+${heroTile(t.calls, u.days == null ? 'API calls, all time' : `API calls, ${USAGE_RANGES.find(([v]) => v === u.days)?.[1] ?? `${u.days} days`}`,
+    { sub: `${plural(t.users, 'signed-in user')}${u.days == null || u.days > u.retention_days ? ` in the last ${u.retention_days} days` : ''}`,
+      spark: sparkline(totals, { label: `API calls per ${u.unit}` }) })}
 ${heroTile(t.mcp, 'MCP tool calls', { sub: share(t.mcp) })}
 ${heroTile(t.cli, 'CLI calls', { sub: share(t.cli) })}
 ${heroTile(t.calls ? `${((t.errors / t.calls) * 100).toFixed(1)}%` : '0%', 'Errors (4xx/5xx)', { sub: `${fmtNum(t.errors)} calls${t.server_errors ? `, ${fmtNum(t.server_errors)} server errors` : ''}` })}
 </section>
 <div class="charts">
-${stackedColumnChart(u.by_day.map((d) => ({ label: d.day, short: md(d.day), values: d })), USAGE_SERIES,
-    { title: 'API calls per day, by client', unit: 'calls', headline: `${fmtNum(t.calls)} in ${u.days} days`, caption: `API calls per day, last ${u.days} days, by client` })}
+${stackedColumnChart(u.series.map((d) => ({ label: periodName(d.period), short: md(d.period), values: d })), USAGE_SERIES,
+    { title: `API calls per ${u.unit}, by client`, unit: 'calls', headline: `${fmtNum(t.calls)} in ${range}`, caption: `API calls per ${u.unit}, ${range}, by client` })}
 </div>
 <div class="charts">
 ${barList(u.mcp_tools.map((r) => ({ label: r.name, value: r.calls })), { title: 'Most used MCP tools', unit: 'calls', empty: 'No MCP calls yet.' })}
 ${barList(u.cli_commands.map((r) => ({ label: r.name, value: r.calls })), { title: 'Most used CLI commands', unit: 'calls', empty: 'No CLI calls yet.' })}
 </div>
 <figure class="chart"><figcaption><span>Busiest routes</span><b>errors are 4xx/5xx answers</b></figcaption>${routes}</figure>
-<p class="meta">Every <code>/api</code> request, kept ${u.retention_days} days: who called (the MCP tool or CLI command; browsers and other HTTP clients by kind), the route's pattern and the status. Never query strings, request bodies or tokens. MCP calls that fail on your machine before reaching the server aren't counted.</p>`;
+<p class="meta">Every <code>/api</code> request: who called (the MCP tool or CLI command; browsers and other HTTP clients by kind), the route's pattern and the status, never query strings, request bodies or tokens. Each request's details are kept ${u.retention_days} days, then folded into daily totals that are kept for good. MCP calls that fail on your machine before reaching the server aren't counted.</p>`;
 }
 
 // Notes are served sandboxed (like every page), and a sandboxed page may not be allowed

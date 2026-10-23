@@ -34,13 +34,15 @@ const msg = document.getElementById('usage-msg');
 const KEY = 'artifact_token';
 const saved = () => { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } };
 
-async function loadUsage(token, { fromForm = false } = {}) {
+async function loadUsage(token, { fromForm = false, days = new URLSearchParams(location.search).get('days') || '' } = {}) {
   if (!token) { form.hidden = false; return; }
   let r;
-  try { r = await fetch('/stats/usage', { headers: { Authorization: `Bearer ${token}` } }); } catch { msg.textContent = 'Couldn’t reach the server.'; return; }
+  try { r = await fetch(`/stats/usage${days ? `?days=${encodeURIComponent(days)}` : ''}`, { headers: { Authorization: `Bearer ${token}` } }); }
+  catch { msg.textContent = 'Couldn’t reach the server.'; return; }
   if (r.ok) {
     if (fromForm) { try { localStorage.setItem(KEY, token); } catch { /* this visit only */ } }
     usageBody.innerHTML = await r.text();
+    if (days) history.replaceState(null, '', `?days=${encodeURIComponent(days)}#usage`);
     return;
   }
   form.hidden = false;
@@ -52,3 +54,11 @@ form?.addEventListener('submit', (e) => {
   loadUsage(document.getElementById('usage-token').value.trim(), { fromForm: true });
 });
 if (usageBody) loadUsage(saved());
+
+// The usage section's period (30 days, 90 days, 1 year, all time): reload just that section.
+usageBody?.addEventListener('click', (e) => {
+  const a = e.target.closest('.range-picker a');
+  if (!a) return;
+  e.preventDefault();
+  loadUsage(saved() || document.getElementById('usage-token')?.value.trim(), { days: a.dataset.days });
+});
