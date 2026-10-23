@@ -4,10 +4,10 @@ import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { fileBytes, fileText } from './files.js';
 import {
-  MAX_BODY_BYTES, MAX_INLINE_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  API_CALL_RETENTION_DAYS, MAX_BODY_BYTES, MAX_INLINE_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage } from './pages.js';
+import { VIEWS, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, findExamples } from './examples.js';
 import { renderMarkdown } from './markdown.js';
 import { isNote, isNotebook, parseNotebook, renderNotebook } from './notebook.js';
@@ -25,6 +25,9 @@ export const ROUTES = [
   ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first); `?sort=updated|created|views|title` (featured pages stay on top); `?view=list` for the list layout'],
   ['GET', '/stats', 'stats', 'anyone*', 'Totals, views and uploads over time, most viewed and edited pages, tags, recent uploads'],
   ['GET', '/api/stats', 'statsData', 'anyone*', 'The same numbers as JSON'],
+  ['GET', '/api/stats/usage', 'usageData', 'admin',
+    'API usage, last 30 days (`?days=` up to 90): calls by kind of client (MCP, CLI, browser, other HTTP), per day, the most used MCP tools and CLI commands, the busiest routes, errors'],
+  ['GET', '/stats/usage', 'usage', 'admin', null], // the same, as the section /stats shows admins
   ['GET', '/graph', 'graph', 'anyone*',
     'Your pages and the links between them, as an interactive graph. `?page=<name>` (and `&depth=2`) for one page\'s neighbourhood'],
   ['GET', '/api/graph', 'graphData', 'anyone*',
@@ -98,7 +101,7 @@ export const ROUTES = [
   ['POST', '/api/users/(?<name>[^/]+)/token', 'resetToken', 'admin',
     'Issue a new token for a user who lost theirs. Their pages are untouched; the old token stops working'],
   ['DELETE', '/api/users/(?<name>[^/]+)', 'deleteUser', 'admin', 'Delete a user and all of their pages'],
-].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`) }))
+].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`), label: routeLabel(path) }))
   .sort((a, b) => (a.handler === 'render') - (b.handler === 'render'));
 
 const TOC_SCRIPT = fileText('public/toc.js');
@@ -162,6 +165,7 @@ class Ctx {
       buf = gzipSync(buf);
       headers = { ...headers, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' };
     }
+    this.status = status; // for the usage stats
     this.res.writeHead(status, { 'Content-Type': type, 'Content-Length': buf.length, ...headers });
     this.res.end(this.head ? undefined : buf); // HEAD: the same status and headers, no body
   }
@@ -305,6 +309,13 @@ class Ctx {
   /** The docs page's Markdown: CLI, MCP and API (pages.js docsMarkdown). */
   docs() { return docsMarkdown(this.origin(), ROUTES, { tools: MCP_TOOLS }); }
 
+  /** ?days= for the usage stats: 1 to the retention period, default 30. */
+  usageDays() {
+    const d = this.int('days') ?? 30;
+    if (d < 1 || d > API_CALL_RETENTION_DAYS) throw new ApiError(400, `days must be 1 to ${API_CALL_RETENTION_DAYS}`);
+    return d;
+  }
+
   /** This server as the client reached it, for examples in the docs. */
   origin() { return `http://${this.req.headers.host || 'localhost'}`; }
 
@@ -359,6 +370,8 @@ const handlers = {
   },
   stats(c) { c.html(statsPage(c.store.stats(c.viewerId()))); },
   statsData(c) { c.json(200, c.store.stats(c.viewerId())); },
+  usageData(c) { c.user({ admin: true }); c.json(200, c.store.usage({ days: c.usageDays() })); },
+  usage(c) { c.user({ admin: true }); c.html(usageSection(c.store.usage({ days: c.usageDays() }))); },
   graph(c) { c.html(graphPage(c.store.graph(c.viewerId(), c.graphScope()))); },
   graphData(c) { c.json(200, c.store.graph(c.viewerId(), c.graphScope())); },
   examples(c) {
@@ -559,7 +572,7 @@ export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) 
       for (const r of ROUTES) {
         // HEAD is answered like GET (link checkers, uptime monitors, curl -I), without the body.
         const m = r.method === (c.head ? 'GET' : req.method) && r.re.exec(path);
-        if (m) return await handlers[r.handler](c, m.groups || {});
+        if (m) { c.route = r; return await handlers[r.handler](c, m.groups || {}); }
       }
       throw new ApiError(404, 'no route');
     } catch (e) {
@@ -567,6 +580,33 @@ export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) 
       if (!res.headersSent) c.json(e.status || 500, { error: e.status ? e.message : 'internal error' });
     } finally {
       console.error(`${req.method} ${url.pathname}`); // never log tokens or query strings
+      if (url.pathname.startsWith('/api/') && c.route?.handler !== 'docsSource') recordApiCall(store, req, c);
     }
+  }
+}
+
+/** "/api/artifacts/(?<slug>…)" → "/api/artifacts/<slug>": how a route shows in the docs and the usage stats. */
+function routeLabel(pattern) {
+  return pattern.replace(/\(\?<(\w+)>[^)]*\)/g, '<$1>').replace(/(.)\/\?$/, '$1').replace(/\/\?/g, '/').replace(/\(\?:|\)\?/g, '').replace(/\\/g, '') || '/';
+}
+
+/**
+ * One API request, for the usage stats: who called (the client's own label, else
+ * browser or plain HTTP), the route's pattern rather than the path, the status, the
+ * user. Never the query string, the body or the token. A failure here never fails
+ * the request.
+ */
+const CLIENT_LABEL_RE = /^(mcp|cli)\/([a-z0-9_-]{1,40})$/i;
+function recordApiCall(store, req, c) {
+  try {
+    const label = CLIENT_LABEL_RE.exec(req.headers['x-html-server-client'] || '');
+    // Browsers send Sec-Fetch-Site on every request; curl, scripts and Node's fetch don't.
+    const client = label ? label[1].toLowerCase() : req.headers['sec-fetch-site'] ? 'browser' : 'http';
+    const auth = req.headers.authorization || '';
+    const userId = auth.startsWith('Bearer ') ? store.userForToken(auth.slice(7).trim())?.id ?? null : null;
+    store.recordApiCall({ client, name: label ? label[2] : '', method: c.head ? 'HEAD' : req.method,
+      route: c.route?.label ?? '(no route)', status: c.status ?? 500, userId });
+  } catch (e) {
+    console.error('usage stats: not recorded:', e.message);
   }
 }

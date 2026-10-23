@@ -339,3 +339,10 @@ function spawnGit(cwd, args) {
     p.on('close', (code) => (code ? reject(new Error(`git ${args.join(' ')} → ${code}`)) : resolve()));
   });
 }
+
+test('the CLI labels its requests with the command, for the usage stats', async () => {
+  store.run('DELETE FROM api_calls');
+  await cli(['search', 'anything']);
+  await cli(['ls', '--sort', 'views']);
+  assert.deepEqual(store.all('SELECT client, name FROM api_calls ORDER BY id').map((r) => `${r.client}/${r.name}`), ['cli/search', 'cli/ls']);
+});

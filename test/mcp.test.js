@@ -117,3 +117,11 @@ test('publish a Markdown note over MCP', async () => {
   assert.match(page, /<a class="wikilink" href="\/pages\/notes.html">notes<\/a>/); // resolves to the HTML page
   assert.equal((await call('publish_page', { name: 'empty.md' })).isError, true);
 });
+
+test('every request a tool call makes is labelled with that tool, for the usage stats', async () => {
+  store.run('DELETE FROM api_calls');
+  await rpc('tools/call', { name: 'search_pages', arguments: { query: 'anything' } });
+  await rpc('tools/call', { name: 'list_pages', arguments: {} });
+  const rows = store.all("SELECT client, name, route FROM api_calls ORDER BY id");
+  assert.deepEqual(rows.map((r) => `${r.client}/${r.name} ${r.route}`), ['mcp/search_pages /api/search', 'mcp/list_pages /api/artifacts']);
+});
