@@ -7,9 +7,11 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.8.0 (2026-10-28)
+
 The search index is rebuilt once, on the first start (about a second for 2,000 pages),
 and takes more room for its prefix lookups (about 11 MB more for 2,000 pages). Rolling
-back works: an older version rebuilds its own index the same way.
+back to 0.7.1 works: it rebuilds its own index the same way.
 
 - **Faster search.** On the home page, live search keeps the cards on show and only
   reorders, hides and re-highlights them, so their live previews no longer reload with
