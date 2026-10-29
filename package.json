@@ -23,6 +23,7 @@
   "scripts": {
     "start": "node src/cli.js serve",
     "test": "node --test \"test/*.test.js\"",
+    "site": "node scripts/build-site.js _site",
     "cf:dev": "npx --yes wrangler@4.147.0 dev",
     "cf:deploy": "node src/cli.js deploy cloudflare"
   },

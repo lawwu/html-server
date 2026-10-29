@@ -7,9 +7,14 @@
 // origin, so it is rebuilt from an allowlist (clean() below): no scripts, no event
 // handlers, no styles, links and images only to safe places.
 const data = JSON.parse(document.getElementById('page-previews')?.textContent || '{}');
-const slugOf = (a) => {
-  const m = a.getAttribute('href')?.match(/^\/pages\/([^?#]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+// A link's preview: by the page's name for /pages/<name>; on the static docs site
+// (scripts/build-site.js), whose links are relative, by the link's own address.
+const previewOf = (a) => {
+  const href = a.getAttribute('href') || '';
+  const m = href.match(/^\/pages\/([^?#]+)/);
+  let key = href.replace(/#.*/, '');
+  try { if (m) key = decodeURIComponent(m[1]); } catch { return null; }
+  return Object.hasOwn(data, key) ? data[key] : null;
 };
 let card = null, showTimer = null, hideTimer = null;
 
@@ -102,9 +107,9 @@ function hide() {
 }
 
 document.addEventListener('mouseover', (e) => {
-  const link = e.target.closest?.('a[href^="/pages/"]');
+  const link = e.target.closest?.('a[href]');
   if (!link || link.closest('.popover, .tree, .graph-box, .side-nav')) return;
-  const p = data[slugOf(link)];
+  const p = previewOf(link);
   if (!p) return;
   clearTimeout(hideTimer);
   clearTimeout(showTimer);

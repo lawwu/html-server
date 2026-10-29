@@ -9,3 +9,5 @@ node_modules/
 cloudflare/files.generated.js
 .wrangler/
 .dev.vars
+# The docs site, built by `npm run site`.
+_site/

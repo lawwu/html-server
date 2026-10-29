@@ -19,7 +19,10 @@ html-server put page.html "first draft"   # → http://127.0.0.1:8765/pages/page
 ```
 
 Every running server documents itself at **`/docs`**: the command line, MCP and the HTTP
-API on one page (the same page as Markdown at `/docs.md`).
+API on one page (the same page as Markdown at `/docs.md`). That page, this README, the
+changelog and the example gallery are also online at
+**[lawwu.github.io/html-server](https://lawwu.github.io/html-server/)**, drawn by HTML Server
+itself (see [The docs site](#the-docs-site)).
 
 ## Contents
 
@@ -33,7 +36,7 @@ API on one page (the same page as Markdown at `/docs.md`).
 - [Backups and updating](#backups-and-updating)
 - [Replacing an existing page service](#replacing-an-existing-page-service)
 - [HTTP API](#http-api)
-- [Design notes](#design-notes) · [The sandbox](#the-sandbox) · [Files](#files) · [Versioning](#versioning) · [License](#license)
+- [Design notes](#design-notes) · [The sandbox](#the-sandbox) · [Files](#files) · [The docs site](#the-docs-site) · [Versioning](#versioning) · [License](#license)
 
 ## Install and run
 
@@ -41,8 +44,7 @@ API on one page (the same page as Markdown at `/docs.md`).
 npm install -g github:lawwu/html-server
 ```
 
-From a clone, `npm link` does the same. While the GitHub repo is private, installing
-from it needs your GitHub SSH access.
+From a clone, `npm link` does the same.
 
 **On the machine that runs the server**, start it:
 
@@ -677,9 +679,38 @@ ones change:
 | `cloudflare/`, `wrangler.toml` | The Cloudflare Worker and Durable Object, its SQLite adapter, and the file bundler |
 | `public/` | Browser code and styles: search, previews, graphs, the contents sidebar, frame sizing, copy buttons; `fonts/` with their licences |
 | `gallery/` | The example pages shown at `/gallery` |
-| `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks and the Cloudflare adapter |
+| `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks, the Cloudflare adapter and the docs site |
+| `scripts/build-site.js` | The docs site: this README, the Docs page, the changelog and the gallery as static pages (`npm run site`) |
+| `.github/workflows/` | `test.yml`: `npm test` on every pull request and push to `main`; `pages.yml`: the docs site, on every push to `main` |
 | `CHANGELOG.md` | What each release changed |
 | `~/.html-server/` | Your data (`artifacts.db`), the CLI's login (`credentials.json`), backups and the sync log. Not in the repo |
+
+## The docs site
+
+The Docs page, this README, the changelog and the example gallery are a static site on
+GitHub Pages, **https://lawwu.github.io/html-server/**, drawn by HTML Server itself
+rather than kept as a second copy of the docs:
+
+```bash
+npm run site                       # → _site/
+python3 -m http.server -d _site    # or any static server; then http://localhost:8000
+```
+
+`scripts/build-site.js` asks the server's own request handler for each page, in-process
+with a throwaway database holding `README.md` and `CHANGELOG.md` as notes, and saves what
+it answers: the README is a note, with its explorer, local graph, contents and backlinks,
+and the Docs page is built from the code as on every server. Links are made relative, so
+the site works under any path. What needs a running server is left out: ⌘K search, page
+versions, history and comments, the Pages, Graph and Stats sections, and the gallery's
+search, filters and layouts. Hover previews, the local graph, **Copy markdown** and
+light/dark work as on a server, since what they need is in the page. Then every link is
+followed, and one the site can't follow (a page it doesn't have, a server path) fails the
+build.
+
+`.github/workflows/pages.yml` builds and publishes the site on every push to `main`; it
+needs **Settings → Pages → Source: GitHub Actions**. GitHub Pages can't send the sandbox
+header (see [The sandbox](#the-sandbox)), so there the notes and example pages run like
+any other page of the site: fine for this repo's own pages, not for anyone else's.
 
 ## Versioning
 
