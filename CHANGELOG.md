@@ -19,9 +19,7 @@ back to 0.7.1 works: it rebuilds its own index the same way.
   a new search waits 60 ms after typing stops instead of 120. On the server, matching
   typos is about 15 times faster for the same results and remembers words it has
   already checked, the first one to three letters of a search are looked up from a
-  prefix index, and snippets are written for the cards near the top only. With 2,000
-  pages, a keystroke in the ⌘K box now takes 7-13 ms on the server instead of 33-145 ms,
-  and on the home page 10-18 ms instead of 49-172 ms.
+  prefix index, and snippets are written for the cards near the top only.
 - **Search finds more.** It covers text that pages write with JavaScript (a board's
   tickets, a quiz's questions, a chart's labels), tags (including ones added by hand)
   and aliases, and the words inside joined-up file names ("flavored" finds
@@ -30,6 +28,34 @@ back to 0.7.1 works: it rebuilds its own index the same way.
   the typed word already starts, and no longer matches words two or more letters shorter
   ("rotate" doesn't find "rate"). Pages with the words as typed rank above pages found
   only through a typo or another form of a word.
+
+Measured against 0.7.1, time per key pressed, on the server:
+
+| Typing in              | 0.7.1     | 0.8.0    |
+| ---------------------- | --------- | -------- |
+| ⌘K box, 300 pages      | 13-54 ms  | 8-13 ms  |
+| ⌘K box, 2,000 pages    | 34-147 ms | 8-11 ms  |
+| Home page, 300 pages   | 18-55 ms  | 12-16 ms |
+| Home page, 2,000 pages | 53-180 ms | 12-27 ms |
+
+Eight searches (two of them misspelt, one just "the") were typed a key at a time
+through the requests the browser makes, on libraries of 300 and 2,000 generated pages
+plus the 13 bundled ones, on an M1 Max in everyday use with Node 26. Each figure is the
+average over one search, the median of five runs with the two versions taking turns;
+each range runs from the quickest search to the slowest.
+
+- **The first search after an upload** rebuilds the word list: 106 ms at 2,000 pages
+  (271 ms in 0.7.1).
+- **Typo matching alone,** against the 300-page library's 49,846 words: 3.2 ms per
+  typed word instead of 48, with the same matches for all 7,500 words tried (real words,
+  typos of them and partly typed ones).
+- **In the browser,** typing "simpsons paradox" on that library's home page: 2-22 ms per
+  request on the server instead of 7-112 ms, the count shown kept up with the typing
+  (0.7.1's fell a request behind), and no preview reloaded (0.7.1 replaced every card,
+  so every preview on show reloaded at each key).
+- **Among the 13 bundled pages,** "rotate share link" (a ticket that a script writes)
+  and "pipefail sigpipe" (in a script's strings) found nothing in 0.7.1 and now find
+  their page, and "studies" now finds the Simpson's paradox page, which says "study".
 
 ## 0.7.1 (2026-10-22)
 
