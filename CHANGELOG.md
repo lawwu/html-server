@@ -7,6 +7,8 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.9.0 (2026-10-28)
+
 Fixes from a review of 0.8.0: a security audit, a code-quality review and a test at 2,000
 notes. On the first start, every page's links are read again from its latest version
 (about 0.4 s for 2,300 pages). Rolling back to 0.8.0 works and needs no rebuild there;
