@@ -546,7 +546,11 @@ export function reviewPage(slug) {
 /** Side-by-side changes. Served sandboxed (it shows page content), so styles are inline. */
 /** `back`: when opened full-page from History (not framed in the review page), link back to it. */
 export function diffPage(fromN, toN, a, b, { back } = {}) {
-  const groups = groupedOpcodes(a, b);
+  let groups, tooMany = null;
+  try { groups = groupedOpcodes(a, b); } catch (e) {
+    if (e.status !== 422) throw e;
+    [groups, tooMany] = [[], e.message]; // versions too far apart: say so in place of the table
+  }
   const cell = (n, text, cls) => (n == null ? '<td class="n"></td><td class="x"></td>'
     : `<td class="n">${n}</td><td class="${cls}">${esc(text)}</td>`);
   let rows = '';
@@ -563,7 +567,7 @@ export function diffPage(fromN, toN, a, b, { back } = {}) {
   });
   const body = groups.length
     ? `<table><colgroup><col class="cn"><col><col class="cn"><col></colgroup><thead><tr><th colspan="2">v${fromN}</th><th colspan="2">v${toN}</th></tr></thead><tbody>${rows}</tbody></table>`
-    : `<p class="same">No differences between v${fromN} and v${toN}.</p>`;
+    : `<p class="same">${tooMany ? `${esc(tooMany[0].toUpperCase() + tooMany.slice(1))}.` : `No differences between v${fromN} and v${toN}.`}</p>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>v${fromN} → v${toN}</title><style>
 :root{--bg:#fff;--fg:#1d1d1f;--mute:#8a8a8e;--line:#e4e4e7;--del:#fde8e8;--ins:#e3f6e8;--deltx:#9b1c1c;--instx:#14532d}

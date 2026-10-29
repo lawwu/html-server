@@ -87,7 +87,8 @@ $('ver').onchange = (e) => load(Number(e.target.value));
 $('changes').onclick = () => (showingDiff ? showPage() : showDiff());
 $('restore').onclick = () => act(async () => {
   if (!confirm(`Make v${cur} the current version? This adds a new version; nothing is deleted.`)) return;
-  const m = await api(`/api/artifacts/${S}/versions/${cur}/restore`, { method: 'POST' });
+  // By the page's exact name: the URL may say /review/plan for plan.html, and writes never guess.
+  const m = await api(`/api/artifacts/${encodeURIComponent(meta.slug)}/versions/${cur}/restore`, { method: 'POST' });
   await load(m.latest_version);
 });
 $('save').onclick = () => {
