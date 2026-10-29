@@ -64,7 +64,7 @@ export const TOOLS = [
   {
     name: 'search_pages',
     title: 'Search pages',
-    description: 'Search page titles, file names and text. Typo-tolerant; pages whose title contains the query rank first. Returns matches with highlighted snippets.',
+    description: 'Search page titles, file names and text. Typo-tolerant; pages whose title has the words rank first, whatever the sort. Returns matches with highlighted snippets.',
     inputSchema: {
       type: 'object',
       properties: {

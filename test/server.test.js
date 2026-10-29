@@ -1213,6 +1213,24 @@ test('the usage chart keeps today in the morning too (its days were compared as 
   assert.deepEqual(u.series.at(-1), { period: '2026-10-28', mcp: 0, cli: 1, browser: 0, http: 0 });
 });
 
+test('search puts pages with the words in their title first, in whatever order is chosen', async () => {
+  await put('ticket.html', '<title>ACC-18: login times out</title><p>The session expires after 5 minutes.</p>');
+  await put('ticket-2.html', '<title>ACC 18 follow-up</title><p>Shorter sessions.</p>'); // the words, not the whole query
+  for (let i = 0; i < 8; i++) { // newer, busier pages that mention the ticket in their text
+    await put(`board-${i}.html`, `<title>Sprint board ${i}</title><p>ACC-17, ACC-18 and ACC-19. ACC-18 is blocked; ACC-180 next.</p>`);
+    await req('GET', `/pages/board-${i}.html`);
+  }
+  const top = async (qs) => (await req('GET', `/api/search?q=ACC-18&${qs}`))[1].results.slice(0, 3).map((a) => a.slug);
+  assert.deepEqual(await top(''), ['ticket.html', 'ticket-2.html', 'board-0.html']); // best match
+  for (const sort of ['updated', 'created', 'views', 'title']) {
+    assert.deepEqual((await top(`sort=${sort}`)).slice(0, 2), ['ticket.html', 'ticket-2.html'], sort); // titles first in any order
+  }
+  assert.deepEqual(await top('sort=updated'), ['ticket.html', 'ticket-2.html', 'board-7.html']); // then the order chosen
+  const [, cards] = await req('GET', '/?q=ACC-18&sort=updated&fragment=1'); // the home page, with a sort it remembered
+  assert.match(cards, /^[^]*?href="\/pages\/ticket\.html"/);
+  assert.equal(cards.indexOf('href="/pages/ticket.html"') < cards.indexOf('href="/pages/board-7.html"'), true);
+});
+
 test('diffs: big versions with a few changes are quick; versions too far apart say so instead of using GBs', async () => {
   const lines = (prefix, n) => Array.from({ length: n }, (_, i) => `<p>${prefix} ${i}</p>`).join('\n');
   await put('long.html', lines('line', 40000));

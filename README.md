@@ -279,7 +279,9 @@ that browser; `?view=list` puts it in a link). Previews don't count as views.
 **Sort** the pages by **Recently updated** (the default), **Newest**, **Most viewed** or
 **Title A–Z** with the menu beside the layout toggle; while searching, **Best match** is
 the default. The choice is remembered in that browser and `?sort=views` puts it in a link.
-Featured pages stay on top whatever the order. The same works elsewhere:
+Featured pages stay on top whatever the order, and so, in a search, do pages whose title
+has the words: searching `ACC-18` by **Recently updated** still puts the ACC-18 ticket
+first, then the newer pages that mention it. The same works elsewhere:
 `html-server ls --sort views`, `html-server search WORDS --sort updated`, `?sort=` on
 `/api/artifacts` and `/api/search`, and the MCP `list_pages` and `search_pages` tools.
 
@@ -573,8 +575,9 @@ this. Query parameters work when the name is spelled out in the URL. Errors are 
   outputs) in SQLite's FTS5, ranked with title and file-name hits weighted above body
   text, and fuzzy: every word must match, as a prefix (`ube` finds "uber"), as another
   form of it that a page uses (`studies` finds "study"), or as a close misspelling of an
-  indexed word (`sheling` finds "shelling"). Pages with the words as typed rank above
-  those found through a typo. The `FUZZY_*` constants in `src/config.js` set how close.
+  indexed word (`sheling` finds "shelling"). Pages whose title holds the whole query come
+  first, then pages whose title has every word, in any sort; ranked by best match, pages
+  with the words as typed come next, above those found through a typo. The `FUZZY_*` constants in `src/config.js` set how close.
 - **Diffs compare what a reader sees** by default: one line per paragraph, heading or list
   item for HTML; the Markdown for notes; the cells for notebooks. `?of=source` gives the
   raw source. Small diffs use an exact table of the lines the versions share; bigger ones
