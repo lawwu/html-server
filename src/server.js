@@ -9,13 +9,13 @@ import {
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { VIEWS, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, findExamples } from './examples.js';
-import { renderMarkdown } from './markdown.js';
+import { renderMarkdown, safeDecode } from './markdown.js';
 import { isNote, isNotebook, parseNotebook, renderNotebook } from './notebook.js';
 import { Store, pageMeta, summary } from './store.js';
 import { TOOLS as MCP_TOOLS } from './mcp.js';
 import { ApiError, unifiedDiff } from './text.js';
 
-const SLUG = '(?<slug>[A-Za-z0-9][\\w.-]*)';
+const SLUG = '(?<slug>[\\p{L}\\p{N}][\\p{L}\\p{N}\\p{M}_.-]*)'; // a page or asset name (see SLUG_RE)
 const CID = '(?<cid>\\d+)';
 
 // [method, path regex, handler, who may call it, what it does]. The /api docs page
@@ -40,6 +40,9 @@ export const ROUTES = [
   ['GET', '/api/docs\\.md', 'docsSource', 'anyone', null],
   ['GET', '/_static/(?<file>[\\w.-]+)', 'static', 'anyone', null],
   ['GET', '/_static/fonts/(?<font>[\\w.-]+\\.woff2)', 'font', 'anyone', null],
+  // Asked for by browsers and crawlers on every visit: a 404 straight away, never a page lookup.
+  ['GET', '/favicon\\.ico', 'notFound', 'anyone', null],
+  ['GET', '/robots\\.txt', 'notFound', 'anyone', null],
   ['GET', `/pages/${SLUG}`, 'render', 'anyone*',
     'The page itself, e.g. `/pages/trip-plan` or `/pages/trip-plan.html` (`.html` optional). `?v=n` for an old version.'
     + ' A note always renders in the site layout; an HTML page opened in a browser tab gets the site\'s frame, everything'
@@ -54,13 +57,14 @@ export const ROUTES = [
   ['GET', `/review/${SLUG}/changes`, 'reviewChanges', 'anyone*',
     'Side-by-side changes page. `?from=1&to=3` (default: previous vs latest), `?of=source` for HTML'],
   ['GET', '/api/artifacts/?', 'list', 'anyone*',
-    'List pages, featured first, then recently updated. `?sort=updated|created|views|title`, `?q=` search, `?category=`, `?owner=`, `?limit=`, `?state=trashed` (your own trash, token required)'],
+    'List pages, featured first, then recently updated. `?sort=updated|created|views|title`, `?q=` search, `?category=`, `?owner=`, `?limit=` (up to 500) and `?offset=` for the next ones, `?state=trashed` (your own trash, token required)'],
   ['GET', '/api/search', 'search', 'anyone*',
     'Search pages: `?q=` (required; typo-tolerant, titles rank first), `&tag=`, `&limit=` (default 20), `&sort=` (default `relevance`; or updated, created, views, title). Results carry'
     + ' `title_highlight` and `snippet` with matched words in [brackets]. Answers cross-origin requests (sandboxed'
     + ' notes search with it), which carry no token: public pages only'],
-  ['GET', `/assets/${SLUG}`, 'assetFile', 'anyone', 'An image or PDF that notes embed'],
-  ['GET', '/api/assets', 'assets', 'anyone', 'Every asset (images, PDFs) with its size and sha256'],
+  ['GET', `/assets/${SLUG}`, 'assetFile', 'anyone*',
+    'An image or PDF that notes embed: for whoever uploaded it, and for anyone who can see one of their pages that shows it'],
+  ['GET', '/api/assets', 'assets', 'token', 'Your assets (images, PDFs; an admin: every one) with their size and sha256'],
   ['PUT', `/api/assets/${SLUG}`, 'putAsset', 'token', 'Upload or replace an asset (png, jpg, gif, webp, avif, svg, pdf; up to 10 MB). Notes embed it by file name'],
   ['DELETE', `/api/assets/${SLUG}`, 'deleteAsset', 'owner', 'Delete an asset'],
   ['GET', '/api/categories', 'categories', 'anyone', 'Tags in use, with counts, as `{category, count}` (older name)'],
@@ -72,7 +76,9 @@ export const ROUTES = [
   ['DELETE', `/api/artifacts/${SLUG}/pin`, 'unpin', 'owner or admin', 'Unpin a featured page'],
   ['PUT', `/api/artifacts/${SLUG}`, 'put', 'token',
     'Upload a page, or add a version (yours, or anyone\'s public page under open editing). `?note=` / `X-Note`,'
-    + ' `X-Title`, `X-Visibility: private`; `?base=n` refuses if the page has moved past version n'],
+    + ' `X-Title`, `X-Visibility: private`; `?base=n` refuses if the page has moved past version n. The name is exact: a'
+    + ' new name that another page already answers to (`report` while `report.html` exists) is refused, naming that page.'
+    + ' `?rename_from=` your page whose name differs only in case renames it (what `sync` does when a file is renamed so)'],
   ['PUT', '/api/artifacts/?', 'putNoName', 'token', null],
   ['POST', `/api/artifacts/${SLUG}`, 'put', 'token', 'Same as PUT'],
   ['GET', `/api/artifacts/${SLUG}`, 'describe', 'anyone*', 'Metadata and version history'],
@@ -101,7 +107,7 @@ export const ROUTES = [
   ['POST', '/api/users/(?<name>[^/]+)/token', 'resetToken', 'admin',
     'Issue a new token for a user who lost theirs. Their pages are untouched; the old token stops working'],
   ['DELETE', '/api/users/(?<name>[^/]+)', 'deleteUser', 'admin', 'Delete a user and all of their pages'],
-].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`), label: routeLabel(path) }))
+].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`, 'u'), label: routeLabel(path) }))
   .sort((a, b) => (a.handler === 'render') - (b.handler === 'render'));
 
 const TOC_SCRIPT = fileText('public/toc.js');
@@ -135,8 +141,11 @@ export function withEmbedSizing(doc) {
   let html = doc.toString('utf8');
   if (!/<meta\b[^>]*name\s*=\s*["']?html-server-frame["']?[^>]*content\s*=\s*["']?window/i.test(html)) {
     const meta = '<meta name="responsive-embedded-sizing" content="allow-origins=*">';
-    const head = html.search(/<head\b[^>]*>/i);
-    html = head === -1 ? meta + html : html.replace(/<head\b[^>]*>/i, (m) => m + meta);
+    if (/<head\b[^>]*>/i.test(html)) html = html.replace(/<head\b[^>]*>/i, (m) => m + meta);
+    else { // no <head>: after the doctype, which must stay first (anything before it means quirks mode)
+      const doctype = html.match(/^(\uFEFF?\s*(?:<!--[^]*?-->\s*)*)<!doctype\b[^>]*>/i);
+      html = doctype ? html.slice(0, doctype[0].length) + meta + html.slice(doctype[0].length) : meta + html;
+    }
   }
   return Buffer.from(injectScript(html, 'data-html-server-embed', EMBED_SIZE_SCRIPT));
 }
@@ -161,9 +170,12 @@ class Ctx {
   send(status, type, body, headers = {}) {
     let buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
     // Text goes gzipped to clients that take it: notes carry their styles and fonts inline.
+    // Vary on every response, gzipped or not, so a cache never hands a gzipped copy to a
+    // client that didn't ask for one; and text is never sniffed as something else.
+    headers = { Vary: 'Accept-Encoding', ...(COMPRESSIBLE.test(type) ? { 'X-Content-Type-Options': 'nosniff' } : {}), ...headers };
     if (buf.length > 1024 && COMPRESSIBLE.test(type) && /\bgzip\b/.test(this.req.headers['accept-encoding'] || '')) {
       buf = gzipSync(buf);
-      headers = { ...headers, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' };
+      headers = { ...headers, 'Content-Encoding': 'gzip' };
     }
     this.status = status; // for the usage stats
     this.res.writeHead(status, { 'Content-Type': type, 'Content-Length': buf.length, ...headers });
@@ -206,12 +218,12 @@ class Ctx {
   note(page, source, n) {
     const viewer = this.viewerId();
     const text = source.toString('utf8');
-    const meta = pageMeta(page.slug, text);
+    const meta = pageMeta(page.slug, text, { path: page.path });
     const nb = isNotebook(page.slug) ? parseNotebook(text) : null;
-    const html = nb ? renderNotebook(nb, { ...this.resolvers(viewer), title: meta.title })
-      : renderMarkdown(text, { ...this.resolvers(viewer), title: meta.title });
+    const opts = { ...this.resolvers(viewer, { page }), title: meta.title, path: page.path };
+    const html = nb ? renderNotebook(nb, opts) : renderMarkdown(text, opts);
     const backlinks = this.store.backlinks(page, viewer);
-    const linked = [...html.matchAll(/href="\/pages\/([^"?#]+)/g)].map((m) => decodeURIComponent(m[1])).concat(backlinks.map((b) => b.slug));
+    const linked = [...html.matchAll(/href="\/pages\/([^"?#]+)/g)].map((m) => safeDecode(m[1])).concat(backlinks.map((b) => b.slug));
     return Buffer.from(notePage({
       slug: page.slug, chrome: !this.preview(), latest: page.latest_version,
       title: meta.title, description: meta.description, tags: meta.tags, version: n,
@@ -221,25 +233,28 @@ class Ctx {
       extra: nb ? [nb.kernel, `${nb.cells.filter((c) => c.type === 'code').length} code cells`].filter(Boolean).join(' · ') : '',
       theme: (this.req.headers.cookie || '').match(/(?:^|;\s*)theme=(dark|light)/)?.[1],
       path: page.path, explorer: this.preview() ? [] : this.store.explorer(viewer),
-      graph: this.preview() ? null : this.store.graph(viewer),
+      graph: this.preview() ? null : this.store.graph(viewer, { views: false }),
     }));
   }
 
   /**
-   * How a note finds what it links to: `resolve` turns a wikilink name into a page this
-   * viewer can see (or null: drawn as "not written yet"); `asset` finds an image or PDF.
-   * Images go in as data: URIs (a sandboxed note may not load files) unless big, or
-   * `inline` is off (hover previews, which link to them instead).
+   * How note `page` finds what it links to: `resolve` turns a link's name into the page this
+   * viewer gets (the store's one resolver; null: drawn as "not written yet"); `asset` finds
+   * an image or PDF that the note may show them: the note owner's own, or one that's readable
+   * anyway (Store.canReadAsset). Images go in as data: URIs (a sandboxed note may not load
+   * files) unless big, or `inline` is off (hover previews, which link to them instead). A
+   * private note's links to files carry its share id, which is what lets them load.
    */
-  resolvers(viewer, { inline = true } = {}) {
+  resolvers(viewer, { inline = true, page } = {}) {
     return {
       resolve: (name) => {
-        try { const a = this.store.readable(name, viewer); return { exists: true, url: `/pages/${a.slug}` }; } catch { return null; }
+        const a = this.store.linkTarget(name, viewer);
+        return a ? { exists: true, url: `/pages/${a.slug}` } : null;
       },
       asset: (name) => {
         const a = this.store.asset(name);
-        if (!a) return null;
-        const url = `/assets/${encodeURIComponent(a.name)}`;
+        if (!a || (a.owner_id !== page?.owner_id && !this.store.canReadAsset(a, viewer))) return null;
+        const url = `/assets/${encodeURIComponent(a.name)}${page && page.visibility !== 'public' ? `?from=${encodeURIComponent(page.share_id)}` : ''}`;
         const small = inline && a.mime.startsWith('image/') && a.size <= MAX_INLINE_BYTES;
         return { mime: a.mime, url, src: small ? `data:${a.mime};base64,${Buffer.from(a.data).toString('base64')}` : url };
       },
@@ -254,14 +269,17 @@ class Ctx {
   previews(slugs, viewer) {
     const out = this.store.previews(slugs, viewer);
     for (const slug of Object.keys(out).filter(isNote).slice(0, PREVIEW_NOTES)) {
-      try {
-        const a = this.store.readable(slug, viewer);
-        const text = this.store.version(a, a.latest_version).toString('utf8');
-        const opts = { ...this.resolvers(viewer, { inline: false }), title: out[slug].title };
-        let html = isNotebook(slug) ? renderNotebook(parseNotebook(text), opts) : renderMarkdown(text, opts);
-        if (html.length > PREVIEW_HTML_CHARS) html = html.slice(0, html.lastIndexOf('>', PREVIEW_HTML_CHARS) + 1);
-        out[slug].html = html;
-      } catch { /* text preview only */ }
+      // Each note's preview is rendered once per change to the site, not on every page that links to it.
+      const html = this.store.cached(`preview:${viewer ?? ''}:${slug}`, () => {
+        try {
+          const a = this.store.readable(slug, viewer);
+          const text = this.store.version(a, a.latest_version).toString('utf8');
+          const opts = { ...this.resolvers(viewer, { inline: false, page: a }), title: out[slug].title, path: a.path };
+          const full = isNotebook(slug) ? renderNotebook(parseNotebook(text), opts) : renderMarkdown(text, opts);
+          return full.length > PREVIEW_HTML_CHARS ? full.slice(0, full.lastIndexOf('>', PREVIEW_HTML_CHARS) + 1) : full;
+        } catch { return null; } // text preview only
+      });
+      if (html != null) out[slug].html = html;
     }
     return out;
   }
@@ -288,7 +306,7 @@ class Ctx {
     const backlinks = this.store.backlinks(a, viewer);
     this.html(htmlFramePage({
       page: summary(a, viewer), n, backlinks,
-      explorer: this.store.explorer(viewer), graph: this.store.graph(viewer),
+      explorer: this.store.explorer(viewer), graph: this.store.graph(viewer, { views: false }),
       previews: this.previews(backlinks.map((b) => b.slug), viewer),
     }));
   }
@@ -437,6 +455,7 @@ const handlers = {
       q: c.query.get('q') || undefined,
       state,
       limit: Math.min(c.int('limit') ?? 50, 500),
+      offset: c.int('offset') ?? 0,
       owner: c.query.get('owner') || undefined,
       category: c.query.get('category') || undefined,
       source: c.query.get('source') || undefined,
@@ -446,11 +465,13 @@ const handlers = {
   categories(c) { c.json(200, c.store.categories(c.viewerId())); },
   assetFile(c, { slug }) {
     const a = c.store.asset(slug);
-    if (!a) throw new ApiError(404, 'no such asset');
-    // SVG can carry script: serve it (and everything) sandboxed and unsniffed.
-    c.send(200, a.mime, Buffer.from(a.data), { 'Content-Security-Policy': c.csp, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-cache' });
+    // A private note's file links carry its share id (?from=), like its share link.
+    if (!a || !c.store.canReadAsset(a, c.viewerId(), { via: c.query.get('from') })) throw new ApiError(404, 'no such asset');
+    // SVG can carry script: serve it (and everything) sandboxed and unsniffed. Private: who may have it depends on who asks.
+    c.send(200, a.mime, Buffer.from(a.data), { 'Content-Security-Policy': c.csp, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-cache' });
   },
-  assets(c) { c.json(200, c.store.listAssets()); },
+  assets(c) { c.json(200, c.store.listAssets(c.user())); },
+  notFound(c) { c.send(404, 'application/json', `${JSON.stringify({ error: 'not found' })}\n`, { 'Cache-Control': 'public, max-age=86400' }); },
   async putAsset(c, { slug }) { const u = c.user(); c.json(200, c.store.putAsset(u.id, slug, await c.body())); },
   deleteAsset(c, { slug }) { c.store.deleteAsset(c.user().id, slug); c.json(200, { deleted: slug }); },
   search(c) {
@@ -520,6 +541,7 @@ const handlers = {
       source: c.query.get('source') ?? undefined, // set by `sync`, so `--prune` only touches its own pages
       nameKey: c.query.get('name') ?? undefined, //  set by `sync`: the note's bare file name, for [[wikilinks]]
       path: c.query.get('path') ?? undefined, //     set by `sync`: where the note lives in its folder, for the explorer
+      renameFrom: c.query.get('rename_from') ?? undefined, // set by `sync`: the file was renamed, in case only
       base: c.int('base') ?? (h['x-base'] && /^\d+$/.test(h['x-base']) ? Number(h['x-base']) : null),
     });
     c.json(res.latest_version === 1 ? 201 : 200, res);

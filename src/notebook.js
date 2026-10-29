@@ -9,7 +9,7 @@
 // For search, titles, links and diffs a notebook is also read as Markdown
 // (notebookMarkdown): Markdown cells as they are, code cells as fenced blocks.
 import { highlight } from './highlight.js';
-import { isMarkdown, parseFrontmatter, renderMarkdown } from './markdown.js';
+import { isMarkdown, parseFrontmatter, renderMarkdown, safeDecode } from './markdown.js';
 import { escapeHtml as esc } from './text.js';
 
 export const NOTEBOOK_RE = /\.ipynb$/i;
@@ -91,21 +91,22 @@ function outputText(o) {
 export const markdownCells = (nb) => nb.cells.filter((c) => c.type === 'markdown').map((c) => c.source).join('\n\n');
 
 /**
- * The notebook as HTML, for the note page. `resolve` and `asset` as for renderMarkdown;
- * `title` is dropped from the first Markdown cell when it opens with it (the page shows it).
+ * The notebook as HTML, for the note page. `resolve`, `asset` and `path` as for
+ * renderMarkdown; `title` is dropped from the first Markdown cell when it opens with it
+ * (the page shows it).
  */
-export function renderNotebook(nb, { resolve, asset, title } = {}) {
+export function renderNotebook(nb, { resolve, asset, title, path } = {}) {
   if (nb.invalid) return '<p class="nb-invalid">This file isn\'t a notebook HTML Server can read (not valid JSON).</p>';
   let first = true;
   const cells = nb.cells.map((c) => {
     if (c.type === 'markdown') {
-      const html = renderMarkdown(withAttachments(c.source, c.attachments), { resolve, asset, title: first ? title : undefined });
+      const html = renderMarkdown(withAttachments(c.source, c.attachments), { resolve, asset, path, title: first ? title : undefined });
       first = false;
       return html.trim() ? `<div class="nb-cell nb-md">${html}</div>` : '';
     }
     if (c.type === 'code') {
       const n = c.n ?? ' ';
-      const outs = c.outputs.map((o) => renderOutput(o, n, { resolve, asset })).join('');
+      const outs = c.outputs.map((o) => renderOutput(o, n, { resolve, asset, path })).join('');
       return `<div class="nb-cell nb-code"><div class="nb-in"><span class="nb-prompt" aria-hidden="true">In [${esc(String(n))}]:</span>`
         + `<pre><code class="language-${esc(nb.language)}">${highlight(c.source, nb.language)}</code></pre></div>${outs ? `<div class="nb-outs">${outs}</div>` : ''}</div>`;
     }
@@ -117,7 +118,7 @@ export function renderNotebook(nb, { resolve, asset, title } = {}) {
 /** Markdown cells refer to pasted images as attachment:name; those live in the cell. */
 function withAttachments(src, attachments) {
   return src.replace(/attachment:([^\s)"']+)/g, (m, name) => {
-    const bundle = attachments[name] || attachments[decodeURIComponent(name)];
+    const bundle = attachments[name] || attachments[safeDecode(name)];
     const mime = bundle && Object.keys(bundle).find((k) => k.startsWith('image/'));
     return mime ? `data:${mime};base64,${join(bundle[mime]).replace(/\s/g, '')}` : m;
   });

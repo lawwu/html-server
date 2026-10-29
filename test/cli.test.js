@@ -3,7 +3,7 @@
 // own ~/.html-server is never touched.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -243,10 +243,11 @@ test('pin, unpin, tag add/rm and tags from the CLI', async () => {
   await cli(['put', page, 'x', '--name', 'tagme2.html'], env);
   assert.match((await cli(['pin', 'tagme.html'], env)).out, /tagme\.html is featured/);
   assert.match((await cli(['unpin', 'tagme.html'], env)).out, /no longer featured/);
-  let r = await cli(['tag', 'add', 'Road Trips', 'tagme.html', 'tagme2', 'missing.html'], env);
+  let r = await cli(['tag', 'add', 'Road Trips', 'tagme.html', 'tagme2.html', 'missing.html', 'tagme2'], env);
   assert.match(r.out, /tagme\.html +road-trips/);
   assert.match(r.out, /tagme2\.html +road-trips/);
   assert.match(r.err, /failed  missing\.html: no such artifact/);
+  assert.match(r.err, /failed  tagme2: no page is named 'tagme2'; did you mean 'tagme2\.html'\?/); // changes take exact names
   assert.equal(r.code, 1);
   assert.match((await cli(['tags'], env)).out, /road-trips +2/);
   r = await cli(['tag', 'rm', 'road-trips', 'tagme.html'], env);
@@ -331,6 +332,38 @@ test('sync: a Quartz repo — content/, ignorePatterns, Quartz paths, index page
   assert.match(hook, /# html-server sync hook/);
   assert.match(hook, /'sync' '[^']*\/garden\/content' '--prune'/);
   assert.equal(statSync(join(repo, '.git', 'hooks', 'post-commit')).mode & 0o111, 0o111);
+});
+
+test('sync --prune finds every page from the folder, past the 500 one request lists', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('pruner') };
+  const me = store.userForToken(env.HTML_SERVER_TOKEN).id;
+  const folder = join(dir, 'big-folder');
+  mkdirSync(folder);
+  writeFileSync(join(folder, 'kept.md'), '# Kept');
+  // 510 pages synced from this folder earlier whose files are gone (made here directly: quicker than syncing them).
+  for (let i = 0; i < 510; i++) store.putVersion(me, `gone-${i}.md`, Buffer.from(`# Gone ${i}`), { source: folder, path: `gone-${i}.md` });
+  const r = await cli(['sync', folder, '--prune'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /1 new, 510 trashed/);
+  assert.equal(store.one("SELECT COUNT(*) AS n FROM artifacts WHERE source = ? AND state = 'active'", folder).n, 1);
+});
+
+test('sync: a file renamed in case only renames its page, rather than making a second one', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('renamer') };
+  const folder = join(dir, 'case-folder');
+  mkdirSync(folder);
+  writeFileSync(join(folder, 'Groceries.md'), '# Groceries\n\nmilk');
+  await cli(['sync', folder], env);
+  assert.equal(store.find('Groceries.md').slug, 'Groceries.md');
+  renameSync(join(folder, 'Groceries.md'), join(folder, 'groceries.md')); // same content, new case
+  let r = await cli(['sync', folder, '--prune'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /renamed +groceries\.md → .*\/pages\/groceries\.md \(was Groceries\.md\)/);
+  assert.match(r.out, /1 renamed$/m); // nothing trashed: it's the same page
+  assert.deepEqual(store.all('SELECT slug, path, latest_version FROM artifacts WHERE source = ?', folder).map((x) => ({ ...x })),
+    [{ slug: 'groceries.md', path: 'groceries.md', latest_version: 2 }]);
+  r = await cli(['sync', folder, '--prune'], env);
+  assert.match(r.out, /1 unchanged/); // and settled
 });
 
 function spawnGit(cwd, args) {

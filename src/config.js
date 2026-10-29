@@ -25,10 +25,12 @@ export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 8765;
 export let MAX_BODY_BYTES = 16 * 1024 * 1024; // 16 MB per version
 
-// A page's name is its uploaded file name: no slashes, starts with a letter or digit.
+// A page's name is its uploaded file name: no slashes or spaces, starts with a letter or
+// digit (of any script: "Über-uns.md" and "日本語メモ.md" are names too), up to 100 characters.
 /** The extensions a page name may end in, which a bare name ("trip-plan") leaves off. */
 export const PAGE_EXT_RE = /\.(html?|md|markdown|ipynb)$/i;
-export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+export const SLUG_RE = /^[\p{L}\p{N}][\p{L}\p{N}\p{M}._-]{0,99}$/u;
+export const SLUG_HINT = 'a file name: letters, digits, . _ and -, starting with a letter or digit, up to 100 characters';
 // Usernames are a per-deployment setting, stored in the database
 // (`node src/server.js config usernames email`): short handles by default, or emails.
 export const USERNAME_RULES = {
@@ -160,3 +162,10 @@ export const MAX_INLINE_BYTES = 3 * 1024 * 1024;
 
 export const MAX_COMMENT_CHARS = 10_000;
 export const DIFF_CONTEXT_LINES = 3;
+// The most work one diff may take, so none holds up the server (each limit is about 0.13 s
+// on an M1 Max). Up to DIFF_MAX_CELLS lines × lines, an exact table of what the versions
+// share (at most 50 MB); past that Myers' diff, whose memory is the lines alone and whose
+// time grows with how much changed, for up to DIFF_MAX_STEPS steps. Past both: "too many
+// changes to show". A 40,000-line page with a few edits takes a few milliseconds.
+export const DIFF_MAX_CELLS = 25_000_000;
+export const DIFF_MAX_STEPS = 10_000_000;

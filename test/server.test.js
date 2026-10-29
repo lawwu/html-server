@@ -37,6 +37,14 @@ async function req(method, path, { body, token, ua = BROWSER, raw = false } = {}
 }
 const put = (slug, html, token = admin, query = '') => req('PUT', `/api/artifacts/${slug}${query}`, { body: html, token });
 const slugs = (items) => items.map((i) => i.slug);
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4a00000000049454e44ae426082', 'hex');
+/** The graph's edges as "from>to" page names, sorted, as this token's owner (or anyone, without one) sees them. */
+const graphEdges = async (token) => {
+  const [, g] = await req('GET', '/api/graph', { token });
+  const name = (id) => g.nodes.find((n) => n.id === id).slug;
+  return g.edges.map((e) => `${name(e.source)}>${name(e.target)}`).sort();
+};
+const backlinksOf = (slug, viewer = null) => store.backlinks(store.find(slug), viewer).map((b) => b.slug);
 
 test('versions, rendering, search and the lifecycle', async () => {
   let [s, a] = await put('trip.html', '<title>Trip Plan</title><p>shelling at low tide</p>', admin, '?note=first');
@@ -579,14 +587,15 @@ test('graph: pages and the links between them, visibility-aware, local or global
 test('links are backfilled once for databases from before the links table', async () => {
   await put('x.html', '<a href="y.html">y</a>');
   await put('y.html', '<p>y</p>');
-  store.db.exec("DELETE FROM links; DELETE FROM meta WHERE key = 'links_index'");
+  await put('Z.md', '# Z\n\n[[y]]'); // a note: read as Markdown, by its name
+  store.db.exec("DELETE FROM links; DELETE FROM link_targets; DELETE FROM meta WHERE key LIKE 'links_%'");
   store.close();
   store = new Store(join(dir, 't.db'));
   server.close();
   server = makeServer(store);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
-  assert.equal((await req('GET', '/api/graph'))[1].edges.length, 1);
+  assert.deepEqual(await graphEdges(), ['Z.md>y.html', 'x.html>y.html']);
 });
 
 test('search highlights matched words in titles and snippets, typos included', async () => {
@@ -632,7 +641,7 @@ test('tags: categories become tags; tag many pages at once; filter by tag', asyn
   assert.deepEqual((await req('GET', '/api/artifacts/a.html'))[1].tags, ['data-viz']); // from the meta tag
 
   const [s, r] = await req('POST', '/api/tags', { token: admin,
-    body: JSON.stringify({ pages: ['a.html', 'b', 'c.html', 'nope'], add: ['Trip Plans', 'q4'] }) });
+    body: JSON.stringify({ pages: ['a.html', 'b.html', 'c.html', 'nope', 'b'], add: ['Trip Plans', 'q4'] }) });
   assert.equal(normalizeTag('plugin/Emitter'), 'plugin-emitter'); // Quartz nested tags
   assert.equal(s, 200);
   assert.deepEqual(r.results, [
@@ -640,6 +649,7 @@ test('tags: categories become tags; tag many pages at once; filter by tag', asyn
     { slug: 'b.html', tags: ['q4', 'trip-plans'] },
     { slug: 'c.html', error: "'c.html' belongs to bob" }, // checked page by page
     { slug: 'nope', error: 'no such artifact' },
+    { slug: 'b', error: "no page is named 'b'; did you mean 'b.html'?" }, // a write: by exact name
   ]);
   assert.deepEqual(slugs((await req('GET', '/api/artifacts?category=trip-plans'))[1]).sort(), ['a.html', 'b.html']);
   assert.deepEqual((await req('GET', '/api/tags'))[1].find((t) => t.tag === 'q4'), { tag: 'q4', count: 2 });
@@ -960,4 +970,254 @@ test('notes are pages of the site: sidebars, footer and stylesheet; previews wit
   assert.match(preview, /<h1 class="article-title">Note<\/h1>/);
   const [, raw] = await req('GET', '/pages/raw.html');
   assert.doesNotMatch(raw, /class="site"|style\.css/);
+});
+
+// --- From the deep review (0.8.0): one resolver, links worked out on writes, exact names
+// for writes, private assets, and the smaller fixes. Each test names what it guards.
+
+
+test('links: a trashed page or one the viewer can\'t see never shadows the page a link means', async () => {
+  const bob = (await req('POST', '/api/users', { body: '{"name":"bob"}', token: admin }))[1].token;
+  await put('x.html', '<title>Old x</title>');
+  await put('x.md', '# New x');
+  await put('y.html', '<title>Bob\'s private y</title>', bob, '?visibility=private');
+  await put('y.md', '# Public y');
+  await put('Hub.md', '# Hub\n\nSee [[x]] and [[y]].');
+  await req('DELETE', '/api/artifacts/x.html', { token: admin }); // x.html would win [[x]], but it's trashed
+
+  const [, hub] = await req('GET', '/pages/Hub.md');
+  assert.match(hub, /<a class="wikilink" href="\/pages\/x.md">x<\/a>/); // not "not written yet"
+  assert.match(hub, /<a class="wikilink" href="\/pages\/y.md">y<\/a>/); // bob's private y.html isn't anyone else's
+  assert.deepEqual(await graphEdges(), ['Hub.md>x.md', 'Hub.md>y.md']);
+  assert.deepEqual(backlinksOf('x.md'), ['Hub.md']);
+  assert.match((await req('GET', '/pages/x'))[1], /New x/); // the URL too
+
+  await req('POST', '/api/artifacts/x.html/restore', { token: admin }); // back: x.html is what [[x]] means again
+  assert.deepEqual(await graphEdges(), ['Hub.md>x.html', 'Hub.md>y.md']);
+  assert.deepEqual(backlinksOf('x.md'), []);
+  assert.deepEqual(await graphEdges(bob), ['Hub.md>x.html', 'Hub.md>y.html']); // bob sees his own y.html, which [[y]] means first
+});
+
+test('links: aliases count for backlinks and the graph; a folder link means only its page', async () => {
+  await put('Weekly-Review.md', '---\naliases: [WR]\n---\n# Weekly Review');
+  await put('Monday.md', '# Monday\n\nFiled under [[WR]].');
+  assert.deepEqual(backlinksOf('Weekly-Review.md'), ['Monday.md']);
+  assert.deepEqual(await graphEdges(), ['Monday.md>Weekly-Review.md']);
+
+  // [[plugins/Backlinks]] means plugins-Backlinks.md, and only it: not every page named Backlinks.
+  await put('plugins-Backlinks.md', '# Backlinks (plugin)', admin, '?name=backlinks&path=plugins/Backlinks.md');
+  await put('features-Backlinks.md', '# Backlinks (feature)', admin, '?name=backlinks&path=features/Backlinks.md');
+  await put('Index.md', '# Index\n\nSee [[plugins/Backlinks]].');
+  assert.deepEqual(backlinksOf('plugins-Backlinks.md'), ['Index.md']);
+  assert.deepEqual(backlinksOf('features-Backlinks.md'), []);
+  // Its bare name is the fallback, as when rendering: with plugins-Backlinks.md gone, the shortest other one.
+  await req('DELETE', '/api/artifacts/plugins-Backlinks.md', { token: admin });
+  assert.deepEqual(backlinksOf('features-Backlinks.md'), ['Index.md']);
+  // A tag link is a tag, not a page called "emitter".
+  await put('emitter.md', '# Emitter');
+  await put('Tags.md', '# Tags\n\n[[tags/plugin/emitter]]');
+  assert.deepEqual(backlinksOf('emitter.md'), []);
+});
+
+test('links are worked out on writes: a page made, renamed or aliased later is found without re-saving the linker', async () => {
+  await put('Plan.md', '# Plan\n\nNext: [[Later]], [[Nick]] and [[sub/Thing]].');
+  assert.deepEqual(await graphEdges(), []);
+  await put('Later.md', '# Later'); // made after the link to it
+  await put('Somebody.md', '---\naliases: [Nick]\n---\n# Somebody'); // answers to an alias
+  await put('notes-Thing.md', '# Thing', admin, '?name=thing&path=notes/Thing.md'); // by bare name, from a folder
+  assert.deepEqual(await graphEdges(), ['Plan.md>Later.md', 'Plan.md>Somebody.md', 'Plan.md>notes-Thing.md']);
+  await put('Somebody.md', '# Somebody'); // drops the alias
+  assert.deepEqual(await graphEdges(), ['Plan.md>Later.md', 'Plan.md>notes-Thing.md']);
+  await put('sub-Thing.md', '# The sub thing', admin, '?name=thing&path=sub/Thing.md'); // the exact folder path wins
+  assert.deepEqual(await graphEdges(), ['Plan.md>Later.md', 'Plan.md>sub-Thing.md']);
+  await req('DELETE', '/api/artifacts/Later.md', { token: admin });
+  await req('DELETE', '/api/artifacts/Later.md?purge=1', { token: admin });
+  assert.deepEqual(await graphEdges(), ['Plan.md>sub-Thing.md']);
+  assert.match((await req('GET', '/pages/Plan.md'))[1], /wikilink missing[^>]*>Later</);
+});
+
+test('graph, explorer and previews are worked out once per change: every write bumps the site revision', async () => {
+  await put('a.md', '# A\n\n[[b]]');
+  await put('b.md', '# B');
+  const r0 = store.revision;
+  const g = store.graph(null, { views: false });
+  assert.equal(store.graph(null, { views: false }).nodes, g.nodes); // the same nodes: kept, not worked out again
+  assert.equal(store.explorer(null), store.explorer(null));
+  await req('POST', '/api/artifacts/b.md/visibility?to=private', { token: admin });
+  assert.ok(store.revision > r0);
+  assert.notEqual(store.graph(null, { views: false }).nodes, g.nodes);
+  assert.deepEqual(await graphEdges(), []); // b.md is private now: no edge for anonymous viewers
+  for (const write of [
+    () => req('POST', '/api/tags', { token: admin, body: '{"pages":["a.md"],"add":["x"]}' }),
+    () => req('POST', '/api/artifacts/a.md/pin', { token: admin }),
+    () => req('PUT', '/api/assets/pic.png', { body: PNG, token: admin }),
+    () => req('DELETE', '/api/artifacts/a.md', { token: admin }),
+  ]) {
+    const before = store.revision;
+    await write();
+    assert.ok(store.revision > before, String(write));
+  }
+});
+
+test('writes use exact names: a near miss is refused, naming the page it may mean', async () => {
+  const bob = (await req('POST', '/api/users', { body: '{"name":"bob"}', token: admin }))[1].token;
+  await put('plugins-Backlinks.md', '# Backlinks', admin, '?name=backlinks&path=plugins/Backlinks.md');
+  await put('report.html', '<title>Report</title>');
+  let [s, e] = await req('DELETE', '/api/artifacts/backlinks', { token: admin });
+  assert.deepEqual([s, e.error], [404, "no page is named 'backlinks'; did you mean 'plugins-Backlinks.md'?"]);
+  assert.equal(store.find('plugins-Backlinks.md').state, 'active'); // untouched
+  for (const [method, path] of [['POST', '/api/artifacts/report/visibility?to=private'], ['POST', '/api/artifacts/report/pin'],
+    ['POST', '/api/artifacts/report/versions/1/restore'], ['POST', '/api/artifacts/report/restore'], ['DELETE', '/api/artifacts/Report.html']]) {
+    [s, e] = await req(method, path, { token: admin });
+    assert.deepEqual([s, e.error], [404, "no page is named 'report'; did you mean 'report.html'?".replace("'report'", `'${path.split('/')[3]}'`)], path);
+  }
+  assert.match((await req('POST', '/api/tags', { token: admin, body: '{"pages":["report"],"add":["x"]}' }))[1].results[0].error, /did you mean 'report.html'/);
+  // A new name that another page answers to: refused, so "report" can't become a second, public page.
+  [s, e] = await put('report', '<p>meant to update report.html</p>');
+  assert.equal(s, 409);
+  assert.match(e.error, /no page is named 'report', but 'report.html' answers to that name: did you mean 'report.html'\?/);
+  assert.equal((await put('REPORT.HTML', '<p>x</p>'))[0], 409); // case alone
+  assert.equal((await put('backlinks', '<p>x</p>'))[0], 409); // a note's file name
+  assert.equal(store.find('report').slug, 'report.html'); // nothing new was made
+  assert.equal((await put('report.html', '<p>v2</p>'))[0], 200); // the exact name works
+  // Someone else's private page: taken, but not whose.
+  await put('diary.html', '<p>private</p>', bob, '?visibility=private');
+  [s, e] = await put('diary.html', '<p>x</p>');
+  assert.deepEqual([s, e.error], [409, "'diary.html' is taken; pick another file name"]);
+  await put('open.html', '<p>public</p>', bob);
+  assert.match((await put('open.html', '<p>x</p>'))[1].error, /taken by bob/); // a page you can see: its owner is no secret
+});
+
+test('a version from `put` or a restore keeps the bare name sync gave the page, so [[ShortName]] still finds it', async () => {
+  await put('plugins-Backlinks.md', '# Backlinks v1', admin, '?name=backlinks&path=plugins/Backlinks.md');
+  await put('plugins-Backlinks.md', '# Backlinks v2'); // a plain upload: no ?name=
+  await req('POST', '/api/artifacts/plugins-Backlinks.md/versions/1/restore', { token: admin });
+  assert.equal(store.find('plugins-Backlinks.md').name_key, 'backlinks');
+  await put('Uses.md', '# Uses\n\n[[Backlinks]]');
+  assert.match((await req('GET', '/pages/Uses.md'))[1], /<a class="wikilink" href="\/pages\/plugins-Backlinks.md">Backlinks<\/a>/);
+});
+
+test('Markdown links to other files of a synced folder go to their pages, #sections kept', async () => {
+  await put('finance-profile.md', '# Profile\n\n## Savings', admin, '?name=profile&path=finance/profile.md');
+  await put('finance.md', '# Finance', admin, '?name=finance&path=finance/index.md');
+  await put('health-README.md', '# Health\n\nSee [the profile](../finance/profile.md#savings), [finance](../finance/index.md),'
+    + ' [from the top](/finance/profile.md), [a sibling](other.md) and [100%](100%.md).', admin, '?name=readme&path=health/README.md');
+  const [s, page] = await req('GET', '/pages/health-README.md');
+  assert.equal(s, 200); // a stray % is no error
+  assert.match(page, /<a href="\/pages\/finance-profile.md#savings">the profile<\/a>/);
+  assert.match(page, /<a href="\/pages\/finance.md">finance<\/a>/); // a folder's index.md is the folder's page
+  assert.match(page, /<a href="\/pages\/finance-profile.md">from the top<\/a>/);
+  assert.match(page, /<a href="\/pages\/health-other.md">a sibling<\/a>/); // not written yet: where it would be
+  assert.deepEqual(backlinksOf('finance-profile.md'), ['health-README.md']);
+  assert.deepEqual(await graphEdges(), ['health-README.md>finance-profile.md', 'health-README.md>finance.md']);
+});
+
+test('notes and pages in any script: Unicode names upload, link and serve', async () => {
+  let [s, a] = await put(encodeURIComponent('Über-uns.md'), '# Über uns');
+  assert.deepEqual([s, a.slug], [201, 'Über-uns.md']);
+  [s, a] = await put(encodeURIComponent('日本語-メモ.md'), '# メモ\n\n[[Über uns]]');
+  assert.equal(s, 201);
+  const [, page] = await req('GET', `/pages/${encodeURIComponent('日本語-メモ.md')}`);
+  assert.match(page, /<a class="wikilink" href="\/pages\/Über-uns.md">Über uns<\/a>/);
+  assert.deepEqual(backlinksOf('Über-uns.md'), ['日本語-メモ.md']);
+  assert.equal((await req('GET', `/pages/${encodeURIComponent('über-uns')}`))[0], 200); // any case, no extension
+});
+
+test('assets are served only to those who may see them', async () => {
+  const bob = (await req('POST', '/api/users', { body: '{"name":"bob"}', token: admin }))[1].token;
+  await req('PUT', '/api/assets/secret.png', { body: PNG, token: admin });
+  await req('PUT', '/api/assets/shared.pdf', { body: Buffer.from('%PDF-1.4 shared'), token: admin });
+  const [, priv] = await put('Private.md', '# Private\n\n![[secret.png]] and [[shared.pdf]]', admin, '?visibility=private');
+  const get = (name, opts) => req('GET', `/assets/${name}`, { raw: true, ...opts });
+
+  assert.equal((await get('secret.png'))[0], 404); // only a private page shows it
+  assert.equal((await get('secret.png', { token: bob }))[0], 404);
+  assert.equal((await get('secret.png', { token: admin }))[0], 200); // its uploader
+  const share = priv.share_url.slice(3);
+  assert.equal((await get(`secret.png?from=${share}`))[0], 200); // through the private page's share link
+  assert.match((await req('GET', priv.share_url))[1], /href="\/assets\/shared.pdf\?from=[\w-]+"/); // which its links carry
+  assert.equal((await get(`secret.png?from=nope`))[0], 404);
+
+  // Naming someone else's file in your own public page doesn't publish it, or show it there.
+  const [, bobs] = await put('Bobs.md', '# Bob\n\n![[secret.png]]', bob);
+  assert.equal((await get('secret.png'))[0], 404);
+  assert.match((await req('GET', bobs.url))[1], /<span class="embed missing" title="Not uploaded">secret.png<\/span>/);
+  // A public page of the uploader's that shows it does.
+  await put('Public.md', '# Public\n\n[[shared.pdf]]');
+  assert.equal((await get('shared.pdf'))[0], 200);
+  assert.equal((await get('secret.png'))[0], 404);
+
+  // The list: your own assets; an admin sees all; nobody anonymously.
+  await req('PUT', '/api/assets/bobs.png', { body: PNG, token: bob });
+  assert.deepEqual((await req('GET', '/api/assets', { token: bob }))[1].map((x) => x.name), ['bobs.png']);
+  assert.deepEqual((await req('GET', '/api/assets', { token: admin }))[1].map((x) => x.name), ['bobs.png', 'secret.png', 'shared.pdf']);
+  assert.equal((await req('GET', '/api/assets'))[0], 401);
+});
+
+test('responses: nosniff on text, Vary always, favicon.ico and robots.txt answered without a lookup', async () => {
+  await put('page.html', '<p>tiny</p>');
+  for (const path of ['/api/tags', '/pages/page.html', '/docs.md', '/_static/style.css']) {
+    const [, , h] = await req('GET', path);
+    assert.equal(h.get('x-content-type-options'), 'nosniff', path);
+    assert.equal(h.get('vary'), 'Accept-Encoding', path); // also when this response wasn't gzipped
+  }
+  for (const path of ['/favicon.ico', '/robots.txt']) {
+    const [s, body, h] = await req('GET', path);
+    assert.deepEqual([s, body, h.get('cache-control')], [404, { error: 'not found' }, 'public, max-age=86400'], path);
+  }
+  assert.equal((await req('GET', '/assets/x.png', { raw: true }))[2].get('vary'), 'Accept-Encoding'); // not text, still Vary
+});
+
+test('a framed page with no <head> keeps its doctype first (no quirks mode)', async () => {
+  await put('bare.html', '<!doctype html><p>no head here</p>');
+  const r = await fetch(`${base}/pages/bare.html?embed=1`, { headers: { 'user-agent': BROWSER } });
+  assert.match(await r.text(), /^<!doctype html><meta name="responsive-embedded-sizing" content="allow-origins=\*"><p>no head here/);
+});
+
+test('tagging checks the 20-tag limit before writing anything', async () => {
+  const many = Array.from({ length: 19 }, (_, i) => `t${i}`);
+  await put('full.html', '<p>x</p>');
+  await req('POST', '/api/tags', { token: admin, body: JSON.stringify({ pages: ['full.html'], add: many }) });
+  const [, r] = await req('POST', '/api/tags', { token: admin, body: JSON.stringify({ pages: ['full.html'], add: ['a1', 'a2'] }) });
+  assert.match(r.results[0].error, /at most 20 tags per page/);
+  assert.equal((await req('GET', '/api/artifacts/full.html'))[1].tags.length, 19); // nothing was added
+});
+
+test('stats: each of the last 30 days once across a DST change, counted from local midnight', async (t) => {
+  const tz = process.env.TZ;
+  process.env.TZ = 'America/Los_Angeles';
+  t.after(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; });
+  await put('seen.html', '<p>x</p>');
+  const id = store.find('seen.html').id;
+  const at = (local) => new Date(local).getTime() / 1000; // local times, read in TZ
+  store.run("INSERT INTO views (artifact_id, n, at, visitor, via) VALUES (?, 1, ?, 'a', 'url')", id, at('2026-10-02T23:45')); // a 31st day back
+  store.run("INSERT INTO views (artifact_id, n, at, visitor, via) VALUES (?, 1, ?, 'b', 'url')", id, at('2026-10-03T00:15'));
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T23:30') }); // the day the clocks went back: 25 hours long
+  const s = store.stats(null);
+  const days = s.views_by_day.map((d) => d.day);
+  assert.equal(new Set(days).size, 30);
+  assert.deepEqual([days[0], days.at(-1)], ['2026-10-03', '2026-11-01']);
+  assert.equal(s.totals.views_recent, 1); // from midnight on the first day, not 30 × 24 hours before now
+  t.mock.timers.setTime(new Date('2026-03-09T00:30').getTime()); // just after midnight following a 23-hour day
+  assert.deepEqual(store.stats(null, { days: 3 }).views_by_day.map((d) => d.day), ['2026-03-07', '2026-03-08', '2026-03-09']);
+});
+
+test('diffs: big versions with a few changes are quick; versions too far apart say so instead of using GBs', async () => {
+  const lines = (prefix, n) => Array.from({ length: n }, (_, i) => `<p>${prefix} ${i}</p>`).join('\n');
+  await put('long.html', lines('line', 40000));
+  await put('long.html', lines('line', 40000).replace('<p>line 100</p>', '<p>changed</p>').replace('<p>line 39900</p>', '<p>also changed</p>'));
+  let t0 = performance.now();
+  const [s, diff] = await req('GET', '/api/artifacts/long.html/diff');
+  assert.equal(s, 200);
+  assert.match(diff, /-line 100\n\+changed/);
+  assert.match(diff, /-line 39900\n\+also changed/);
+  assert.ok(performance.now() - t0 < 2000);
+  await put('long.html', lines('other', 40000)); // every line differs
+  t0 = performance.now();
+  const [s2, e] = await req('GET', '/api/artifacts/long.html/diff');
+  assert.deepEqual([s2, e.error], [422, 'too many changes to show: these versions differ almost everywhere; compare their sources instead']);
+  assert.ok(performance.now() - t0 < 5000);
+  const [s3, page] = await req('GET', '/review/long.html/changes');
+  assert.equal(s3, 200);
+  assert.match(page, /<p class="same">Too many changes to show/);
 });
