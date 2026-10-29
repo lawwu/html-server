@@ -22,7 +22,7 @@ const CID = '(?<cid>\\d+)';
 // renders from this table, so documenting a route means filling in its row; rows
 // with no description stay off the page. The bare /<slug> page route matches last.
 export const ROUTES = [
-  ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first); `?sort=updated|created|views|title` (featured pages stay on top); `?view=list` for the list layout'],
+  ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first, whatever the sort); `?sort=updated|created|views|title` (featured pages stay on top); `?view=list` for the list layout'],
   ['GET', '/stats', 'stats', 'anyone*', 'Totals, views and uploads over time, most viewed and edited pages, tags, recent uploads'],
   ['GET', '/api/stats', 'statsData', 'anyone*', 'The same numbers as JSON'],
   ['GET', '/api/stats/usage', 'usageData', 'admin',
@@ -59,7 +59,7 @@ export const ROUTES = [
   ['GET', '/api/artifacts/?', 'list', 'anyone*',
     'List pages, featured first, then recently updated. `?sort=updated|created|views|title`, `?q=` search, `?category=`, `?owner=`, `?limit=` (up to 500) and `?offset=` for the next ones, `?state=trashed` (your own trash, token required)'],
   ['GET', '/api/search', 'search', 'anyone*',
-    'Search pages: `?q=` (required; typo-tolerant, titles rank first), `&tag=`, `&limit=` (default 20), `&sort=` (default `relevance`; or updated, created, views, title). Results carry'
+    'Search pages: `?q=` (required; typo-tolerant, titles rank first), `&tag=`, `&limit=` (default 20), `&sort=` (default `relevance`; or updated, created, views, title, after the pages whose title has the words). Results carry'
     + ' `title_highlight` and `snippet` with matched words in [brackets]. Answers cross-origin requests (sandboxed'
     + ' notes search with it), which carry no token: public pages only'],
   ['GET', `/assets/${SLUG}`, 'assetFile', 'anyone*',

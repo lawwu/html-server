@@ -811,17 +811,20 @@ export class Store {
         .map((r) => summary(r, viewerId));
     }
     const words = queryWords(q, this.vocabulary());
-    // Ranked: the whole query appearing in the title first; then pages with every word as
-    // typed (or a longer word it starts) before pages found only through a typo or another
-    // form of a word; then bm25, with title and file-name hits weighted above body hits.
+    // Titles first, in any order: pages whose title holds the whole query ("ACC-18"), then
+    // pages whose title has every word as typed (or a longer word it starts: "ACC 18",
+    // "[ACC-18]"); within those and after them, the chosen order. Ranked, that's pages with
+    // every word as typed anywhere before pages found only through a typo or another form of
+    // a word, then bm25, with title and file-name hits weighted above body hits.
     const near = words.some((w) => w.also.length);
     const exact = ftsMatch(words.map(({ word }) => ({ word, also: [] })));
+    const inFts = 'a.id IN (SELECT rowid FROM artifacts_fts WHERE artifacts_fts MATCH ?) DESC';
     const rows = this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS}, highlight(artifacts_fts, 0, char(1), char(2)) AS title_hits`
       + ' FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
-      + ` WHERE artifacts_fts MATCH ? AND ${where} ORDER BY `
-      + (ranked ? `instr(lower(a.title), lower(?)) > 0 DESC,${near ? ' a.id IN (SELECT rowid FROM artifacts_fts WHERE artifacts_fts MATCH ?) DESC,' : ''}`
-        + ' bm25(artifacts_fts, ?, ?, ?)' : SORT_ORDER[sort]) + ' LIMIT ? OFFSET ?',
-    ftsMatch(words), ...args, ...(ranked ? [q.trim(), ...(near ? [exact] : []), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body] : []), limit, offset);
+      + ` WHERE artifacts_fts MATCH ? AND ${where} ORDER BY instr(lower(a.title), lower(?)) > 0 DESC, ${inFts}, `
+      + (ranked ? `${near ? `${inFts}, ` : ''}bm25(artifacts_fts, ?, ?, ?)` : SORT_ORDER[sort]) + ' LIMIT ? OFFSET ?',
+    ftsMatch(words), ...args, q.trim(), `title : (${exact})`,
+    ...(ranked ? [...(near ? [exact] : []), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body] : []), limit, offset);
     // A one-letter search gets no snippets: nearly every word would be marked.
     const texts = words.some((w) => w.word.length > 1) ? this.indexedText(rows.slice(0, snippets).map((r) => r.id)) : new Map();
     return rows.map((r) => {
