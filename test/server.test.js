@@ -1202,6 +1202,17 @@ test('stats: each of the last 30 days once across a DST change, counted from loc
   assert.deepEqual(store.stats(null, { days: 3 }).views_by_day.map((d) => d.day), ['2026-03-07', '2026-03-08', '2026-03-09']);
 });
 
+test('the usage chart keeps today in the morning too (its days were compared as times)', async (t) => {
+  const tz = process.env.TZ;
+  process.env.TZ = 'America/Los_Angeles';
+  t.after(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; });
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-28T09:00') });
+  store.recordApiCall({ client: 'cli', name: 'ls', method: 'GET', route: '/api/artifacts', status: 200 });
+  const u = store.usage({ days: 30 });
+  assert.equal(u.series.length, 30);
+  assert.deepEqual(u.series.at(-1), { period: '2026-10-28', mcp: 0, cli: 1, browser: 0, http: 0 });
+});
+
 test('diffs: big versions with a few changes are quick; versions too far apart say so instead of using GBs', async () => {
   const lines = (prefix, n) => Array.from({ length: n }, (_, i) => `<p>${prefix} ${i}</p>`).join('\n');
   await put('long.html', lines('line', 40000));
