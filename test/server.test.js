@@ -1,5 +1,5 @@
 // End-to-end API tests: a fresh database and server per test, so tests can't see
-// each other's pages.   npm test   (or: node --test test/)
+// each other's pages.   npm test   (or: node --test test/server.test.js)
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
