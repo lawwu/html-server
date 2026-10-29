@@ -13,7 +13,10 @@ import {
 import { ACTIVE, NONE, PURGED, TRASHED, transition } from './lifecycle.js';
 import { isMarkdown, noteLines, noteLinks, noteTags, noteTitle, parseFrontmatter, renderMarkdown } from './markdown.js';
 import { isNotebook, markdownCells, notebookMarkdown, parseNotebook } from './notebook.js';
-import { ApiError, HIT, bracketHits, extractLines, extractLinks, extractText, ftsQuery, metaContent } from './text.js';
+import {
+  ApiError, HIT, Vocabulary, bracketHits, extractLines, extractLinks, extractText, ftsMatch, metaContent, queryWords, scriptText,
+  searchName, snippet,
+} from './text.js';
 
 /**
  * What a page says about itself, for HTML and Markdown alike: title, description,
@@ -58,7 +61,7 @@ export function pageMeta(slug, text) {
   const category = metaContent(text, 'category').toLowerCase();
   return {
     kind: 'html', title, description: metaContent(text, 'description'), category,
-    tags: [normalizeTag(category)].filter(Boolean), body,
+    tags: [normalizeTag(category)].filter(Boolean), body: `${body} ${scriptText(text).replace(/\n/g, ' ')}`.trim(),
     links: extractLinks(text, { isSlug: (s) => SLUG_RE.test(s) && !RESERVED_SLUGS.has(s.toLowerCase()) }),
   };
 }
@@ -171,7 +174,7 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 // The search index has its own version: when its columns change, it is rebuilt
 // from each page's latest version on startup (see ensureSearchIndex).
-const SEARCH_INDEX_VERSION = '2'; // 2: title, name, body (0.4.0); 1: title, body
+const SEARCH_INDEX_VERSION = '3'; // 3: prefix indexes; script text, aliases and tags; 2: title, name, body (0.4.0); 1: title, body
 // Columns added after the first release, per table: [name, definition, backfill SQL].
 // Applied on startup if missing, so older databases upgrade in place.
 const ADDED_COLUMNS = {
@@ -272,12 +275,12 @@ export class Store {
     this.db.prepare("INSERT OR IGNORE INTO meta VALUES ('visitor_secret', ?)").run(randomBytes(16).toString('hex'));
     this.visitorSecret = this.db.prepare("SELECT value FROM meta WHERE key = 'visitor_secret'").get().value;
     this.vocab = null; // indexed words for fuzzy search; reset whenever the index changes
-    this.ensureSearchIndex();
-    this.ensureLinks();
     if (this.setting('tags_index') !== '1') { // 0.5.0: categories become each page's first tag
       this.run("INSERT OR IGNORE INTO tags (artifact_id, tag) SELECT id, category FROM artifacts WHERE category != ''");
       this.setSetting('tags_index', '1');
     }
+    this.ensureSearchIndex(); // after the tags: they're searchable
+    this.ensureLinks();
   }
 
   close() { this.db.close?.(); }
@@ -287,12 +290,14 @@ export class Store {
     const exists = this.one("SELECT 1 AS x FROM sqlite_master WHERE name = 'artifacts_fts'");
     if (exists && this.setting('search_index', '1') === SEARCH_INDEX_VERSION) return;
     this.tx(() => {
+      // prefix: also index each word's first 1, 2 and 3 letters, so the first keys typed
+      // in a live search don't have to gather every word that starts with them.
       this.db.exec('DROP TABLE IF EXISTS artifacts_vocab; DROP TABLE IF EXISTS artifacts_fts;'
-        + ' CREATE VIRTUAL TABLE artifacts_fts USING fts5(title, name, body);'
+        + " CREATE VIRTUAL TABLE artifacts_fts USING fts5(title, name, body, prefix='1 2 3');"
         + " CREATE VIRTUAL TABLE artifacts_vocab USING fts5vocab(artifacts_fts, 'row');");
-      const rows = this.all('SELECT a.id, a.slug, a.title, a.description, v.html FROM artifacts a'
+      const rows = this.all('SELECT a.id, a.slug, a.description, v.html FROM artifacts a'
         + ' JOIN versions v ON v.artifact_id = a.id AND v.n = a.latest_version');
-      for (const r of rows) this.index(r.id, r.title, r.slug, r.description, pageMeta(r.slug, Buffer.from(r.html).toString('utf8')).body);
+      for (const r of rows) this.index(r.id, `${r.description} ${pageMeta(r.slug, Buffer.from(r.html).toString('utf8')).body}`);
       this.setSetting('search_index', SEARCH_INDEX_VERSION);
     });
     this.vocab = null;
@@ -314,11 +319,19 @@ export class Store {
     for (const to of links) this.run('INSERT OR IGNORE INTO links (from_id, to_slug) VALUES (?, ?)', id, to);
   }
 
-  /** (Re)index one page. The description is searchable too: it's what its card shows. */
-  index(id, title, slug, description, body) {
-    const name = slug.replace(PAGE_EXT_RE, '').replace(/[-_.]+/g, ' ');
+  /**
+   * (Re)index one page: its title; its file name, aliases and tags (searchName); and
+   * `text`, its description and body (the description is what its card shows). Without
+   * `text`, the text already indexed: for when only its tags changed.
+   */
+  index(id, text) {
+    const a = this.one('SELECT title, slug FROM artifacts WHERE id = ?', id);
+    text ??= this.one('SELECT body FROM artifacts_fts WHERE rowid = ?', id)?.body ?? '';
+    const names = [...this.all('SELECT alias FROM aliases WHERE artifact_id = ?', id).map((r) => r.alias),
+      ...this.all('SELECT tag FROM tags WHERE artifact_id = ?', id).map((r) => r.tag)];
     this.run('DELETE FROM artifacts_fts WHERE rowid = ?', id);
-    this.run('INSERT INTO artifacts_fts (rowid, title, name, body) VALUES (?,?,?,?)', id, title, name, `${description} ${body}`.trim());
+    this.run('INSERT INTO artifacts_fts (rowid, title, name, body) VALUES (?,?,?,?)', id, a.title, searchName(a.slug, a.title, names), text.trim());
+    this.vocab = null;
   }
 
   tx(fn) {
@@ -503,7 +516,6 @@ export class Store {
       }
       this.run('INSERT INTO versions (artifact_id, n, html, sha256, size, note, created_at, author_id) VALUES (?,?,?,?,?,?,?,?)',
         id, n, doc, sha256(doc), doc.length, note, t, userId);
-      this.index(id, title, slug, description, body);
       this.updateLinks(id, meta.links);
       this.run('DELETE FROM aliases WHERE artifact_id = ?', id);
       for (const al of meta.aliases ?? []) this.run('INSERT OR IGNORE INTO aliases (artifact_id, alias) VALUES (?, ?)', id, al);
@@ -516,8 +528,8 @@ export class Store {
       const before = a ? pageMeta(a.slug, this.version(a, a.latest_version).toString('utf8')).tags : [];
       for (const t of meta.tags) if (!before.includes(t)) this.run('INSERT OR IGNORE INTO tags (artifact_id, tag) VALUES (?, ?)', id, t);
       for (const t of before) if (!meta.tags.includes(t)) this.run('DELETE FROM tags WHERE artifact_id = ? AND tag = ?', id, t);
+      this.index(id, `${description} ${body}`); // last: its aliases and tags are searchable
     });
-    this.vocab = null;
     return this.describe(slug, userId);
   }
 
@@ -565,9 +577,10 @@ export class Store {
   /** Active: every public artifact plus the viewer's own. Trashed: the viewer's own only. */
   /**
    * `sort`: a key of SORTS (default: recently updated), or for a search 'relevance'
-   * (its default). Featured pages come first unless searching.
+   * (its default). Featured pages come first unless searching. A search gives the first
+   * `snippets` results a snippet (default: all of them).
    */
-  list(viewerId, { q, state = ACTIVE, limit = 50, owner, category, source, sort } = {}) {
+  list(viewerId, { q, state = ACTIVE, limit = 50, owner, category, source, sort, snippets = limit } = {}) {
     if (sort && !(sort in SORT_ORDER) && !(q && sort === SEARCH_SORT)) {
       throw new ApiError(400, `sort must be one of ${[...Object.keys(SORTS), ...(q ? [SEARCH_SORT] : [])].join(', ')}`);
     }
@@ -579,25 +592,39 @@ export class Store {
     if (source) { where += ' AND a.source = ? AND a.owner_id = ?'; args.push(source, viewerId ?? -1); } // your synced pages
     // ?category= is the older name for a tag filter; both match a page's tags.
     if (category) { where += ' AND EXISTS (SELECT 1 FROM tags t WHERE t.artifact_id = a.id AND t.tag = ?)'; args.push(category); }
-    const rows = q
-      // Ranked: the whole query appearing in the title first, then bm25 with title
-      // and file-name hits weighted above body hits (SEARCH_WEIGHTS).
-      ? this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS}, snippet(artifacts_fts, 2, char(1), char(2), '…', 12) AS snippet,`
-        + ' highlight(artifacts_fts, 0, char(1), char(2)) AS title_hits'
-        + ' FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
-        + ` WHERE artifacts_fts MATCH ? AND ${where}`
-        + (ranked ? ' ORDER BY instr(lower(a.title), lower(?)) > 0 DESC, bm25(artifacts_fts, ?, ?, ?) LIMIT ?' : ` ORDER BY ${SORT_ORDER[sort]} LIMIT ?`),
-        ftsQuery(q, this.vocabulary()), ...args, ...(ranked ? [q.trim(), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body] : []), limit)
-      : this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS}, NULL AS snippet FROM artifacts a`
-        + ` JOIN users u ON u.id = a.owner_id WHERE ${where} ORDER BY ${PINNED_FIRST}, ${SORT_ORDER[sort || 'updated']} LIMIT ?`, ...args, limit);
+    if (!q) {
+      return this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS} FROM artifacts a`
+        + ` JOIN users u ON u.id = a.owner_id WHERE ${where} ORDER BY ${PINNED_FIRST}, ${SORT_ORDER[sort || 'updated']} LIMIT ?`, ...args, limit)
+        .map((r) => summary(r, viewerId));
+    }
+    const words = queryWords(q, this.vocabulary());
+    // Ranked: the whole query appearing in the title first; then pages with every word as
+    // typed (or a longer word it starts) before pages found only through a typo or another
+    // form of a word; then bm25, with title and file-name hits weighted above body hits.
+    const near = words.some((w) => w.also.length);
+    const exact = ftsMatch(words.map(({ word }) => ({ word, also: [] })));
+    const rows = this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS}, highlight(artifacts_fts, 0, char(1), char(2)) AS title_hits`
+      + ' FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
+      + ` WHERE artifacts_fts MATCH ? AND ${where} ORDER BY `
+      + (ranked ? `instr(lower(a.title), lower(?)) > 0 DESC,${near ? ' a.id IN (SELECT rowid FROM artifacts_fts WHERE artifacts_fts MATCH ?) DESC,' : ''}`
+        + ' bm25(artifacts_fts, ?, ?, ?)' : SORT_ORDER[sort]) + ' LIMIT ?',
+    ftsMatch(words), ...args, ...(ranked ? [q.trim(), ...(near ? [exact] : []), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body] : []), limit);
+    // A one-letter search gets no snippets: nearly every word would be marked.
+    const texts = words.some((w) => w.word.length > 1) ? this.indexedText(rows.slice(0, snippets).map((r) => r.id)) : new Map();
     return rows.map((r) => {
       const item = summary(r, viewerId);
-      if (!q) return item;
+      const snip = texts.has(r.id) ? snippet(texts.get(r.id), words) || null : null;
       // The API gets [brackets] around matched words; cards get the raw markers (HIT, not serialized).
-      Object.assign(item, { snippet: r.snippet ? bracketHits(r.snippet) : null, title_highlight: bracketHits(r.title_hits) });
-      item[HIT] = { title: r.title_hits, snippet: r.snippet };
+      Object.assign(item, { snippet: snip && bracketHits(snip), title_highlight: bracketHits(r.title_hits) });
+      item[HIT] = { title: r.title_hits, snippet: snip };
       return item;
     });
+  }
+
+  /** The text indexed for these pages, by id. (Ids are written into the SQL: some databases bind at most 100 values.) */
+  indexedText(ids) {
+    if (!ids.length) return new Map();
+    return new Map(this.all(`SELECT rowid AS id, body FROM artifacts_fts WHERE rowid IN (${ids.map(Number).join(',')})`).map((r) => [r.id, r.body]));
   }
 
   /**
@@ -771,6 +798,7 @@ export class Store {
         for (const t of add) this.run('INSERT OR IGNORE INTO tags (artifact_id, tag) VALUES (?, ?)', a.id, t);
         const tags = this.all('SELECT tag FROM tags WHERE artifact_id = ? ORDER BY tag', a.id).map((r) => r.tag);
         if (tags.length > MAX_TAGS_PER_PAGE) throw new ApiError(400, `at most ${MAX_TAGS_PER_PAGE} tags per page`);
+        this.index(a.id); // tags are searchable
         return { slug: a.slug, tags };
       } catch (e) {
         if (!e.status) throw e;
@@ -829,7 +857,7 @@ export class Store {
 
   /** Every indexed word. Only steers matching; results are still visibility-filtered. */
   vocabulary() {
-    this.vocab ??= this.all('SELECT term FROM artifacts_vocab').map((r) => r.term);
+    this.vocab ??= new Vocabulary(this.all('SELECT term FROM artifacts_vocab').map((r) => r.term));
     return this.vocab;
   }
 

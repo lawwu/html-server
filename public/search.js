@@ -4,6 +4,7 @@
 // matches titles from the explorer already on the page, and Enter searches everything.
 const box = document.querySelector('.side-search input');
 let modal, input, list, status, items = [], at = -1, ctl, timer;
+const cache = new Map(); // query → results, for this visit: going back to an earlier query is instant
 
 const go = (url) => { try { window.top.location.href = url; } catch { location.href = url; } };
 const marked = (s) => {
@@ -28,7 +29,8 @@ function open() {
     list = modal.querySelector('ul');
     status = modal.querySelector('.search-status');
     modal.addEventListener('mousedown', (e) => { if (e.target === modal) close(); });
-    input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 120); });
+    // Known results show at once; otherwise wait for a pause in typing, but only a short one.
+    input.addEventListener('input', () => { clearTimeout(timer); if (cache.has(input.value.trim())) run(); else timer = setTimeout(run, 60); });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -94,12 +96,17 @@ function show(results, message) {
 
 async function run() {
   const q = input.value.trim();
-  if (!q) return show([], '');
   ctl?.abort();
+  if (!q) return show([], '');
+  if (cache.has(q)) return show(cache.get(q), cache.get(q).length ? '' : 'No matches.');
   ctl = new AbortController();
   try {
     const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=12`, { signal: ctl.signal });
     const data = await r.json();
+    if (r.ok) {
+      cache.set(q, data.results);
+      if (cache.size > 200) cache.delete(cache.keys().next().value);
+    }
     show(data.results || [], data.results?.length ? '' : 'No matches.');
   } catch (e) {
     if (e.name === 'AbortError') return;

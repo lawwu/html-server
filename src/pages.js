@@ -151,14 +151,16 @@ export function galleryCards(items, q, { base = '/' } = {}) {
 
 /**
  * The results area: on your pages with no search, a "Featured" section of pinned
- * pages above "All pages"; otherwise one list. Also what live search swaps in.
+ * pages above "All pages"; otherwise one list. Also what live search swaps in. One
+ * grid either way, its section titles spanning it, so live search can show, hide and
+ * reorder the cards without moving them (a preview moved in the document reloads).
  */
 export function resultsBody(items, q, { base = '/' } = {}) {
   if (!items.length) return `<p class="empty">${q ? 'No matches.' : 'Nothing here yet.'}</p>`;
   const pinned = !q && base === '/' ? items.filter((i) => i.pinned) : [];
   if (!pinned.length) return `<div class="cards">${galleryCards(items, q, { base })}</div>`;
-  return `<h2 class="section-title">${PIN}Featured</h2><div class="cards">${galleryCards(pinned, q, { base })}</div>
-<h2 class="section-title">All pages</h2><div class="cards">${galleryCards(items.filter((i) => !i.pinned), q, { base })}</div>`;
+  return `<div class="cards"><h2 class="section-title" data-section="featured">${PIN}Featured</h2>${galleryCards(pinned, q, { base })}
+<h2 class="section-title" data-section="all">All pages</h2>${galleryCards(items.filter((i) => !i.pinned), q, { base })}</div>`;
 }
 
 export const VIEWS = ['grid', 'list'];
