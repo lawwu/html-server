@@ -56,8 +56,9 @@ export function safeDecode(s) {
   try { return decodeURIComponent(s); } catch { return s; }
 }
 
-// Paths the server answers itself: a link to one of them isn't a link to a page.
-const SERVER_PATH_RE = /^\/(api|assets|v|review|history|gallery|graph|stats|docs|_static)(\/|$)/;
+// Paths the server answers itself: a link to one of them isn't a link to a page. /docs.md
+// is the Docs page's Markdown, not a note.
+const SERVER_PATH_RE = /^\/((api|assets|v|review|history|gallery|graph|stats|docs|_static)(\/|$)|docs\.md$)/;
 
 /**
  * A Markdown link's href → { name, hash } when it points at a page here, else null.
