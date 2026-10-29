@@ -7,7 +7,7 @@
   "author": "Lawrence Wu",
   "type": "module",
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.16"
   },
   "bin": {
     "html-server": "src/cli.js"

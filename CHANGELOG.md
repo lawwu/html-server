@@ -76,9 +76,12 @@ coming back afterwards reads the links again if 0.8.0 added versions in between.
   away.
 - **The usage chart no longer drops today before noon:** its days were compared as times
   (the fix from the closed #4, on its own).
-- **Tests run on GitHub** on every push and pull request: Node 22.13 and the current LTS,
+- **Tests run on GitHub** on every push and pull request: Node 22.16 and the current LTS,
   each in UTC and in Los Angeles time. `npm test` itself works on Node 22 and 24 now: it
   named the test folder, which only Node 26 reads as "the tests in it".
+- **Node 22.16 or newer**, not 22.13 as `package.json` said: before 22.16, Node's built-in
+  SQLite has no full-text search (FTS5), so the server couldn't start. The first CI run
+  found it.
 
 ## 0.8.0 (2026-10-28)
 

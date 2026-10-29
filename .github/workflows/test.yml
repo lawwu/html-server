@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['22.13', lts/*]
+        node: ['22.16', lts/*]
         tz: [UTC, America/Los_Angeles]
     steps:
       - uses: actions/checkout@v4

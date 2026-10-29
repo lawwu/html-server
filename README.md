@@ -9,7 +9,7 @@ restore. Publish from the command line, from Claude and other AI apps over MCP, 
 curl, or sync a whole notes repo on every git commit. Everything is public unless you mark
 it private, and a page's URL is its file name.
 
-It runs on Node.js 22.13 or newer, on Node's built-in SQLite, with one dependency
+It runs on Node.js 22.16 or newer, on Node's built-in SQLite, with one dependency
 (`marked`, for Markdown), or on Cloudflare Workers with one command.
 
 ```bash
