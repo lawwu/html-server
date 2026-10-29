@@ -108,11 +108,14 @@ paths, because apps don't see your shell's PATH:
 
 Tools: `publish_page` (HTML, Markdown or a notebook), `search_pages`, `list_pages`,
 `get_page`, `page_history`, `diff_versions`, `restore_version`, `list_comments`,
-`add_comment`, `tag_pages`, `feature_page` and `server_info`. **Pages published over MCP
-are private unless the call says `public: true`**, so a chat can't put something in the
-public gallery by accident; a private page comes back with its share link. Editing goes
-`get_page`, then `publish_page` with `base_version`, so two agents can't silently
-overwrite each other.
+`add_comment`, `tag_pages`, `feature_page` and `server_info`. **New pages published over
+MCP are private unless the call says `public: true`**, so a chat can't put something in the
+public gallery by accident; a private page comes back with its share link. A new version of
+an existing page keeps that page's visibility (`public: true` makes it public). Editing goes
+`get_page`, then `publish_page` with `base_version` under the exact name `get_page` gave, so
+two agents can't silently overwrite each other; a name that only finds another page
+(`report` while `report.html` exists) is refused with the name it may mean, rather than
+becoming a second page.
 
 **Coding agents** can also just use the CLI: a line in your `CLAUDE.md` (or a skill) saying
 "publish HTML pages with `html-server put`" is enough. Decide there which kinds of content
@@ -171,13 +174,18 @@ linking here, Markdown or HTML).
   `publish: false` keeps a note out of `sync`). Without a title, the first `# heading` or
   the file name is used.
 - **`[[Wikilinks]]`** (`[[Note]]`, `[[Note|text]]`, `[[Note#Heading]]`) resolve by name to
-  notes, notebooks **or** HTML pages, ignoring case. A link to a page that doesn't exist yet
-  is drawn faded, as in Quartz. Ordinary Markdown links to other pages count too.
+  notes, notebooks **or** HTML pages, ignoring case. A page in the trash, or one the reader
+  can't see, never takes a link: the next page with that name does. A link to a page that
+  doesn't exist yet is drawn faded, as in Quartz. Ordinary Markdown links to other pages
+  count too, relative paths included: in a synced folder, `../finance/profile.md#savings`
+  goes to the page made of that file, as it does on GitHub or in an editor.
 - **Obsidian/Quartz callouts** (`> [!warning] Title`, foldable with `-` or `+`),
   `==highlights==`, task lists, tables, and code blocks with syntax highlighting.
 - **Images and PDFs** are assets, embedded with `![[diagram.png]]`, `![[diagram.png|800]]`
   or `![](img/diagram.png)` (uploaded by `sync`, or `PUT /api/assets/<name>`). Images over
-  3 MB link instead of embedding.
+  3 MB link instead of embedding. An asset is shown to whoever uploaded it and to anyone
+  who can see one of the uploader's pages that shows it, a private note's share link
+  included; naming someone else's file in your own page doesn't publish it.
 - **Copy markdown** copies the note's source. Diffs show the Markdown; frontmatter tags
   follow the note, and tags you add by hand stay.
 
@@ -228,7 +236,8 @@ html-server sync ~/github/my-garden --install-hook   # re-sync on every git comm
   drafts stay out. In a git checkout, each new version's note is the commit message that
   last touched the file.
 - **`--prune`** trashes pages that came from this folder but whose file is gone (they can
-  be restored); pages uploaded any other way are never touched.
+  be restored), however many the folder has; pages uploaded any other way are never
+  touched. A file renamed only in case (`Notes.md` → `notes.md`) renames its page.
 - **`--install-hook`** adds `post-commit` and `post-merge` hooks, so every commit and every
   `git pull` re-syncs in the background (with `--prune`); output goes to
   `~/.html-server/sync.log`. Delete the hook files to stop. An existing hook of your own is
@@ -291,7 +300,8 @@ arrows, and tags as small rings joined to their pages, so pages that share a tag
 (switch them off with **Tags**); unconnected pages wait on an outer ring. **Fit** and
 **Full screen** are in the corner. `/graph?page=<name>` shows one page's neighbourhood.
 Links are read from each page's latest version: wikilinks, `/pages/x`, `/x` or a relative
-`x.html`.
+`x.html`. What each one means is worked out when pages change, the same way for the graph,
+backlinks and a note's links, and each reader sees the links to pages they can see.
 
 **Stats** (`/stats`): views over the last 30 days (with a trend line and the change from the
 30 days before), pages, versions and visitors; views per day and uploads per week; the most
@@ -502,7 +512,14 @@ a token. Writes need a token, and only the owner can change or delete a page (un
 **The URL is the file name.** `curl -T trip-plan.html $A/api/artifacts/` serves the page at
 `$A/pages/trip-plan.html`; `$A/pages/trip-plan` works too, and so does the short alias
 `$A/trip-plan.html`. Names are shared across the whole server: the first user to upload a
-name owns it, and a second user gets a 409.
+name owns it, and a second user gets a 409. Names may use letters of any script
+(`Über-uns.md`, `日本語メモ.md`).
+
+**Changes take a page's exact name.** Reading forgives case and a missing extension;
+uploading, trashing, restoring, purging, tagging, featuring and changing visibility don't,
+so a near miss can't land on some other page: `DELETE $A/api/artifacts/trip-plan` is a 404
+that says `did you mean 'trip-plan.html'?`, and uploading a new `trip-plan` while
+`trip-plan.html` exists is a 409 that says the same.
 
 | Do | curl |
 | --- | --- |
@@ -512,7 +529,7 @@ name owns it, and a second user gets a 409.
 | Upload as private | add `-H "X-Visibility: private"` |
 | View | `$A/pages/trip-plan` · an old version: `?v=1` · the page alone: `?raw=1` |
 | Search | `curl "$A/api/search?q=beach+shelling"` (`&tag=`, `&limit=`) |
-| List | `curl $A/api/artifacts` · `?q=`, `&owner=alice`, `&category=` |
+| List | `curl $A/api/artifacts` · `?q=`, `&owner=alice`, `&category=`, `&limit=` (up to 500) and `&offset=` for the next ones |
 | Metadata and version history | `curl $A/api/artifacts/trip-plan.html` |
 | Source of version n | `curl $A/api/artifacts/trip-plan.html/versions/2` |
 | What changed | `curl $A/api/artifacts/trip-plan.html/diff` (previous vs latest) · `?from=1&to=3` · `?of=source` |
@@ -520,7 +537,7 @@ name owns it, and a second user gets a 409.
 | Make private or public | `curl -X POST -H "$H" "$A/api/artifacts/trip-plan.html/visibility?to=private"` |
 | Share a private page | send the `share_url` (`/v/<random id>`) from any response; `?v=n` works there too |
 | Tag or feature | `POST /api/tags` with `{"pages": [...], "add": [...], "remove": [...]}` · `POST /api/artifacts/<name>/pin` |
-| Images and PDFs for notes | `curl -T diagram.png -H "$H" $A/api/assets/` · served at `/assets/diagram.png` |
+| Images and PDFs for notes | `curl -T diagram.png -H "$H" $A/api/assets/` · served at `/assets/diagram.png` to those who may see it · yours: `curl -H "$H" $A/api/assets` |
 | Comments | `curl $A/api/artifacts/trip-plan.html/comments` · add: `curl -X POST -H "$H" -d '{"body":"..."}' $A/api/artifacts/trip-plan.html/comments` |
 | Page views (owner) | `curl -H "$H" $A/api/artifacts/trip-plan.html/views` |
 | Graph, stats | `curl $A/api/graph` · `curl $A/api/stats` |
@@ -560,19 +577,31 @@ this. Query parameters work when the name is spelled out in the URL. Errors are 
   those found through a typo. The `FUZZY_*` constants in `src/config.js` set how close.
 - **Diffs compare what a reader sees** by default: one line per paragraph, heading or list
   item for HTML; the Markdown for notes; the cells for notebooks. `?of=source` gives the
-  raw source.
+  raw source. Small diffs use an exact table of the lines the versions share; bigger ones
+  Myers' diff, whose time grows with how much changed (a few edits to a 40,000-line page
+  take milliseconds). Versions that differ almost everywhere get "too many changes to show"
+  (a 422) rather than a diff that would hold up the server (`DIFF_MAX_*` in `src/config.js`).
 - **Page views** count each time a page is opened at `/pages/<name>`, its `/<name>` alias
   or its share link (for a framed page, when the frame loads it). The API, crawlers,
   link-preview bots, `curl` and gallery previews don't count. A visitor is a hash of a
   server secret, the day, the IP address and the browser, so one person counts once per
   day and no IP address or browser string is stored.
+- **One resolver for names, worked out on writes.** URLs, wikilinks, Markdown links,
+  backlinks and the graph all rank the pages a name may mean the same way: the exact name,
+  then with `.html`, `.md` or `.ipynb`, the same ignoring case, a note's bare file name
+  (shortest path first), then aliases; each reader gets the best match they can see that
+  isn't trashed. Links are kept as written, with those ranked matches, and updated when a
+  page is made or answers to new names, so reading a page never searches the links table.
+  The graph, explorer and hover previews are worked out once per change (a revision every
+  write bumps): at 2,000 notes and 300 HTML pages a note page takes about 30 ms, not 23 s.
 - **One codebase, two runtimes.** The store takes any SQLite database with node:sqlite's
   small interface, the request handler is separate from node:http, and the package's own
   files are read through one module, so the same code serves from Node or from a
   Cloudflare Durable Object.
 - **Reserved names:** `api`, `v`, `review`, `pages`, `history`, `gallery`, `graph`, `stats`,
   `assets`, `docs`, `favicon.ico` and `robots.txt` can't be page names, because the server
-  uses those paths itself.
+  uses those paths itself (browsers ask for `/favicon.ico` and crawlers for `/robots.txt`;
+  both get a plain 404 straight away).
 
 Not built yet: per-version deletion, rotating a share link, promoting a user to admin, and
 per-user folders (`/alice/x.html`) if one shared namespace for names gets crowded.
@@ -623,10 +652,6 @@ ones change:
   Only consider it on a server whose every page you wrote and trust.
 
 
-
-Per-version deletion, rotating a share link, an MCP server (the CLI covers
-this for coding agents), and per-user
-folders (`/alice/x.html`) if one shared namespace for names gets crowded. Each of these is small to add on top of the store.
 
 ## Files
 

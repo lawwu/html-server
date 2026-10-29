@@ -7,6 +7,76 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+Fixes from a review of 0.8.0: a security audit, a code-quality review and a test at 2,000
+notes. On the first start, every page's links are read again from its latest version
+(about 0.4 s for 2,300 pages). Rolling back to 0.8.0 works and needs no rebuild there;
+coming back afterwards reads the links again if 0.8.0 added versions in between.
+
+- **Pages with many notes load in milliseconds.** Every note page, framed HTML page and
+  graph worked out every link on the site by matching names when it was read, which took
+  seconds and stalled the server for everyone meanwhile. What each link means is now
+  worked out when pages change (a new page, a renamed one, new aliases), and the graph,
+  the explorer and hover previews are kept until the next change. Uploading a note takes
+  about 1 ms longer.
+
+  | 2,000 notes (5 wikilinks each), 300 HTML pages | 0.8.0   | now          |
+  | ---------------------------------------------- | ------- | ------------ |
+  | A note page                                    | 23.1 s  | 29 ms        |
+  | An HTML page in the site's frame               | 16.7 s  | 17 ms        |
+  | `/api/graph`                                   | 16.9 s  | 26 ms        |
+  | `/graph?page=` (one page's neighbourhood)      | 16.2 s  | 3 ms         |
+  | Uploading a note                               | 1.7 ms  | 2.8 ms       |
+
+  At 500 notes and 100 HTML pages a note page took 1.7 s and now takes 15 ms. Medians of
+  ten requests each over HTTP (three for 0.8.0), on an M1 Max in everyday use with Node 26,
+  the library built through `Store.putVersion` the way `sync` uploads; the first request
+  after a change works the graph out again (98 ms at 2,000 notes). Most of what's left
+  is compressing the 600 KB page.
+- **One way to find a page by name**, for URLs, wikilinks, Markdown links, backlinks and the
+  graph alike. A page in the trash, or someone else's private page, no longer hides the
+  page a link means (it showed as "not written yet"); aliases count for backlinks and the
+  graph; `[[plugins/Backlinks]]` is a backlink of `plugins-Backlinks.md` only, not of every
+  note called Backlinks; and `[[tags/x]]` links aren't page links.
+- **Markdown links between files of a synced folder work.** `[profile](../finance/profile.md#savings)`
+  in `health/README.md` goes to the page made of `finance/profile.md`, `#savings` kept,
+  and counts as a link for backlinks and the graph; before, it led to a 404.
+- **Changes take a page's exact name.** Uploading, trashing, restoring, purging, tagging,
+  featuring and changing visibility no longer guess: `DELETE /api/artifacts/backlinks`
+  trashed `plugins-Backlinks.md`, and now says `did you mean 'plugins-Backlinks.md'?`. A
+  new name that another page answers to (`report` while `report.html` exists) is refused
+  with the same question. Over MCP, `publish_page` with `report` while `report.html`
+  existed made a second page, `report`, in public; it now gets that answer, and a new
+  version of an existing page keeps its visibility. Reading still forgives case and a
+  missing extension.
+- **Images and PDFs are private where their pages are.** `/assets/<name>` and the list of
+  assets served every file to anyone, including ones only private notes showed. A file is
+  now served to whoever uploaded it and to anyone who can see one of the uploader's pages
+  that shows it (a private note's share link included); naming someone else's file in your
+  own page doesn't publish it. `GET /api/assets` lists your own (an admin's: all).
+- **Diffs can't hold up the server.** A diff built a table of every line against every
+  line: comparing two 40,000-line versions took 6 GB. Small diffs still do, up to 25
+  million cells (50 MB); bigger ones use Myers' diff, which needs memory for the lines
+  alone and finds a few edits in 40,000 lines in milliseconds. Versions that differ almost
+  everywhere get "too many changes to show" (a 422) after at most about 0.13 s.
+- **`sync --prune` sees every page from the folder**, not only the first 500 (`GET
+  /api/artifacts` takes `?offset=`). A file renamed only in case (`Notes.md` → `notes.md`)
+  now renames its page rather than making a second one.
+- **Names in any script.** `Über uns.md` was named `ber-uns.md`, and a Japanese file name
+  became `md`; letters and digits of every script now stay, in names, links and URLs.
+- **Smaller fixes.** A `%` in a link (`[x](100%.md)`) no longer makes a 500. A new version
+  without a name from `sync` (a `put`, or restoring an old version) no longer resets the
+  bare name `[[ShortName]]` finds the page by. Headings and wikilinks inside code
+  (`df[["a","b"]]`, a `# comment` in a shell block) aren't titles or links. Tagging checks
+  the 20-tag limit before adding anything. `/stats` counts its 30 days from midnight, and a
+  daylight-saving change no longer repeats or drops a day. Notes' links are read correctly
+  when links are rebuilt (they were read as HTML). An HTML page with no `<head>` stays out of
+  quirks mode in the site's frame. Uploading to someone else's private page's name says the
+  name is taken, not by whom. Text responses carry `X-Content-Type-Options: nosniff`, every
+  response `Vary: Accept-Encoding`, and `/favicon.ico` and `/robots.txt` are a 404 straight
+  away.
+- **Tests run on GitHub** on every push and pull request: Node 22.13 and the current LTS,
+  each in UTC and in Los Angeles time.
+
 ## 0.8.0 (2026-10-28)
 
 The search index is rebuilt once, on the first start (about a second for 2,000 pages),
