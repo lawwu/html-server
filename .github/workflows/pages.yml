@@ -1,0 +1,44 @@
+# The docs site on GitHub Pages (https://lawwu.github.io/html-server/): HTML Server draws
+# its README, Docs page, changelog and gallery as static pages (`npm run site`, see
+# scripts/build-site.js), and every push to main publishes them. On a push to main rather
+# than a release: main is what GitHub shows and what the README's install command
+# installs, and the github-pages environment only deploys from the default branch until
+# told otherwise (a release's run is on its tag). Needs Settings → Pages → Source: GitHub
+# Actions; until then the run stops at configure-pages and nothing is published.
+name: pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+# One deploy at a time; a newer push waits for the one in progress rather than cancelling it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: npm run site
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
