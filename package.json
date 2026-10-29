@@ -1,6 +1,6 @@
 {
   "name": "@lawwu/html-server",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Host, version, search and link HTML pages and Markdown notes, like Quartz that also serves HTML. One dependency.",
   "license": "MIT",
