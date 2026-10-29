@@ -228,6 +228,7 @@ test('one docs page for the CLI, MCP and API, from Markdown; static files', asyn
   assert.match(page, /<code>publish_page<\/code>/); // the MCP tools
   assert.doesNotMatch(page, /\/Users\//); // generic paths, not this machine's
   assert.match(page, /<button type="button" class="copy-source" data-copy-source="page-source">.*<span>Copy markdown<\/span><\/button>/);
+  assert.match(page, /This page is Markdown: <a href="\/docs\.md">/); // its own Markdown, not a page called docs.md
   const md = await fetch(`${base}/docs.md`);
   assert.match(md.headers.get('content-type'), /text\/markdown/);
   const text = await md.text();

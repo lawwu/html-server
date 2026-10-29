@@ -7,6 +7,19 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **A docs site, drawn by HTML Server itself:** the Docs page, the README, the changelog
+  and the example gallery as static pages on GitHub Pages, at
+  https://lawwu.github.io/html-server/. `npm run site` builds them into `_site/`, and
+  `.github/workflows/pages.yml` publishes them on every push to `main`. Each page is what
+  the server's own request handler answers, so the site can't drift from the code. Links
+  are made relative, and a link the static site can't follow fails the build. Search,
+  history, comments and the Graph and Stats pages need a server, so the site leaves them
+  out. Hover previews now also work on links that aren't `/pages/…`, as the site's aren't.
+- **The Docs page's link to its own Markdown works.** "This page is Markdown: /docs.md"
+  led to `/pages/docs.md`, a 404: a link to `/docs.md` was read as a link to a page. The
+  docs site's link check found it.
+- The README no longer says the repo is private.
+
 ## 0.9.1 (2026-10-28)
 
 - **Search puts title matches first, whatever the order.** Pages whose title holds the

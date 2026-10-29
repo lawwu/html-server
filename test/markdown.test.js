@@ -47,7 +47,7 @@ test('Markdown links: read from where the note lives, the way sync names files',
   assert.deepEqual(pageHref('My%20Note.md', ''), { name: 'My-Note.md', hash: '' });
   assert.deepEqual(pageHref('/pages/x.md?v=2#top', at), { name: 'x.md', hash: '#top' });
   assert.deepEqual(pageHref('budget', at), { name: 'budget', hash: '' }); // a name, found as URLs find pages
-  for (const href of ['https://x.y/a.md', 'mailto:a@b.c', '#top', 'img/a.png', '/assets/a.pdf', '/api/artifacts', '../folder/', 'data.csv']) {
+  for (const href of ['https://x.y/a.md', 'mailto:a@b.c', '#top', 'img/a.png', '/assets/a.pdf', '/api/artifacts', '/docs.md', '../folder/', 'data.csv']) {
     assert.equal(pageHref(href, at), null, href);
   }
   assert.equal(syncedSlug('plugins/Back links.md'), 'plugins-Back-links.md');
