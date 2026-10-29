@@ -4,8 +4,9 @@
 // line, and talks to the HTML Server the CLI is signed in to (credentials.json, or
 // HTML_SERVER_URL / HTML_SERVER_TOKEN). Plain JSON-RPC: no MCP SDK needed.
 //
-// Safety default: pages published through MCP are private unless the call says
-// public: true, so a model can't put something in a public gallery by accident.
+// Safety default: new pages published through MCP are private unless the call says
+// public: true, so a model can't put something in a public gallery by accident. A new
+// version of an existing page keeps that page's visibility.
 import { SERVER, api, withClient } from './client.js';
 import { VERSION } from './config.js';
 
@@ -14,13 +15,15 @@ const MAX_SOURCE_CHARS = 200_000; // get_page truncates past this, so one call c
 
 const enc = encodeURIComponent;
 const pageArg = { type: 'string', description: 'The page name (its file name, e.g. "trip-plan.html"; ".html" is optional)' };
+// Tools that change a page take its exact name: a near miss is refused with the name it may have meant.
+const exactPageArg = { type: 'string', description: 'The page\'s exact name, as get_page or list_pages give it (e.g. "trip-plan.html")' };
 
 /** Each tool: JSON Schema for its arguments, and a handler returning text (or an object, sent as JSON). */
 export const TOOLS = [
   {
     name: 'publish_page',
     title: 'Publish an HTML page',
-    description: 'Upload a single-file HTML page, or a Markdown note (name ending in .md, content in `markdown`; a Jupyter notebook: .ipynb, its JSON in `notebook`; frontmatter title/tags/description, [[wikilinks]] to other pages, > [!note] callouts). If the name is new it creates the page; if it exists (and you may edit it) it adds a new version, keeping every old one. Returns the page URL. Pages are PRIVATE by default (only the owner and people with the share link can open them); set public: true to list it in the gallery. Add <meta name="description"> and <meta name="category"> to the HTML for a good gallery card, and use h2/h3 headings for a contents sidebar.',
+    description: 'Upload a single-file HTML page, or a Markdown note (name ending in .md, content in `markdown`; a Jupyter notebook: .ipynb, its JSON in `notebook`; frontmatter title/tags/description, [[wikilinks]] to other pages, > [!note] callouts). If the name is new it creates the page; if a page has exactly that name (and you may edit it) it adds a new version, keeping every old one and the page\'s visibility. A new name that another page already answers to (e.g. "report" while "report.html" exists) is refused with the name it may mean. Returns the page URL. New pages are PRIVATE by default (only the owner and people with the share link can open them); set public: true to list it in the gallery. Add <meta name="description"> and <meta name="category"> to the HTML for a good gallery card, and use h2/h3 headings for a contents sidebar.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -39,8 +42,11 @@ export const TOOLS = [
       const q = new URLSearchParams();
       if (note) q.set('note', note);
       // A new page gets the requested visibility; an existing page keeps its own unless asked to go public.
+      // Existing means exactly this name: looking a page up forgives case and a missing extension, so
+      // "report" finds report.html, and treating that as the page would publish a new "report" in the
+      // server's default visibility (public). The server refuses that upload with the name meant.
       let exists = false;
-      try { await api('GET', `/api/artifacts/${enc(name)}`, { auth: 'required' }); exists = true; } catch { /* new page */ }
+      try { exists = (await api('GET', `/api/artifacts/${enc(name)}`, { auth: 'required' })).slug === name; } catch { /* new page */ }
       if (!exists || isPublic) q.set('visibility', isPublic ? 'public' : 'private');
       if (baseVersion != null) q.set('base', String(baseVersion));
       const content = notebook ?? markdown ?? html;
@@ -150,7 +156,7 @@ export const TOOLS = [
     name: 'restore_version',
     title: 'Restore a version',
     description: 'Make an old version current again. This adds a new version that copies it; nothing is deleted.',
-    inputSchema: { type: 'object', properties: { name: pageArg, version: { type: 'integer' } }, required: ['name', 'version'] },
+    inputSchema: { type: 'object', properties: { name: exactPageArg, version: { type: 'integer' } }, required: ['name', 'version'] },
     annotations: { destructiveHint: false },
     async run({ name, version }) {
       const a = await api('POST', `/api/artifacts/${enc(name)}/versions/${version}/restore`, { auth: 'required' });
@@ -189,7 +195,7 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        pages: { type: 'array', items: { type: 'string' }, description: 'Page names' },
+        pages: { type: 'array', items: { type: 'string' }, description: 'The pages\' exact names, as get_page or list_pages give them' },
         add: { type: 'array', items: { type: 'string' } },
         remove: { type: 'array', items: { type: 'string' } },
       },
@@ -203,7 +209,7 @@ export const TOOLS = [
     name: 'feature_page',
     title: 'Feature or unfeature a page',
     description: 'Pin a page to the Featured section at the top of the home page, or unpin it. Needs the page\'s owner or an admin.',
-    inputSchema: { type: 'object', properties: { name: pageArg, featured: { type: 'boolean' } }, required: ['name', 'featured'] },
+    inputSchema: { type: 'object', properties: { name: exactPageArg, featured: { type: 'boolean' } }, required: ['name', 'featured'] },
     async run({ name, featured }) {
       const a = await api(featured ? 'POST' : 'DELETE', `/api/artifacts/${enc(name)}/pin`, { auth: 'required' });
       return { page: a.slug, featured: a.pinned };
@@ -246,8 +252,8 @@ export async function handle(msg) {
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'html-server', title: 'HTML Server', version: VERSION },
         instructions: `Publish and manage single-file HTML pages on ${SERVER}. Pages are versioned (nothing is overwritten), `
-          + 'searchable, and private unless published with public: true. Before changing an existing page, read it with '
-          + 'get_page and pass its version as base_version to publish_page.',
+          + 'searchable, and new ones are private unless published with public: true. Before changing an existing page, read it with '
+          + 'get_page and pass its version as base_version to publish_page, under the exact name get_page gave.',
       });
     }
     case 'ping': return reply({});

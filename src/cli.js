@@ -20,6 +20,7 @@ import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, F
 const USAGE = usage({ backupDir: BACKUP_DIR, homeDir: HOME_DIR, server: SERVER });
 
 const CliError = ClientError; // CLI mistakes and API errors print the same way
+const PRUNE_PAGE = 500; // pages per request when `sync --prune` lists a folder's pages (the server's most)
 const fail = (msg) => { throw new CliError(msg); };
 
 // --- server commands --------------------------------------------------------------
@@ -349,7 +350,7 @@ const clientCommands = {
    */
   async sync([dir], opts) {
     if (!dir || !existsSync(dir) || !statSync(dir).isDirectory()) fail('usage: sync DIR [--private] [--prune] [--dry-run] [--install-hook]');
-    const { noteSlug, notePathSlug, parseFrontmatter, ASSET_RE } = await import('./markdown.js');
+    const { noteSlug, parseFrontmatter, syncedSlug, ASSET_RE } = await import('./markdown.js');
     const { parseNotebook } = await import('./notebook.js');
     let root = resolvePath(dir);
     const quartz = quartzConfig(root);
@@ -380,10 +381,10 @@ const clientCommands = {
       try { return execFileSync('git', ['-C', root, 'log', '-1', '--format=%s', '--', rel], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return ''; }
     };
 
-    const count = { new: 0, updated: 0, unchanged: 0, skipped: 0, failed: 0, trashed: 0 };
+    const count = { new: 0, updated: 0, renamed: 0, unchanged: 0, skipped: 0, failed: 0, trashed: 0 };
     const say = (what, rel, extra = '') => console.log(`${what.padEnd(9)} ${rel}${extra}`);
     const seen = new Map(); // page name (lowercase) → file, to catch two notes that would share a URL
-    const known = new Map((await api('GET', '/api/assets')).map((a) => [a.name.toLowerCase(), a.sha256]));
+    const known = new Map((await api('GET', '/api/assets', { auth: 'required' })).map((a) => [a.name.toLowerCase(), a.sha256])); // yours
 
     for (const file of files) {
       const rel = file.slice(root.length + 1);
@@ -405,7 +406,7 @@ const clientCommands = {
         // folder's page (features/index.md → features.md). nameKey lets [[Backlinks]] find it.
         const parts = rel.split('/');
         const isIndex = /^index\.(md|markdown)$/i.test(parts.at(-1)) && parts.length > 1;
-        const name = isIndex ? `${notePathSlug(parts.slice(0, -1).join('/'))}.md` : notePathSlug(rel);
+        const name = syncedSlug(rel);
         const nameKey = (isIndex ? noteSlug(parts.at(-2)) : noteSlug(parts.at(-1)).replace(PAGE_EXT_RE, '')).toLowerCase();
         if (/\.(md|markdown|ipynb)$/i.test(file)) { // drafts stay out, for notes and notebooks alike
           const { data } = /\.ipynb$/i.test(file) ? (({ front, metadata }) => ({ data: { ...metadata, ...front } }))(parseNotebook(body.toString('utf8')))
@@ -418,17 +419,25 @@ const clientCommands = {
           continue;
         }
         seen.set(name.toLowerCase(), rel);
-        let latest = null;
-        try { latest = (await api('GET', `/api/artifacts/${enc(name)}`)).versions.at(-1); } catch (e) {
+        // Looking a page up forgives case, so compare the name it comes back with: the same
+        // name is this file's page; the same but for case is that page, its file renamed
+        // (Notes.md → notes.md), which the upload renames too rather than making a second page.
+        let page = null;
+        try { page = await api('GET', `/api/artifacts/${enc(name)}`); } catch (e) {
           if (e.message !== 'no such artifact') throw e;
         }
-        if (latest?.sha256 === sha) { count.unchanged++; continue; }
-        if (opts['dry-run']) { count[latest ? 'updated' : 'new']++; say(latest ? 'would update' : 'would add', rel, ` → /pages/${name}`); continue; }
-        const q = new URLSearchParams({ note: commitNote(rel) || (latest ? 'synced' : 'imported'), source: root, name: nameKey, path: rel });
+        const renamed = page && page.slug !== name && page.slug.toLowerCase() === name.toLowerCase() ? page.slug : null;
+        if (page?.slug !== name && !renamed) page = null; // another page answering to the name isn't this file's
+        const latest = page?.versions.at(-1);
+        if (latest?.sha256 === sha && !renamed) { count.unchanged++; continue; }
+        const what = renamed ? 'renamed' : latest ? 'updated' : 'new';
+        if (opts['dry-run']) { count[what]++; say(renamed ? 'would rename' : latest ? 'would update' : 'would add', rel, ` → /pages/${name}`); continue; }
+        const q = new URLSearchParams({ note: commitNote(rel) || (renamed ? `renamed from ${renamed}` : latest ? 'synced' : 'imported'), source: root, name: nameKey, path: rel });
+        if (renamed) q.set('rename_from', renamed);
         if (opts.private && !latest) q.set('visibility', 'private');
         const a = await api('PUT', `/api/artifacts/${enc(name)}?${q}`, { body, auth: 'required' });
-        count[latest ? 'updated' : 'new']++;
-        say(latest ? 'updated' : 'new', rel, ` → ${SERVER}${a.url}`);
+        count[what]++;
+        say(what, rel, ` → ${SERVER}${a.url}${renamed ? ` (was ${renamed})` : ''}`);
       } catch (e) {
         count.failed++;
         console.error(`failed    ${rel}: ${e.message}`);
@@ -436,7 +445,13 @@ const clientCommands = {
     }
 
     if (opts.prune) { // pages synced from this folder whose file is gone → trash (restorable)
-      const mine = await api('GET', `/api/artifacts?source=${enc(root)}&limit=500`, { auth: 'required' });
+      // Every one of them, a page of the list at a time (500 at most each), before trashing any.
+      const mine = [];
+      for (let got = PRUNE_PAGE; got === PRUNE_PAGE;) {
+        const batch = await api('GET', `/api/artifacts?source=${enc(root)}&sort=created&limit=${PRUNE_PAGE}&offset=${mine.length}`, { auth: 'required' });
+        mine.push(...batch);
+        got = batch.length;
+      }
       for (const p of mine) {
         if (seen.has(p.slug.toLowerCase())) continue;
         if (opts['dry-run']) { count.trashed++; say('would trash', p.slug); continue; }

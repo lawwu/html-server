@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ACTIVE, EVENTS, InvalidTransition, NONE, PURGED, TRANSITIONS, TRASHED, transition } from '../src/lifecycle.js';
 import {
-  closeMatches, extractLines, extractText, ftsQuery, queryWords, scriptText, searchName, similarity, snippet, unifiedDiff,
+  closeMatches, extractLines, extractText, ftsQuery, lcsSteps, myersSteps, opcodes, queryWords, scriptText, searchName, similarity, snippet, unifiedDiff,
 } from '../src/text.js';
 
 test('lifecycle happy path', () => {
@@ -109,4 +109,30 @@ test('a page is also found by its name: file name, its words apart and together,
   assert.equal(searchName('ObsidianFlavoredMarkdown.md', 'OFM', ['ofm syntax', 'markdown']),
     'ObsidianFlavoredMarkdown Obsidian Flavored Markdown ofm syntax markdown');
   assert.equal(searchName('kmeans-step-through.html', 'k-means, one step at a time'), 'kmeans step through kmeans');
+});
+
+test('Myers\' diff finds a shortest edit, as the table does, in memory for the lines alone', () => {
+  let seed = 11;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const kept = (a, b, steps) => { // checks the steps turn a into b; returns how many lines they keep
+    let i = 0, j = 0, n = 0;
+    for (const s of steps) {
+      if (s === 'e') { assert.equal(a[i++], b[j++]); n++; } else if (s === 'd') i++; else j++;
+    }
+    assert.deepEqual([i, j], [a.length, b.length]);
+    return n;
+  };
+  for (let t = 0; t < 2000; t++) {
+    const alpha = 1 + Math.floor(rand() * 6);
+    const a = Array.from({ length: Math.floor(rand() * 40) }, () => String(Math.floor(rand() * alpha)));
+    const b = rand() < 0.5 ? Array.from({ length: Math.floor(rand() * 40) }, () => String(Math.floor(rand() * alpha)))
+      : a.flatMap((x) => (rand() < 0.15 ? [] : rand() < 0.1 ? [x, 'new'] : [x]));
+    assert.equal(kept(a, b, myersSteps(a, b)), kept(a, b, lcsSteps(a, b)), `${a} | ${b}`);
+  }
+  // 40,000 lines, a few edits far apart: what used to take a 6 GB table.
+  const big = Array.from({ length: 40000 }, (_, i) => `line ${i}`);
+  const edited = big.map((l, i) => (i === 100 ? 'changed' : i === 39900 ? 'also changed' : l));
+  assert.deepEqual(opcodes(big, edited).filter((c) => c[0] !== 'equal'), [['replace', 100, 101, 100, 101], ['replace', 39900, 39901, 39900, 39901]]);
+  // Versions with almost nothing in common: given up on within the work limit.
+  assert.throws(() => opcodes(big, big.map((l) => `${l}!`)), (e) => e.status === 422 && /too many changes to show/.test(e.message));
 });

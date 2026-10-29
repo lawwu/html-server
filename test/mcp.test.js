@@ -95,6 +95,18 @@ test('publish (private by default), search, read, edit with base_version, histor
   assert.match(diff, /-ship it friday\n\+ship it monday/);
 });
 
+test('publish under a name another page answers to: refused, so no second, public page appears', async () => {
+  data(await call('publish_page', { name: 'report.html', html: '<title>Report</title><p>v1</p>', public: true }));
+  const r = await call('publish_page', { name: 'report', html: '<title>Report</title><p>meant as v2</p>' });
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /did you mean 'report\.html'\?/);
+  assert.equal(store.one("SELECT COUNT(*) AS n FROM artifacts WHERE lower(slug) = 'report'").n, 0); // nothing new, public or not
+  const v2 = data(await call('publish_page', { name: 'report.html', html: '<title>Report</title><p>v2</p>' }));
+  assert.deepEqual([v2.published, v2.visibility], ['v2 of report.html', 'public']); // an update keeps the page's visibility
+  const fresh = data(await call('publish_page', { name: 'report-notes.html', html: '<p>new</p>' }));
+  assert.equal(fresh.visibility, 'private'); // a new page: private unless asked
+});
+
 test('tags, comments, featuring, listing; errors come back as tool results', async () => {
   const t = data(await call('tag_pages', { pages: ['notes.html', 'missing.html'], add: ['meetings'] }));
   assert.deepEqual(t, [{ slug: 'notes.html', tags: ['meetings'] }, { slug: 'missing.html', error: 'no such artifact' }]);

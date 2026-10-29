@@ -2,7 +2,7 @@
 // FTS5 query building, search snippets, and line diffs (unified + grouped for the
 // side-by-side view).
 import {
-  DIFF_CONTEXT_LINES, FUZZY_CUTOFF, FUZZY_MAX_EXPANSIONS, FUZZY_MIN_LEN, MAX_WORD_FORMS, PAGE_EXT_RE, SCRIPT_TEXT_CHARS,
+  DIFF_CONTEXT_LINES, DIFF_MAX_CELLS, DIFF_MAX_STEPS, FUZZY_CUTOFF, FUZZY_MAX_EXPANSIONS, FUZZY_MIN_LEN, MAX_WORD_FORMS, PAGE_EXT_RE, SCRIPT_TEXT_CHARS,
   SNIPPET_WORDS,
 } from './config.js';
 
@@ -336,23 +336,9 @@ export function opcodes(a, b) {
   let suf = 0;
   while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++;
   const A = a.slice(pre, a.length - suf), B = b.slice(pre, b.length - suf);
-  // LCS table over what's left.
-  const n = A.length, m = B.length, w = m + 1;
-  const L = new Uint32Array((n + 1) * w);
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      L[i * w + j] = A[i] === B[j] ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
-    }
-  }
-  const steps = []; // 'e' | 'd' | 'i'
-  let i = 0, j = 0;
-  while (i < n && j < m) {
-    if (A[i] === B[j]) { steps.push('e'); i++; j++; }
-    else if (L[(i + 1) * w + j] >= L[i * w + j + 1]) { steps.push('d'); i++; }
-    else { steps.push('i'); j++; }
-  }
-  while (i++ < n) steps.push('d');
-  while (j++ < m) steps.push('i');
+  // What's left: a table of longest common subsequences when it's small enough, else Myers'
+  // diff, which takes time in proportion to how much changed and memory to the lines alone.
+  const steps = A.length * B.length <= DIFF_MAX_CELLS ? lcsSteps(A, B) : myersSteps(A, B);
 
   const codes = [];
   const push = (tag, i1, i2, j1, j2) => {
@@ -372,6 +358,86 @@ export function opcodes(a, b) {
   push('equal', x, x + suf, y, y + suf);
   return codes;
 }
+
+/** The steps ('e' keep, 'd' delete, 'i' insert) from A to B, read off a table of longest common subsequences. */
+export function lcsSteps(A, B) {
+  const n = A.length, m = B.length, w = m + 1;
+  const L = new (Math.min(n, m) < 65536 ? Uint16Array : Uint32Array)((n + 1) * w);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      L[i * w + j] = A[i] === B[j] ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
+    }
+  }
+  const steps = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (A[i] === B[j]) { steps.push('e'); i++; j++; }
+    else if (L[(i + 1) * w + j] >= L[i * w + j + 1]) { steps.push('d'); i++; }
+    else { steps.push('i'); j++; }
+  }
+  while (i++ < n) steps.push('d');
+  while (j++ < m) steps.push('i');
+  return steps;
+}
+
+/**
+ * The same steps by Myers' O(ND) diff, in linear space (Myers 1986, "An O(ND) Difference
+ * Algorithm and Its Variations", section 4b): find the middle snake of the shortest edit
+ * script, then solve each side of it the same way. Past `budget` steps of work it gives up:
+ * versions that far apart get "too many changes to show" rather than holding up the server.
+ */
+export function myersSteps(A, B, budget = DIFF_MAX_STEPS) {
+  const steps = [], size = A.length + B.length + 2;
+  const vf = new Int32Array(2 * size + 1), vb = new Int32Array(2 * size + 1);
+  let spent = 0;
+
+  // The middle snake of A[a0, a1) and B[b0, b1), both non-empty: [x, y, u, v], where it runs
+  // from (x, y) to (u, v) along matching lines.
+  function middle(a0, a1, b0, b1) {
+    const n = a1 - a0, m = b1 - b0, delta = n - m, odd = (delta & 1) === 1;
+    vf[size + 1] = 0;
+    vb[size + 1] = 0;
+    for (let d = 0; d <= Math.ceil((n + m) / 2); d++) {
+      for (let k = -d; k <= d; k += 2) { // forward, from the start
+        let x = k === -d || (k !== d && vf[size + k - 1] < vf[size + k + 1]) ? vf[size + k + 1] : vf[size + k - 1] + 1;
+        let y = x - k;
+        const x0 = x, y0 = y;
+        while (x < n && y < m && A[a0 + x] === B[b0 + y]) { x++; y++; }
+        vf[size + k] = x;
+        if ((spent += 1 + x - x0) > budget) tooMany();
+        if (odd && k >= delta - (d - 1) && k <= delta + (d - 1) && x + vb[size + delta - k] >= n) return [a0 + x0, b0 + y0, a0 + x, b0 + y];
+      }
+      for (let k = -d; k <= d; k += 2) { // backward, from the end
+        let x = k === -d || (k !== d && vb[size + k - 1] < vb[size + k + 1]) ? vb[size + k + 1] : vb[size + k - 1] + 1;
+        let y = x - k;
+        const x0 = x, y0 = y;
+        while (x < n && y < m && A[a1 - 1 - x] === B[b1 - 1 - y]) { x++; y++; }
+        vb[size + k] = x;
+        if ((spent += 1 + x - x0) > budget) tooMany();
+        if (!odd && k >= delta - d && k <= delta + d && x + vf[size + delta - k] >= n) return [a1 - x, b1 - y, a1 - x0, b1 - y0];
+      }
+    }
+    throw new Error('no middle snake'); // unreachable: the two searches always meet
+  }
+
+  (function solve(a0, a1, b0, b1) {
+    while (a0 < a1 && b0 < b1 && A[a0] === B[b0]) { steps.push('e'); a0++; b0++; }
+    let suffix = 0;
+    while (a1 > a0 && b1 > b0 && A[a1 - 1] === B[b1 - 1]) { a1--; b1--; suffix++; }
+    if (a0 === a1) for (let j = b0; j < b1; j++) steps.push('i');
+    else if (b0 === b1) for (let i = a0; i < a1; i++) steps.push('d');
+    else {
+      const [x, y, u, v] = middle(a0, a1, b0, b1);
+      solve(a0, x, b0, y);
+      for (let i = x; i < u; i++) steps.push('e');
+      solve(u, a1, v, b1);
+    }
+    for (let i = 0; i < suffix; i++) steps.push('e');
+  })(0, A.length, 0, B.length);
+  return steps;
+}
+
+const tooMany = () => { throw new ApiError(422, 'too many changes to show: these versions differ almost everywhere; compare their sources instead'); };
 
 /** Hunks of opcodes with `n` lines of context, as difflib.get_grouped_opcodes. */
 export function groupedOpcodes(a, b, n = DIFF_CONTEXT_LINES) {
