@@ -7,6 +7,8 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.9.1 (2026-10-28)
+
 - **Search puts title matches first, whatever the order.** Pages whose title holds the
   whole query come first, then pages whose title has every word typed (`ACC 18`,
   `[ACC-18]`), and only then the rest, also when results are sorted by date, views or title.
