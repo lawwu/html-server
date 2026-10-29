@@ -1,6 +1,10 @@
 // Text helpers: HTML → visible text (for search and diffs), fuzzy word matching,
-// FTS5 query building, and line diffs (unified + grouped for the side-by-side view).
-import { DIFF_CONTEXT_LINES, FUZZY_CUTOFF, FUZZY_MAX_EXPANSIONS, FUZZY_MIN_LEN } from './config.js';
+// FTS5 query building, search snippets, and line diffs (unified + grouped for the
+// side-by-side view).
+import {
+  DIFF_CONTEXT_LINES, FUZZY_CUTOFF, FUZZY_MAX_EXPANSIONS, FUZZY_MIN_LEN, MAX_WORD_FORMS, PAGE_EXT_RE, SCRIPT_TEXT_CHARS,
+  SNIPPET_WORDS,
+} from './config.js';
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -79,23 +83,80 @@ export function extractLines(doc) {
   return visibleText(doc).split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 
+// Pages that draw themselves (a board of tickets, a quiz, a chart's messages) keep much
+// of their text in their scripts. The string literals there that read as prose (two or
+// more words, not CSS, markup or code) are kept for search; one-word strings are mostly
+// keys, classes and event names, so they're left out. Comments are matched first, so a
+// quote inside one doesn't start a string. A script past LIBRARY_BYTES is taken to be a
+// library pasted in, whose messages aren't the page's.
+const JS_STRINGS = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|(["'`])((?:\\[\s\S]|(?!\1)[^\\])*)\1/g;
+const CODE_LIKE = new RegExp([
+  /^[.#[(:@/]|^(?:px|r?em)\b|[{};=<>|\\]|&&|=>/, // selectors, markup, code
+  /\[[\w-]+[\]=~|^$*]|\p{L},\p{L}|\d(?:px|r?em|v[hw]|ms|deg)\b|^[\w-]+:\s*\S+$/, // attribute selectors, font lists, lengths, declarations
+  /\b(?:rgba?|hsla?|calc|var|url|translate\w*|rotate|scale|cubic-bezier)\(/,
+].map((r) => r.source).join('|'), 'u');
+const LIBRARY_BYTES = 100 * 1024;
+const unescapeJs = (s) => s.replace(/\\(?:u\{([0-9a-f]+)\}|u([0-9a-f]{4})|x([0-9a-f]{2})|([\s\S]))/gi, (_, u1, u2, x, c) => {
+  if (c != null) return 'nrtfvb'.includes(c) ? ' ' : c;
+  try { return String.fromCodePoint(parseInt(u1 ?? u2 ?? x, 16)); } catch { return ' '; }
+});
+const prose = (s, minWords) => (s.match(/(?:^|\s)\S*\p{L}{2}/gu) || []).length >= minWords && !CODE_LIKE.test(s)
+  && (s.match(/[\p{L}\s]/gu) || []).length >= s.length * 0.7;
+
+/** Prose from a page's inline scripts, one string per line (and JSX text, in text/babel ones). */
+export function scriptText(doc) {
+  const out = new Set();
+  let size = 0;
+  const keep = (s, minWords = 2) => {
+    s = s.replace(/\s+/g, ' ').trim();
+    if (size < SCRIPT_TEXT_CHARS && !out.has(s) && prose(s, minWords)) { out.add(s); size += s.length; }
+  };
+  for (const [, attrs, code] of doc.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+    if (/\bsrc\s*=/i.test(attrs) || code.length > LIBRARY_BYTES) continue;
+    const type = (attrs.match(/\btype\s*=\s*["']?([^"'\s>]+)/i)?.[1] || '').toLowerCase();
+    if (/template|html/.test(type)) { visibleText(code).split('\n').forEach((l) => keep(l, 1)); continue; }
+    if (/babel|jsx/.test(type)) for (const [, t] of code.matchAll(/>([^<>{}]+)</g)) keep(decodeEntities(t), 1);
+    for (const [, quote, body] of code.matchAll(JS_STRINGS)) {
+      if (!quote) continue; // a comment
+      const text = quote === '`' ? body.replace(/\$\{[^}]*\}/g, ' ') : body; // `${n} pages` reads as " pages"
+      visibleText(unescapeJs(text)).split('\n').forEach((l) => keep(l));
+    }
+  }
+  return [...out].join('\n');
+}
+
+/**
+ * What a page is called, for the search index: its file name as words
+ * ("kmeans-step-through.html" → "kmeans step through"), joined-up words also apart
+ * ("ObsidianFlavoredMarkdown" → "Obsidian Flavored Markdown"), hyphenated title words
+ * also together ("k-means" → "kmeans"), then `more` (its aliases and tags).
+ */
+export function searchName(slug, title, more = []) {
+  const name = slug.replace(PAGE_EXT_RE, '').replace(/[-_.]+/g, ' ');
+  const apart = `${name} ${title}`.split(/\s+/).map((w) => [w, w.replace(/(\p{Ll}|\p{N})(?=\p{Lu})|(\p{Lu})(?=\p{Lu}\p{Ll})/gu, '$1$2 ')])
+    .filter(([w, split]) => split !== w).map(([, split]) => split);
+  const joined = (title.match(/\p{L}+(?:-\p{L}+)+/gu) || []).map((w) => w.replace(/-/g, ''));
+  return [name, ...apart, ...joined, ...more].join(' ');
+}
+
 // --- Fuzzy matching -------------------------------------------------------------
 // Ratcliff/Obershelp similarity, as in Python's difflib.SequenceMatcher.ratio():
 // 2 * matching characters / total characters, where matches are found by taking
 // the longest common substring and recursing on both sides of it.
+let rowA = new Uint16Array(64), rowB = new Uint16Array(64); // reused: this runs for many words per search
 function matching(a, b) {
   if (!a.length || !b.length) return 0;
-  let best = 0, ai = 0, bi = 0;
-  let prev = new Uint16Array(b.length + 1);
+  if (rowA.length <= b.length) [rowA, rowB] = [new Uint16Array(b.length + 1), new Uint16Array(b.length + 1)];
+  let best = 0, ai = 0, bi = 0, prev = rowA, cur = rowB;
+  prev.fill(0, 0, b.length + 1);
   for (let i = 1; i <= a.length; i++) {
-    const cur = new Uint16Array(b.length + 1);
+    cur[0] = 0;
     for (let j = 1; j <= b.length; j++) {
-      if (a[i - 1] === b[j - 1]) {
-        cur[j] = prev[j - 1] + 1;
-        if (cur[j] > best) { best = cur[j]; ai = i - best; bi = j - best; }
-      }
+      if (a[i - 1] !== b[j - 1]) { cur[j] = 0; continue; }
+      cur[j] = prev[j - 1] + 1;
+      if (cur[j] > best) { best = cur[j]; ai = i - best; bi = j - best; }
     }
-    prev = cur;
+    [prev, cur] = [cur, prev];
   }
   if (!best) return 0;
   return best + matching(a.slice(0, ai), b.slice(0, bi)) + matching(a.slice(ai + best), b.slice(bi + best));
@@ -105,38 +166,165 @@ export function similarity(a, b) {
   return a.length + b.length ? (2 * matching(a, b)) / (a.length + b.length) : 1;
 }
 
+// Per call to closeMatches: how many of each character the typed word has, and how many
+// of those the word being tried has used.
+const NEED = new Int32Array(65536), USED = new Int32Array(65536);
+
 /**
- * Up to n words from vocab at least `cutoff` similar to word, best first. A word also
- * counts if its *beginning* is close to what was typed, so a typo while still typing
- * ("gardn") finds the longer word ("gardening"); those rank just below whole-word matches.
+ * Up to n words from vocab at least `cutoff` similar to word, best first, leaving out any
+ * that `skip` says to. A word also counts if its *beginning* is close to what was typed,
+ * so a typo while still typing ("gardn") finds the longer word ("gardening"); those rank
+ * just below whole-word matches. Most words are ruled out without working out the ratio:
+ * the characters it matches can't outnumber the characters the two words share.
  */
-export function closeMatches(word, vocab, n = FUZZY_MAX_EXPANSIONS, cutoff = FUZZY_CUTOFF) {
-  const hits = [];
+export function closeMatches(word, vocab, n = FUZZY_MAX_EXPANSIONS, cutoff = FUZZY_CUTOFF, skip = null) {
+  const len = word.length, hits = [];
+  for (let i = 0; i < len; i++) NEED[word.charCodeAt(i)]++;
   for (const w of vocab) {
-    let r = 0;
-    // Cheap upper bound first: the ratio can't beat 2*min(len)/total.
-    if ((2 * Math.min(w.length, word.length)) / (w.length + word.length) >= cutoff) r = similarity(word, w);
-    if (r < cutoff && w.length > word.length && word.length >= 4) r = similarity(word, w.slice(0, word.length)) * 0.98;
+    let shared = 0, sharedStart = 0;
+    for (let i = 0; i < w.length; i++) {
+      const c = w.charCodeAt(i);
+      if (USED[c] < NEED[c]) { USED[c]++; shared++; }
+      if (i === len - 1) sharedStart = shared;
+    }
+    for (let i = 0; i < w.length; i++) USED[w.charCodeAt(i)] = 0;
+    const whole = (2 * shared) / (len + w.length) >= cutoff;
+    const start = w.length > len && len >= 4 && ((2 * sharedStart) / (2 * len)) * 0.98 >= cutoff;
+    if ((!whole && !start) || skip?.(w)) continue;
+    let r = whole ? similarity(word, w) : 0;
+    if (r < cutoff && start) r = similarity(word, w.slice(0, len)) * 0.98;
     if (r >= cutoff) hits.push([r, w]);
   }
+  for (let i = 0; i < len; i++) NEED[word.charCodeAt(i)] = 0;
   return hits.sort((x, y) => y[0] - x[0] || (y[1] > x[1] ? 1 : -1)).slice(0, n).map(([, w]) => w);
 }
 
 /**
- * Plain words in, an FTS5 query out (user input is never FTS syntax).
- * Every word must match (AND): as a prefix ("ube" → "uber"), or as any indexed
- * word close enough to be a typo of it ("sheling" → "shelling").
+ * Other forms of an English word, by rule rather than from a dictionary: "studies" →
+ * study, studied; "running" → run; "make" → making. Most aren't words; callers keep the
+ * ones some page uses.
  */
-export function ftsQuery(q, vocab = []) {
-  const terms = (q.toLowerCase().match(/[\p{L}\p{N}_]+/gu) || []);
-  if (!terms.length) throw new ApiError(400, 'empty search');
-  return terms.map((t) => {
-    const alts = [`"${t}"*`];
-    if (t.length >= FUZZY_MIN_LEN) {
-      for (const w of closeMatches(t, vocab)) if (!w.startsWith(t)) alts.push(`"${w}"`);
+export function wordForms(word) {
+  const stems = new Set([word]);
+  if (word.length >= 4) {
+    if (word.endsWith('ies')) stems.add(word.slice(0, -3) + 'y');
+    if (word.endsWith('es')) stems.add(word.slice(0, -2));
+    if (word.endsWith('s') && !word.endsWith('ss')) stems.add(word.slice(0, -1));
+    if (word.endsWith('ied')) stems.add(word.slice(0, -3) + 'y');
+    if (word.endsWith('ed') && !word.endsWith('eed')) stems.add(word.slice(0, -2)).add(word.slice(0, -1));
+    if (word.endsWith('ing')) stems.add(word.slice(0, -3)).add(word.slice(0, -3) + 'e');
+  }
+  for (const s of [...stems]) if (/([^aeiouslz])\1$/.test(s)) stems.add(s.slice(0, -1)); // plott → plot, runn → run
+  const forms = new Set();
+  for (const s of stems) {
+    if (s.length < 3 || !/[aeiouy]/.test(s.slice(0, -1))) continue; // "thing" isn't "th" + ing
+    forms.add(s).add(`${s}s`).add(`${s}es`).add(`${s}ed`).add(`${s}ing`);
+    if (s.endsWith('e')) forms.add(`${s}d`).add(`${s.slice(0, -1)}ing`);
+    if (/[^aeiou]y$/.test(s)) forms.add(`${s.slice(0, -1)}ies`).add(`${s.slice(0, -1)}ied`);
+    if (/^[^aeiou]*[aeiou][^aeiouwxy]$/.test(s)) forms.add(`${s}${s.at(-1)}ing`).add(`${s}${s.at(-1)}ed`); // plot → plotting
+  }
+  forms.delete(word);
+  return [...forms];
+}
+
+/**
+ * The words in the search index, for matching typos and other forms of a word. Built
+ * again whenever the index changes; it remembers its answers, because live search asks
+ * about the same words with every key pressed.
+ */
+export class Vocabulary {
+  constructor(terms) {
+    this.terms = terms;
+    this.known = null; // a Set of the terms, made when first needed
+    this.memo = new Map();
+  }
+
+  has(word) { return (this.known ??= new Set(this.terms)).has(word); }
+
+  /**
+   * Indexed words a typed word matches besides the ones it starts: its other forms,
+   * then close misspellings. A misspelling may be a letter short, not more: "rotate"
+   * holds "rate", and "share" holds "are", but nobody typing those meant them.
+   */
+  alternatives(word) {
+    let alts = this.memo.get(word);
+    if (!alts) {
+      const forms = wordForms(word).filter((w) => !w.startsWith(word) && this.has(w)).slice(0, MAX_WORD_FORMS);
+      const skip = (w) => w.length < word.length - 1 || w.startsWith(word) || forms.includes(w);
+      alts = [...forms, ...closeMatches(word, this.terms, FUZZY_MAX_EXPANSIONS, FUZZY_CUTOFF, skip)];
+      if (this.memo.size >= 1000) this.memo.clear();
+      this.memo.set(word, alts);
     }
-    return `(${alts.join(' OR ')})`;
-  }).join(' AND ');
+    return alts;
+  }
+}
+
+/**
+ * The words of a query, lowercased, each with `also`: the indexed words it matches
+ * besides those it's a prefix of (none with `typos: false`, or for 1-2 letter words).
+ */
+export function queryWords(q, vocab = [], { typos = true } = {}) {
+  const v = vocab instanceof Vocabulary ? vocab : new Vocabulary(vocab);
+  const words = q.toLowerCase().match(/[\p{L}\p{N}_]+/gu) || [];
+  if (!words.length) throw new ApiError(400, 'empty search');
+  return words.map((word) => ({ word, also: typos && word.length >= FUZZY_MIN_LEN ? v.alternatives(word) : [] }));
+}
+
+/** queryWords as an FTS5 query: every word must match, as a prefix or as one of its alternatives. */
+export const ftsMatch = (words) => words.map(({ word, also }) => `(${[`"${word}"*`, ...also.map((w) => `"${w}"`)].join(' OR ')})`).join(' AND ');
+
+/**
+ * Plain words in, an FTS5 query out (user input is never FTS syntax).
+ * Every word must match (AND): as a prefix ("ube" → "uber"), as another form of it
+ * that a page uses ("studies" → "study"), or as an indexed word close enough to be a
+ * typo of it ("sheling" → "shelling").
+ */
+export const ftsQuery = (q, vocab = [], opts) => ftsMatch(queryWords(q, vocab, opts));
+
+// --- Search snippets ----------------------------------------------------------------
+// The few words of a page around what matched, matches marked. Made here from the
+// indexed text, not with FTS5's snippet(): that runs the query again for each page,
+// which for a short prefix ("th" covers thousands of words) costs more than the search.
+const WORD = /[\p{L}\p{N}\p{Co}]+/gu; // what FTS5's unicode61 tokenizer counts as a word
+const fold = (s) => (/[^\x00-\x7f]/.test(s) ? s.normalize('NFD').replace(/\p{M}/gu, '') : s).toLowerCase();
+
+/**
+ * About `size` words of `text` with as many of the query's words (from queryWords) as it
+ * can hold, matches between \u0001 and \u0002 and '…' where it was cut, as FTS5's
+ * snippet() gives. Where nothing matches, its opening words.
+ */
+export function snippet(text, words, size = SNIPPET_WORDS) {
+  const at = [], hit = [];
+  for (const m of text.matchAll(WORD)) {
+    const t = fold(m[0]);
+    at.push(m.index, m.index + m[0].length);
+    hit.push(words.findIndex(({ word, also }) => t.startsWith(word) || also.includes(t)));
+  }
+  const n = hit.length;
+  if (!n) return '';
+  // The window holding the most different words, then the most matches; the first such.
+  const count = words.map(() => 0);
+  let start = 0, bestScore = 0, distinct = 0, total = 0;
+  for (let i = 0; i < n; i++) {
+    if (hit[i] >= 0) { if (!count[hit[i]]++) distinct++; total++; }
+    const out = i - size;
+    if (out >= 0 && hit[out] >= 0) { if (!--count[hit[out]]) distinct--; total--; }
+    const score = distinct * (size + 1) + total;
+    if (score > bestScore) { bestScore = score; start = Math.max(0, i - size + 1); }
+  }
+  if (bestScore) { // centre the matches in it
+    let first = -1, last = -1;
+    for (let i = start; i < Math.min(n, start + size); i++) if (hit[i] >= 0) { if (first < 0) first = i; last = i; }
+    start = Math.max(0, Math.min(n - size, first - Math.floor((size - (last - first + 1)) / 2)));
+  }
+  const end = Math.min(n, start + size);
+  let s = start ? '…' : text.slice(0, at[0]);
+  for (let i = start; i < end; i++) {
+    if (i > start) s += text.slice(at[2 * i - 1], at[2 * i]);
+    const w = text.slice(at[2 * i], at[2 * i + 1]);
+    s += hit[i] >= 0 ? `\u0001${w}\u0002` : w;
+  }
+  return s + (end < n ? '…' : text.slice(at[2 * n - 1]));
 }
 
 // --- Line diffs -------------------------------------------------------------------

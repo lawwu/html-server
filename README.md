@@ -250,9 +250,12 @@ the SIL Open Font License, licences in `public/fonts`) and its three-column layo
   above the page.
 - **Search from anywhere:** ⌘K, Ctrl+K or `/` opens a search box with live results;
   arrows move, Enter opens. On the home page the same keys go to its own search box,
-  which filters the cards instead. Search is typo-tolerant (including in the start of a
-  longer word: "gardn" finds "gardening"), ranks title matches first and marks the
-  matched words. From the terminal: `html-server search WORDS` (`--tag`, `--json`).
+  which filters the cards instead, keeping each card's live preview as it is rather than
+  loading it again. Search is typo-tolerant (including in the start of a longer word:
+  "gardn" finds "gardening"), finds other forms of a word ("studies" finds "study"), ranks
+  title matches first and marks the matched words. It also covers text a page writes
+  with JavaScript, tags and aliases. From the terminal: `html-server search WORDS`
+  (`--tag`, `--json`).
 - **Hover previews:** point at a link to another page here to see it: a note or notebook
   rendered, an HTML page as its title, tags and opening text.
 - **Graph view:** on notes and pages, a live local graph of the pages linked to or from
@@ -548,11 +551,13 @@ this. Query parameters work when the name is spelled out in the URL. Errors are 
   sign-in or another page. That's why notes carry their styles,
   fonts and scripts inline, and why the frame around HTML pages is an iframe. Hover
   previews of another page's HTML are rebuilt from an allowlist before they're shown.
-- **Search** indexes each page's latest version (title, file name, description and visible
-  text; for notebooks, cells and short outputs) in SQLite's FTS5, ranked with title and
-  file-name hits weighted above body text, and fuzzy: every word must match, as a prefix
-  (`ube` finds "uber") or as a close misspelling of an indexed word (`sheling` finds
-  "shelling"). The `FUZZY_*` constants in `src/config.js` set how close.
+- **Search** indexes each page's latest version (title; file name, aliases and tags;
+  description, visible text and the prose in its scripts; for notebooks, cells and short
+  outputs) in SQLite's FTS5, ranked with title and file-name hits weighted above body
+  text, and fuzzy: every word must match, as a prefix (`ube` finds "uber"), as another
+  form of it that a page uses (`studies` finds "study"), or as a close misspelling of an
+  indexed word (`sheling` finds "shelling"). Pages with the words as typed rank above
+  those found through a typo. The `FUZZY_*` constants in `src/config.js` set how close.
 - **Diffs compare what a reader sees** by default: one line per paragraph, heading or list
   item for HTML; the Markdown for notes; the cells for notebooks. `?of=source` gives the
   raw source.
