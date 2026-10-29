@@ -7,6 +7,10 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **The Docs page's link to its own Markdown works.** "This page is Markdown: /docs.md"
+  led to `/pages/docs.md`, a 404: a link to `/docs.md` was read as a link to a page. The
+  docs site's link check found it.
+
 ## 0.9.1 (2026-10-28)
 
 - **Search puts title matches first, whatever the order.** Pages whose title holds the
