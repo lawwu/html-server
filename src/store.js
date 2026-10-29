@@ -1204,7 +1204,8 @@ export class Store {
       return dayStr(d);
     };
     const series = new Map();
-    for (let d = new Date(`${periodOf(dayStr(start))}T12:00`); d <= today;) {
+    // Compared as dates, not times: before noon, today's noon is still ahead and today would drop off.
+    for (let d = new Date(`${periodOf(dayStr(start))}T12:00`); dayStr(d) <= dayStr(today);) {
       series.set(dayStr(d), Object.fromEntries(CLIENT_KINDS.map((k) => [k, 0])));
       if (unit === 'day') d.setDate(d.getDate() + 1); else if (unit === 'week') d.setDate(d.getDate() + 7); else d.setMonth(d.getMonth() + 1);
     }
