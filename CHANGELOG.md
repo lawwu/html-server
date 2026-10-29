@@ -7,6 +7,28 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+The search index is rebuilt once, on the first start (about a second for 2,000 pages),
+and takes more room for its prefix lookups (about 11 MB more for 2,000 pages). Rolling
+back works: an older version rebuilds its own index the same way.
+
+- **Faster search.** On the home page, live search keeps the cards on show and only
+  reorders, hides and re-highlights them, so their live previews no longer reload with
+  every key pressed. Results already fetched show at once (backspacing is instant), and
+  a new search waits 60 ms after typing stops instead of 120. On the server, matching
+  typos is about 15 times faster for the same results and remembers words it has
+  already checked, the first one to three letters of a search are looked up from a
+  prefix index, and snippets are written for the cards near the top only. With 2,000
+  pages, a keystroke in the ⌘K box now takes 7-13 ms on the server instead of 33-145 ms,
+  and on the home page 10-18 ms instead of 49-172 ms.
+- **Search finds more.** It covers text that pages write with JavaScript (a board's
+  tickets, a quiz's questions, a chart's labels), tags (including ones added by hand)
+  and aliases, and the words inside joined-up file names ("flavored" finds
+  `ObsidianFlavoredMarkdown.md`). Other forms of a word match it ("studies" finds
+  "study", "running" finds "run"). Typo matching no longer gives its few slots to words
+  the typed word already starts, and no longer matches words two or more letters shorter
+  ("rotate" doesn't find "rate"). Pages with the words as typed rank above pages found
+  only through a typo or another form of a word.
+
 ## 0.7.1 (2026-10-22)
 
 - **Callouts have their colours again.** Since 0.6.0 every callout in a note was blue

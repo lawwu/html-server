@@ -104,11 +104,23 @@ export const RENDER_CSP = renderCsp();
 // that length nearly everything is "close".
 export const FUZZY_CUTOFF = 0.75;
 export const FUZZY_MIN_LEN = 3;
-export const FUZZY_MAX_EXPANSIONS = 3; // per typed word
+export const FUZZY_MAX_EXPANSIONS = 3; // per typed word, besides the longer words it starts
+// Other forms of a typed word that some page uses match it too ("studies" finds
+// "study", "running" finds "run"), up to this many per word.
+export const MAX_WORD_FORMS = 4;
 // Search ranking (FTS5 bm25 column weights): a hit in the title counts 10x a hit in
 // the page text, and the file name ("kmeans-step-through.html" → "kmeans step
-// through") 5x. Pages whose title contains the whole query come first regardless.
+// through"), aliases and tags 5x. Pages whose title contains the whole query come
+// first regardless, then pages with the words as typed, before pages found only
+// through a typo or another form of a word.
 export const SEARCH_WEIGHTS = { title: 10, name: 5, body: 1 };
+// Snippets: about this many words around what matched. The home page writes them for
+// its first cards only (the others show their description), so broad searches stay quick.
+export const SNIPPET_WORDS = 12;
+export const CARD_SNIPPETS = 48;
+// Text a page writes with JavaScript (a board's tickets, a quiz's questions, a chart's
+// messages) is searchable too, up to this much of it per page.
+export const SCRIPT_TEXT_CHARS = 20000;
 
 // Page views: every render counts once. Visitors are a hash of (server secret,
 // day, IP, user agent), so one person counts once per day and no IP or user agent
