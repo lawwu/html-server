@@ -414,6 +414,37 @@ test('search ranks title matches first, then file names, then body text', async 
   assert.deepEqual((await order('budgt'))[0], 'plan.html'); // typos still work, same ranking
 });
 
+test('search finds what scripts write, aliases, tags, joined-up file names and other forms of words', async () => {
+  await put('board.html', `<title>Triage</title><div id="board"></div><script>
+    const tickets = [{ title: 'Rotate a share link' }, { title: 'Per-version deletion' }];</script>`);
+  await put('reading.md', '---\ntitle: Reading list\naliases: [Bookshelf]\n---\nCase studies in plotting data.\n');
+  await put('ObsidianFlavoredMarkdown.md', '# Syntax\n\nCallouts and more.\n');
+  const found = async (q) => slugs((await req('GET', `/api/search?q=${encodeURIComponent(q)}`))[1].results);
+  assert.deepEqual(await found('rotate share link'), ['board.html']); // only in its script
+  assert.deepEqual(await found('bookshelf'), ['reading.md']); // an alias
+  assert.deepEqual(await found('flavored'), ['ObsidianFlavoredMarkdown.md']); // a word inside a file name
+  assert.deepEqual(await found('study plot'), ['reading.md']); // "studies", "plotting"
+  assert.deepEqual(await found('kanban'), []);
+  await req('POST', '/api/tags', { body: JSON.stringify({ pages: ['board.html'], add: ['kanban'] }), token: admin });
+  assert.deepEqual(await found('kanban'), ['board.html']); // a tag added by hand
+});
+
+test('pages with the words as typed rank before pages found through a typo', async () => {
+  await put('a.html', '<title>One</title><p>graph graph graph graph graph</p>'); // "graph" is close to "grape"
+  await put('b.html', '<title>Two</title><p>a grape, among many other words that make this page longer than the first</p>');
+  assert.deepEqual(slugs((await req('GET', '/api/artifacts?q=grape'))[1]), ['b.html', 'a.html']);
+});
+
+test('the home page writes snippets for its first cards only, and a one-letter search none', async () => {
+  const { CARD_SNIPPETS } = await import('../src/config.js');
+  for (let i = 0; i < CARD_SNIPPETS + 2; i++) await put(`p${i}.html`, `<title>Page ${i}</title><p>common words</p>`);
+  const [, frag] = await req('GET', '/?q=common&fragment=1');
+  assert.equal((frag.match(/<article /g) || []).length, CARD_SNIPPETS + 2);
+  assert.equal((frag.match(/<mark>common<\/mark>/g) || []).length, CARD_SNIPPETS);
+  assert.ok((await req('GET', '/api/search?q=common&limit=60'))[1].results.every((r) => r.snippet)); // the API: all of them
+  assert.ok((await req('GET', '/api/search?q=c'))[1].results.every((r) => r.snippet === null));
+});
+
 test('an older search index is rebuilt on startup, keeping every page findable', async () => {
   await put('old.html', '<title>Lighthouse keeper</title><p>fog horn</p>');
   // Put back the 0.3.0 layout (title, body) and its version marker, as an old database has.
@@ -427,7 +458,7 @@ test('an older search index is rebuilt on startup, keeping every page findable',
   base = `http://127.0.0.1:${server.address().port}`;
   assert.deepEqual(slugs((await req('GET', '/api/artifacts?q=lighthouse'))[1]), ['old.html']);
   assert.deepEqual(slugs((await req('GET', '/api/artifacts?q=horn'))[1]), ['old.html']);
-  assert.equal(store.setting('search_index'), '2');
+  assert.equal(store.setting('search_index'), '3');
 });
 
 test('site header, title and search box', async () => {
@@ -584,7 +615,8 @@ test('featured pages: pinned to the top by their owner or an admin, in pin order
   assert.deepEqual(list.slice(0, 3).map((a) => a.pinned), [true, true, false]);
 
   const [, page] = await req('GET', '/');
-  assert.match(page, /Featured<\/h2><div class="cards">.*bobs\.html.*one\.html.*<\/div>\s*<h2 class="section-title">All pages<\/h2>/s);
+  // One grid, its section titles inside it, so live search can reorder cards without moving them.
+  assert.match(page, /<div class="cards"><h2 class="section-title" data-section="featured">.*Featured<\/h2>.*bobs\.html.*one\.html.*<h2 class="section-title" data-section="all">All pages<\/h2>.*three\.html/s);
   assert.match(page, /<article class="card pinned" data-slug="one.html">/);
   assert.doesNotMatch((await req('GET', '/?q=three&fragment=1'))[1], /Featured/); // searching: one ranked list
 

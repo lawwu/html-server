@@ -253,6 +253,13 @@ details[open] > summary > .chev { rotate: 90deg; }
 /* featured (pinned) pages, and the bar that tags or pins many at once */
 .section-title { display: flex; align-items: center; gap: .4rem; font: 600 .8rem/1 ui-sans-serif, system-ui, sans-serif;
   text-transform: uppercase; letter-spacing: .06em; color: var(--mute); margin: 1.2rem 0 .1rem; }
+/* the results' section titles sit in the card grid, a row each; live search hides what doesn't match */
+.cards > .section-title { grid-column: 1 / -1; margin: .3rem 0 -.3rem; }
+.cards > .section-title:first-child { margin-top: .6rem; }
+.list .cards:has(> .section-title) { border-top: 0; }
+.list .cards > .section-title { margin: 1.2rem 0 0; padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+.list .cards > .section-title:first-child { margin-top: .6rem; }
+.cards > [hidden] { display: none; }
 .pin { width: .9em; height: .9em; fill: var(--accent); flex: none; vertical-align: -.08em; margin-right: .3rem; }
 .card.pinned { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .list .card.pinned { border-color: var(--line); }

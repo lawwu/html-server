@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { fileBytes, fileText } from './files.js';
 import {
-  MAX_BODY_BYTES, MAX_INLINE_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  CARD_SNIPPETS, MAX_BODY_BYTES, MAX_INLINE_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { VIEWS, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
@@ -186,12 +186,16 @@ class Ctx {
     return { focus: this.query.get('page') || undefined, depth: depth ?? 1 };
   }
 
-  /** A gallery listing, or with ?fragment just its cards (what live search swaps in). */
-  listing(items, opts) {
+  /**
+   * A gallery listing, or with ?fragment just its cards (what live search swaps in).
+   * `page()` gives what only the whole page shows (its categories and total), so a
+   * fragment, asked for at every key pressed, doesn't work them out.
+   */
+  listing(items, opts, page = () => ({})) {
     const base = opts.section === 'gallery' ? '/gallery' : '/';
     if (this.query.get('fragment')) return this.html(resultsBody(items, opts.q, { base }));
     const view = VIEWS.includes(this.query.get('view')) ? this.query.get('view') : 'grid';
-    this.html(galleryPage(items, { ...opts, view, explorer: opts.section === 'pages' ? this.store.explorer(null) : null }));
+    this.html(galleryPage(items, { ...opts, ...page(), view, explorer: opts.section === 'pages' ? this.store.explorer(null) : null }));
   }
 
   /**
@@ -366,8 +370,9 @@ const handlers = {
     const q = (c.query.get('q') || '').trim();
     const category = c.query.get('category') || '';
     const sort = c.query.get('sort') || '';
-    const items = c.store.list(null, { q: q || undefined, category: category || undefined, sort: sort || undefined, limit: 500 });
-    c.listing(items, { q, category, sort, categories: c.store.categories(null), section: 'pages', total: category ? items.length : c.store.countPages(null) });
+    const items = c.store.list(null, { q: q || undefined, category: category || undefined, sort: sort || undefined, limit: 500, snippets: CARD_SNIPPETS });
+    c.listing(items, { q, category, sort, section: 'pages' },
+      () => ({ categories: c.store.categories(null), total: category ? items.length : c.store.countPages(null) }));
   },
   stats(c) { c.html(statsPage(c.store.stats(c.viewerId()))); },
   statsData(c) { c.json(200, c.store.stats(c.viewerId())); },
@@ -379,7 +384,8 @@ const handlers = {
     const q = (c.query.get('q') || '').trim();
     const category = c.query.get('category') || '';
     const found = findExamples({ q, category });
-    c.listing(found, { q, category, categories: exampleCategories(), section: 'gallery', total: q ? findExamples({ category }).length : found.length });
+    c.listing(found, { q, category, section: 'gallery' },
+      () => ({ categories: exampleCategories(), total: q ? findExamples({ category }).length : found.length }));
   },
   example(c, { file }) {
     const body = exampleHtml(file);

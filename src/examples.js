@@ -2,7 +2,7 @@
 // shown at /gallery. Served straight from the package, read-only: they are not in
 // the database, so they never mix with anyone's own pages, and every install has them.
 import { fileBytes, fileMtime, fileText, listFiles } from './files.js';
-import { extractText, metaContent } from './text.js';
+import { extractText, metaContent, scriptText } from './text.js';
 
 export const EXAMPLE_FILE_RE = /^[A-Za-z0-9][\w.-]*\.html$/;
 
@@ -24,7 +24,7 @@ export function examples() {
       category: metaContent(html, 'category').toLowerCase(),
       updated_at: fileMtime(`gallery/${f}`) / 1000,
       example: true,
-      text: `${title} ${f.replace(/\.html$/, '').replace(/[-_.]+/g, ' ')} ${metaContent(html, 'description')} ${body}`.toLowerCase(),
+      text: `${title} ${f.replace(/\.html$/, '').replace(/[-_.]+/g, ' ')} ${metaContent(html, 'description')} ${body} ${scriptText(html)}`.toLowerCase(),
     };
   }).sort((a, b) => (b.category === 'featured') - (a.category === 'featured') || a.title.localeCompare(b.title));
   return cache;
