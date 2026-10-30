@@ -115,12 +115,18 @@ export function renderNotebook(nb, { resolve, asset, title, path } = {}) {
   return `<div class="notebook">${cells.join('\n')}</div>`;
 }
 
-/** Markdown cells refer to pasted images as attachment:name; those live in the cell. */
+/**
+ * Markdown cells refer to pasted images as attachment:name; those live in the cell, in
+ * base64, except that an SVG may be kept as its text (it's XML, as SVG outputs are).
+ */
 function withAttachments(src, attachments) {
   return src.replace(/attachment:([^\s)"']+)/g, (m, name) => {
     const bundle = attachments[name] || attachments[safeDecode(name)];
     const mime = bundle && Object.keys(bundle).find((k) => k.startsWith('image/'));
-    return mime ? `data:${mime};base64,${join(bundle[mime]).replace(/\s/g, '')}` : m;
+    if (!mime) return m;
+    const data = join(bundle[mime]);
+    const svgText = mime === 'image/svg+xml' && /^\s*</.test(data);
+    return `data:${mime};base64,${svgText ? Buffer.from(data).toString('base64') : data.replace(/\s/g, '')}`;
   });
 }
 

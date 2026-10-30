@@ -5,7 +5,7 @@
 import { Marked } from 'marked';
 import { PAGE_EXT_RE } from './config.js';
 import { highlight } from './highlight.js';
-import { linkPath, pageUrl } from './paths.js';
+import { isPagePath, linkPath, pageUrl } from './paths.js';
 import { escapeHtml as esc } from './text.js';
 
 export const MARKDOWN_RE = /\.(md|markdown)$/i;
@@ -32,6 +32,9 @@ export function syncedSlug(rel) {
   return /^index\.(md|markdown)$/i.test(parts.at(-1)) && parts.length > 1 ? `${notePathSlug(parts.slice(0, -1).join('/'))}.md` : notePathSlug(rel);
 }
 
+/** The folder whose index note this is ("features/index.md" → "features"), which [[features]] means; else null. */
+export const indexFolder = (path) => path.match(/^(.+)\/index\.(?:md|markdown)$/i)?.[1] ?? null;
+
 /**
  * A wikilink target as the links table keeps it: "Weekly Review" → "Weekly-Review", and a
  * folder path keeps its folders: "plugins/Back links" → "plugins/Back-links". '' if nothing's left.
@@ -44,9 +47,21 @@ export function linkName(target) {
 /**
  * The page names a link (as linkName gives it) may mean, most specific first:
  * "plugins/Backlinks" → ["plugins-Backlinks", "Backlinks"]; "Weekly-Review" → ["Weekly-Review"].
- * The bare file name is the fallback Quartz calls "shortest path".
+ * The bare file name is the fallback Quartz calls "shortest path". A link kept as a JSON
+ * list of names (see noteLinks) may mean any of them; anything else starting with "[" is
+ * just a name, one no page has.
  */
-export const linkCandidates = (name) => name.startsWith('[') ? [...new Set(JSON.parse(name).flatMap(linkCandidates))] : name.includes('/') ? [...new Set([name, syncedSlug(name), name.replace(/\//g, '-'), name.slice(name.lastIndexOf('/') + 1)])] : [name];
+export function linkCandidates(name) {
+  const one = (n) => (n.includes('/') ? [n, syncedSlug(n), n.replace(/\//g, '-'), n.slice(n.lastIndexOf('/') + 1)] : [n]);
+  let names = [name];
+  if (name.startsWith('[')) {
+    try {
+      const list = JSON.parse(name);
+      if (Array.isArray(list) && list.length && list.every((n) => typeof n === 'string' && n)) names = list;
+    } catch { /* a name, as written */ }
+  }
+  return [...new Set(names.flatMap(one))];
+}
 
 /** A wikilink target → the page name(s) it may mean, most specific first (see linkCandidates). */
 export const wikiTargets = (target) => linkCandidates(linkName(target));
@@ -77,7 +92,7 @@ export function pageHref(href, path = '') {
   const hash = at === -1 ? '' : href.slice(at).replace(/^\?[^#]*/, '');
   let h = safeDecode(at === -1 ? href : href.slice(0, at));
   if (!h || /^[a-z][a-z0-9+.-]*:|^\/\//i.test(h) || ASSET_RE.test(h) || SERVER_PATH_RE.test(h)) return null;
-  if (h.startsWith('/pages/')) return h.length > 7 ? { name: h.slice(7), hash } : null;
+  if (h.startsWith('/pages/')) return isPagePath(h.slice(7)) ? { name: h.slice(7), hash } : null; // a page's name, so not /pages/[x
   const bare = h.replace(/^\.?\//, '');
   if (!bare.includes('/') && !PAGE_EXT_RE.test(bare)) { // a name, found as a URL would find it; a data.csv isn't one
     return bare && !/\.[A-Za-z0-9]{1,8}$/.test(bare) ? { name: noteSlug(bare), hash } : null;

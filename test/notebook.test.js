@@ -118,3 +118,14 @@ test('a notebook is a page of the site: title, tags, search, links, diffs, copy'
   assert.match(diff, /^-import pandas as pd$/m); // cell by cell, not raw JSON
   assert.match(diff, /^\+import polars as pl$/m);
 });
+
+test('pasted SVGs show, kept in base64 or as their text', () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0L10 10" transform="translate(1 1)"/></svg>';
+  const nb = JSON.stringify({ nbformat: 4, nbformat_minor: 5, metadata: {}, cells: [
+    { cell_type: 'markdown', metadata: {}, source: '![as text](attachment:a.svg) ![as base64](attachment:b.svg)',
+      attachments: { 'a.svg': { 'image/svg+xml': [svg.slice(0, 40), svg.slice(40)] }, 'b.svg': { 'image/svg+xml': Buffer.from(svg).toString('base64') } } },
+  ] });
+  const html = renderNotebook(parseNotebook(nb));
+  const b64 = Buffer.from(svg).toString('base64');
+  assert.equal(html.split(`src="data:image/svg+xml;base64,${b64}"`).length, 3, html); // both, the same image
+});

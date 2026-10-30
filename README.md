@@ -146,15 +146,22 @@ html-server sync ~/notes --folder research
 ```
 
 A nested page opens at `/research/report.html`; `/pages/research/report.html` also
-works. `/research/` is an automatic contents page with subfolders, search, sorting,
-and grid/list views. It shows direct children by default; **Include subfolders**
-shows descendants, and searches always include them. Folder names also become links
-in the explorer and breadcrumbs. The home page still shows all pages.
+works. A page in a folder keeps its file extension in its name (`research/report.html`;
+`research/report` is refused), so no page's name can read as another page's route:
+`/api/artifacts/plan/comments` is always `plan`'s comments. Reading still forgives the
+extension (`/research/report` opens `research/report.html`), and a top-level name may
+leave it off. `/research/` is an automatic contents page with subfolders, search,
+sorting, and grid/list views. It shows direct children by default; **Include
+subfolders** shows descendants, and searches always include them. Folder names also
+become links in the explorer and breadcrumbs. The home page still shows all pages. A
+listing shows up to 500 cards; the line above them counts every page or match you can
+see, and says when only the first 500 are shown.
 
 Use **Move…** on a page (through its review screen), or **Select → Move…** for a
 selection. The dialog previews destination addresses and lets you choose or type a
 folder. Only owners may move pages. A bulk move either succeeds entirely or changes
-nothing. Occupied addresses are never overwritten; moves keep the file extension.
+nothing. Occupied addresses are never overwritten; moves keep the file extension (a
+page named without one, like `trip-plan`, takes `.html` into a folder).
 Folders are inferred from their pages, so empty folders are not stored separately.
 
 Moves keep versions, comments, tags, view counts, visibility and share links. Old
@@ -169,8 +176,11 @@ with its own `<base>` keeps that explicit setting.
 
 Sync tracks the original source file separately from the published address, so a
 server-side move survives subsequent syncs and pruning. Renaming a file locally is
-not automatic rename detection: sync treats that as a new source file. Existing
-flat sync addresses can be migrated explicitly:
+not automatic rename detection: sync treats that as a new source file. Syncing the same
+vault from another checkout or folder keeps the pages an older sync made with flat
+names, as long as the page was synced from that file's path and you can edit it; any
+other page that happens to have the flat name is left alone. Existing flat sync
+addresses can be migrated explicitly:
 
 ```bash
 html-server sync ~/notes --migrate-paths --dry-run
@@ -206,6 +216,8 @@ page with `<meta name="html-server-frame" content="window">`.
 
 Only browser tabs get the frame. Iframes, gallery previews, the review page, curl and
 other clients get the page itself, as does `?raw=1`, and the frame isn't counted as a view.
+A gallery preview runs the page's scripts and nothing more, whatever `--sandbox-allow`
+adds: a card can't open windows, show alerts or send the gallery's tab elsewhere.
 
 **Gallery cards** take their text and first tag from the page:
 
@@ -286,7 +298,8 @@ html-server sync ~/github/my-garden --install-hook   # re-sync on every git comm
 - **Pages keep their folders:** `plugins/Backlinks.md` becomes `/plugins/Backlinks.md`.
   `/plugins/` automatically lists the folder's pages and subfolders. Existing synced
   pages keep their old addresses until you run `sync DIR --migrate-paths`; the old URLs
-  then redirect. A folder's `index.md` remains a regular note in the listing.
+  then redirect. A folder's `index.md` remains a regular note in the listing, and
+  `[[features]]` links to `features/index.md`, as it did when sync named it `features.md`.
 - **`[[Wikilinks]]` resolve the way Quartz does:** `[[Backlinks]]` finds the note named
   Backlinks wherever it lives (the shortest path wins if several do), `[[plugins/Backlinks]]`
   goes exactly there, `aliases` work, and `[[tags/plugin/emitter]]` goes to that tag.
@@ -404,10 +417,12 @@ text (for notes and notebooks, the Markdown and cells), or the raw source. In th
 terminal: `html-server history NAME` and `html-server diff NAME FROM TO`.
 
 **Review** (`/review/<name>`): the page at the top (drag its bottom edge to resize) and its
-comments for that version underneath, with a version picker, **Show changes** and **Make
-this version current**. Anyone can read a public page's comments; commenting needs a
-token, pasted once and saved in that browser only. A comment's author or the page's owner
-can resolve or delete it; replies go one level deep.
+comments for that version underneath, with a version picker, **Show changes**, **History**
+(the same table and Compare, in place) and **Make this version current**. Anyone can read
+a public page's comments; commenting needs a token, pasted once and saved in that browser
+only. The review page asks for changes and history with that token, so a private page's
+work there too, and shows changes sandboxed, like the page. A comment's author or the
+page's owner can resolve or delete it; replies go one level deep.
 
 **Restore never rewrites history:** making v2 current appends a new version that's a copy
 of v2, noted "restored from v2".
@@ -485,7 +500,9 @@ That signs you in to Cloudflare if needed (Wrangler, Cloudflare's CLI, opens the
 you approve there), deploys, and on the first deploy creates the admin (your login name,
 or `--user NAME`) with a fresh token, stores it as the Worker's `ADMIN_TOKEN` secret, and
 signs this CLI in to the new URL. Run it again to deploy a new version: data, users and
-tokens stay. `--name NAME` deploys a second, separate server. Everything else (the CLI,
+tokens stay. (If it can't read the Worker's secrets to tell a first deploy from a later
+one, it stops there rather than replace the admin token.) `--name NAME` deploys a
+second, separate server. Everything else (the CLI,
 MCP, the API, `sync`) works the same against the `https://….workers.dev` URL; on another
 machine, `html-server login --url URL`.
 
@@ -496,7 +513,7 @@ rest of the code doesn't depend on Cloudflare.
 
 - **Limit:** a Durable Object's SQLite holds up to 2 MB per row, so on Cloudflare each
   upload (a page version, notebook or image) is limited to 1.9 MB, with a clear error
-  over it. The Node server takes 16 MB.
+  over it, before the rest of a bigger upload is read. The Node server takes 16 MB.
 - **Dates** are formatted in UTC there.
 - **Your own domain:** add `routes` to `wrangler.toml` (Cloudflare's docs: Custom Domains).
 - **Try it locally first:** `npm run cf:dev` runs it in Cloudflare's local runtime.
@@ -733,7 +750,7 @@ ones change:
 | `src/files.js` | Reads the package's own files: from disk under Node, from the deploy bundle on Cloudflare |
 | `src/deploy.js` | `html-server deploy cloudflare` |
 | `src/config.js` | Every tunable constant, with the reason for its value |
-| `cloudflare/`, `wrangler.toml` | The Cloudflare Worker and Durable Object, its SQLite adapter, and the file bundler |
+| `cloudflare/`, `wrangler.toml` | The Cloudflare Worker and Durable Object, its SQLite adapter, its upload limit, and the file bundler |
 | `public/` | Browser code and styles: search, previews, graphs, the contents sidebar, frame sizing, copy buttons; `fonts/` with their licences |
 | `gallery/` | The example pages shown at `/gallery` |
 | `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks, the Cloudflare adapter and the docs site |

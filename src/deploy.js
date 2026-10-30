@@ -18,19 +18,37 @@ import { saveCredentials } from './client.js';
 export const WRANGLER = 'wrangler@4.147.0';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-/** Run Wrangler in the package folder. `input` goes to its stdin; output is shown unless `quiet`, and returned. */
+/**
+ * Run Wrangler in the package folder. `input` goes to its stdin; output is shown unless
+ * `quiet`, and returned: `out`, all of it; `stdout` without the warnings and notices on stderr.
+ */
 function wrangler(args, { input, quiet = false, interactive = false } = {}) {
   return new Promise((resolve) => {
     const child = spawn('npx', ['--yes', WRANGLER, ...args], { cwd: ROOT, stdio: interactive ? 'inherit' : ['pipe', 'pipe', 'pipe'] });
-    let out = '';
+    let out = '', stdout = '';
     if (!interactive) {
+      child.stdout.on('data', (d) => { stdout += d; });
       for (const s of [child.stdout, child.stderr]) {
         s.on('data', (d) => { out += d; if (!quiet) process.stdout.write(d); });
       }
       child.stdin.end(input ?? '');
     }
-    child.on('close', (code) => resolve({ code, out }));
+    child.on('close', (code) => resolve({ code, out, stdout }));
   });
+}
+
+/**
+ * The names of a Worker's secrets, from what `wrangler secret list --format json` printed
+ * (`{ code, stdout }`); null when that can't be read. Only a list read in full says there's
+ * no admin token yet: guessed, a deploy would replace the token, and this CLI's sign-in with it.
+ */
+export function secretNames({ code, stdout }) {
+  const at = stdout.search(/^\[/m); // the JSON, after anything printed before it
+  if (code !== 0 || at === -1) return null;
+  try {
+    const list = JSON.parse(stdout.slice(at));
+    return Array.isArray(list) && list.every((x) => typeof x?.name === 'string') ? list.map((x) => x.name) : null;
+  } catch { return null; }
 }
 
 export async function deployCloudflare({ name, user, fail }) {
@@ -50,10 +68,14 @@ export async function deployCloudflare({ name, user, fail }) {
   const url = (dep.out.match(/https:\/\/[\w.-]+\.workers\.dev/) || dep.out.match(/https:\/\/[\w.-]+\.[a-z]{2,}(?=\s)/) || [])[0];
 
   const secrets = await wrangler(['secret', 'list', '--format', 'json', ...named], { quiet: true });
-  let hasToken = false;
-  try { hasToken = JSON.parse(secrets.out.slice(secrets.out.indexOf('['))).some((s) => s.name === 'ADMIN_TOKEN'); } catch { /* none yet */ }
+  const names = secretNames(secrets);
+  if (!names) {
+    process.stdout.write(secrets.out);
+    fail("deployed, but couldn't read the Worker's secrets (Wrangler's output is above), so can't tell whether it has an admin token yet; "
+      + 'nothing else was changed. Run deploy again; if this is the first deploy and it keeps failing, check `npx wrangler secret list`');
+  }
 
-  if (hasToken) {
+  if (names.includes('ADMIN_TOKEN')) {
     console.log(`\nUpdated ${url || 'the deployment'}. Its data, users and tokens are unchanged.`);
     if (url) console.log(`To use it from another machine: html-server login --url ${url}`);
     return;

@@ -27,7 +27,7 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Path to publish as (folders supported, e.g. research/report.html), which becomes the URL: lowercase-with-dashes, e.g. "q3-report.html"' },
+        name: { type: 'string', description: 'Path to publish as (folders supported, e.g. research/report.html; in a folder, keep the file extension), which becomes the URL: lowercase-with-dashes, e.g. "q3-report.html"' },
         html: { type: 'string', description: 'The complete, self-contained HTML document (for .html names)' },
         markdown: { type: 'string', description: 'The note\'s Markdown, including any frontmatter (for .md names)' },
         notebook: { type: 'string', description: 'A Jupyter notebook\'s JSON, as saved (for .ipynb names); its saved outputs are shown, nothing runs' },

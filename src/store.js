@@ -6,14 +6,14 @@
 // still go through tx() so a failure leaves nothing half-done.
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS, RESERVED_SLUGS,
+  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS,
   PAGE_EXT_RE, SEARCH_SORT, SLUG_HINT, SLUG_RE, SORTS, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
-import { pageUrl, validatePath } from './paths.js';
+import { isPagePath, pageUrl, validatePath } from './paths.js';
 import { ACTIVE, NONE, PURGED, TRASHED, transition } from './lifecycle.js';
 import {
-  assetPaths, isMarkdown, linkCandidates, noteAssets, noteLines, noteLinks, noteTags, noteTitle, parseFrontmatter, renderMarkdown,
+  assetPaths, indexFolder, isMarkdown, linkCandidates, noteAssets, noteLines, noteLinks, noteTags, noteTitle, parseFrontmatter, renderMarkdown,
 } from './markdown.js';
 import { isNotebook, markdownCells, notebookMarkdown, parseNotebook } from './notebook.js';
 import {
@@ -68,7 +68,7 @@ export function pageMeta(slug, text, { path = slug } = {}) {
   return {
     kind: 'html', title, description: metaContent(text, 'description'), category,
     tags: [normalizeTag(category)].filter(Boolean), body: `${body} ${scriptText(text).replace(/\n/g, ' ')}`.trim(),
-    links: extractLinks(text, { basePath: path, isSlug: (s) => s.split('/').every((p) => SLUG_RE.test(p)) && !RESERVED_SLUGS.has(s.split('/')[0].toLowerCase()) }),
+    links: extractLinks(text, { basePath: path, isSlug: isPagePath }),
     assets: assetPaths(text),
   };
 }
@@ -224,8 +224,9 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 const SEARCH_INDEX_VERSION = '3'; // 3: prefix indexes; script text, aliases and tags; 2: title, name, body (0.4.0); 1: title, body
 // So do the links (see ensureLinks): 1, each link kept as written, with the pages it may mean
 // worked out on every change (link_targets), Markdown links read from where a note lives,
-// and the images and PDFs each page shows (asset_refs).
-const LINKS_VERSION = '2';
+// and the images and PDFs each page shows (asset_refs); 3 (0.10.1), a folder's name means
+// its index note, and a "/pages/" link to something no page could be called isn't kept.
+const LINKS_VERSION = '3';
 // Columns added after the first release, per table: [name, definition, backfill SQL].
 // Applied on startup if missing, so older databases upgrade in place.
 const ADDED_COLUMNS = {
@@ -430,7 +431,8 @@ export class Store {
     const slug = a.slug.toLowerCase();
     const aliases = this.all('SELECT alias FROM aliases WHERE artifact_id = ?', id).map((r) => r.alias.toLowerCase());
     const addresses = this.all('SELECT path FROM page_addresses WHERE artifact_id = ?', id).flatMap((r) => [r.path.toLowerCase(), r.path.toLowerCase().replace(PAGE_EXT_RE, '')]);
-    return [slug, slug.replace(PAGE_EXT_RE, ''), a.name_key, ...addresses, ...aliases, ...aliases.map((x) => x.replace(/\s+/g, '-'))];
+    const folders = [slug, ...addresses].map(indexFolder).filter(Boolean); // an index note answers to its folder's name
+    return [slug, slug.replace(PAGE_EXT_RE, ''), a.name_key, ...addresses, ...folders, ...aliases, ...aliases.map((x) => x.replace(/\s+/g, '-'))];
   }
 
   /** Pages with a link that may mean one of these names (lowercase). */
@@ -592,16 +594,18 @@ export class Store {
    * plugins-Backlinks.md; never for a name with an extension, so /pages/x.html can't land on
    * some other page called x); last, notes with it among their aliases ([[WR]] finds Weekly
    * Review). A wikilink's folder path ("plugins/Backlinks") means that path's page first,
-   * then its bare name. Rows are light (id, slug, owner_id, state, visibility): which of
-   * them a viewer gets is up to the caller.
+   * then its bare name. A folder's name also means its index note ([[features]] finds
+   * features/index.md, as when sync named it features.md). Rows are light (id, slug,
+   * owner_id, state, visibility): which of them a viewer gets is up to the caller.
    */
   candidates(name) {
     const out = new Map();
     for (const n of linkCandidates(name)) {
-      const forms = [n, `${n}.html`, `${n}.md`, `${n}.ipynb`], lower = forms.map((f) => f.toLowerCase());
-      const rows = this.all(`${CANDIDATE} WHERE a.slug COLLATE NOCASE IN (?, ?, ?, ?)`, ...forms);
-      for (const old of this.all(`${CANDIDATE} JOIN page_addresses pa ON pa.artifact_id = a.id WHERE pa.path IN (?, ?, ?, ?)`, ...forms)) if (!rows.some((a) => a.id === old.id)) rows.push(old);
-      const place = (a) => { const i = forms.indexOf(a.slug); return i === -1 ? 4 + lower.indexOf(a.slug.toLowerCase()) : i; };
+      const forms = [n, `${n}.html`, `${n}.md`, `${n}.ipynb`, ...(PAGE_EXT_RE.test(n) ? [] : [`${n}/index.md`, `${n}/index.markdown`])];
+      const lower = forms.map((f) => f.toLowerCase()), marks = forms.map(() => '?').join(', ');
+      const rows = this.all(`${CANDIDATE} WHERE a.slug COLLATE NOCASE IN (${marks})`, ...forms);
+      for (const old of this.all(`${CANDIDATE} JOIN page_addresses pa ON pa.artifact_id = a.id WHERE pa.path IN (${marks})`, ...forms)) if (!rows.some((a) => a.id === old.id)) rows.push(old);
+      const place = (a) => { const i = forms.indexOf(a.slug); return i === -1 ? forms.length + lower.indexOf(a.slug.toLowerCase()) : i; };
       for (const a of rows.sort((x, y) => place(x) - place(y) || x.id - y.id)) if (!out.has(a.id)) out.set(a.id, a);
       if (!PAGE_EXT_RE.test(n)) {
         for (const a of this.all(`${CANDIDATE} WHERE a.name_key = ? ORDER BY length(a.slug), a.id`, n.toLowerCase())) if (!out.has(a.id)) out.set(a.id, a);
@@ -776,16 +780,17 @@ export class Store {
     const out = this.tx(() => {
       const seen = new Set(), targets = new Set();
       const changes = entries.map(({ from, to } = {}) => {
-        validatePath(from); validatePath(to);
+        if (!isPagePath(from)) throw new ApiError(400, 'no page has that name');
+        validatePath(to);
         if (this.oldAddress(from)) throw new ApiError(409, 'page address changed; reload before moving');
         const a = this.owned(from, userId);
         if (a.slug !== from) throw new ApiError(409, 'page address changed; reload before moving');
         if (a.state !== ACTIVE) throw new ApiError(409, 'restore the page before moving it');
         if (seen.has(a.id) || targets.has(to.toLowerCase())) throw new ApiError(409, 'duplicate page or destination');
         seen.add(a.id); targets.add(to.toLowerCase());
-        if ((a.slug.match(PAGE_EXT_RE)?.[0] || '').toLowerCase() !== (to.match(PAGE_EXT_RE)?.[0] || '').toLowerCase()) {
-          throw new ApiError(400, 'moving a page must keep its file extension');
-        }
+        // A name without an extension is an HTML page's, which may take .html on the way (into a folder, it must).
+        const [was, will] = [a.slug, to].map((s) => (s.match(PAGE_EXT_RE)?.[0] || '').toLowerCase());
+        if (was !== will && !(was === '' && /^\.html?$/.test(will))) throw new ApiError(400, 'moving a page must keep its file extension');
         const taken = this.one('SELECT id FROM artifacts WHERE lower(slug) = lower(?)', to)
           ?? (() => { const old = this.oldAddress(to); return old ? { id: old.artifact_id } : null; })();
         if (taken && taken.id !== a.id) throw new ApiError(409, 'destination is already in use (or reserved by a moved page)');
@@ -882,20 +887,8 @@ export class Store {
     if (sort && !(sort in SORT_ORDER) && !(q && sort === SEARCH_SORT)) {
       throw new ApiError(400, `sort must be one of ${[...Object.keys(SORTS), ...(q ? [SEARCH_SORT] : [])].join(', ')}`);
     }
-    if (folder != null) validatePath(folder, { folder: true });
     const ranked = q && (!sort || sort === SEARCH_SORT);
-    let where, args;
-    if (state === TRASHED) [where, args] = ['a.state = ? AND a.owner_id = ?', [TRASHED, viewerId ?? -1]];
-    else [where, args] = ["a.state = ? AND (a.visibility = 'public' OR a.owner_id = ?)", [ACTIVE, viewerId ?? -1]];
-    if (owner) { where += ' AND u.name = ?'; args.push(owner.toLowerCase()); }
-    if (source) { where += ' AND a.source = ? AND a.owner_id = ?'; args.push(source, viewerId ?? -1); } // your synced pages
-    // ?category= is the older name for a tag filter; both match a page's tags.
-    if (category) { where += ' AND EXISTS (SELECT 1 FROM tags t WHERE t.artifact_id = a.id AND t.tag = ?)'; args.push(category); }
-    if (folder != null) {
-      const prefix = folder ? `${folder}/` : '';
-      where += ' AND substr(a.slug, 1, ?) = ? COLLATE NOCASE'; args.push(prefix.length, prefix);
-      if (!recursive) { where += " AND instr(substr(a.slug, ?), '/') = 0"; args.push(prefix.length + 1); }
-    }
+    const [where, args] = this.listFilter(viewerId, { state, owner, category, source, folder, recursive });
     if (!q) {
       return this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS} FROM artifacts a`
         + ` JOIN users u ON u.id = a.owner_id WHERE ${where} ORDER BY ${PINNED_FIRST}, ${SORT_ORDER[sort || 'updated']} LIMIT ? OFFSET ?`, ...args, limit, offset)
@@ -926,6 +919,32 @@ export class Store {
       item[HIT] = { title: r.title_hits, snippet: snip };
       return item;
     });
+  }
+
+  /** Which pages a list() may give: the SQL condition on `a` (and its owner, `u`) and its values. */
+  listFilter(viewerId, { state = ACTIVE, owner, category, source, folder, recursive = true } = {}) {
+    if (folder != null) validatePath(folder, { folder: true });
+    let where, args;
+    if (state === TRASHED) [where, args] = ['a.state = ? AND a.owner_id = ?', [TRASHED, viewerId ?? -1]];
+    else [where, args] = ["a.state = ? AND (a.visibility = 'public' OR a.owner_id = ?)", [ACTIVE, viewerId ?? -1]];
+    if (owner) { where += ' AND u.name = ?'; args.push(owner.toLowerCase()); }
+    if (source) { where += ' AND a.source = ? AND a.owner_id = ?'; args.push(source, viewerId ?? -1); } // your synced pages
+    // ?category= is the older name for a tag filter; both match a page's tags.
+    if (category) { where += ' AND EXISTS (SELECT 1 FROM tags t WHERE t.artifact_id = a.id AND t.tag = ?)'; args.push(category); }
+    if (folder != null) {
+      const prefix = folder ? `${folder}/` : '';
+      where += ' AND substr(a.slug, 1, ?) = ? COLLATE NOCASE'; args.push(prefix.length, prefix);
+      if (!recursive) { where += " AND instr(substr(a.slug, ?), '/') = 0"; args.push(prefix.length + 1); }
+    }
+    return [where, args];
+  }
+
+  /** How many pages list() would give with these filters and no limit: all the matches this viewer can see. */
+  count(viewerId, { q, ...filters } = {}) {
+    const [where, args] = this.listFilter(viewerId, filters);
+    if (!q) return this.one(`SELECT COUNT(*) AS n FROM artifacts a JOIN users u ON u.id = a.owner_id WHERE ${where}`, ...args).n;
+    return this.one('SELECT COUNT(*) AS n FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
+      + ` WHERE artifacts_fts MATCH ? AND ${where}`, ftsMatch(queryWords(q, this.vocabulary())), ...args).n;
   }
 
   /** The text indexed for these pages, by id. (Ids are written into the SQL: some databases bind at most 100 values.) */
@@ -1097,11 +1116,6 @@ export class Store {
         + ' ORDER BY x.created_at DESC LIMIT ?', v, top)
         .map((r) => ({ ...r, author: r.author ? displayName(r.author, viewerId) : '(deleted user)', url: pageUrl(r.slug) })),
     };
-  }
-
-  /** How many active pages this viewer can see. */
-  countPages(viewerId) {
-    return this.one("SELECT COUNT(*) AS n FROM artifacts WHERE state = ? AND (visibility = 'public' OR owner_id = ?)", ACTIVE, viewerId ?? -1).n;
   }
 
   /** Tags in use on pages this viewer can see, with counts, alphabetical. */

@@ -398,6 +398,18 @@ const clientCommands = {
       if (batch.length < 500) break;
     }
     const bySource = new Map(synced.filter((p) => p.source_path).map((p) => [p.source_path, p]));
+    // Synced before folders from another checkout or folder of this vault, a nested file's page
+    // has its flat name (source/legacy.md → source-legacy.md) and isn't among this folder's. It's
+    // this file's page if it was synced from this file's path, is yours to edit and isn't in
+    // the trash (like this folder's pages above); any other page by that name is another page.
+    const legacyPage = async (rel) => {
+      const flatName = syncedSlug(rel);
+      let p = null;
+      try { p = await api('GET', `/api/artifacts/${enc(flatName)}`, { auth: 'required' }); } catch (e) {
+        if (e.message !== 'no such artifact') throw e;
+      }
+      return p?.slug === flatName && p.source_path === rel && p.can_edit && p.state === 'active' ? p : null;
+    };
     const count = { new: 0, updated: 0, renamed: 0, moved: 0, unchanged: 0, skipped: 0, failed: 0, trashed: 0 };
     const say = (what, rel, extra = '') => console.log(`${what.padEnd(9)} ${rel}${extra}`);
     const seen = new Map(); // page name (lowercase) → file, to catch two notes that would share a URL
@@ -426,7 +438,7 @@ const clientCommands = {
         }
         const parts = rel.split('/');
         const desired = [opts.folder?.replace(/^\/+|\/+$/g, ''), ...parts.map(noteSlug)].filter(Boolean).join('/');
-        const previous = bySource.get(rel);
+        const previous = bySource.get(rel) ?? (syncedSlug(rel).toLowerCase() !== desired.toLowerCase() ? await legacyPage(rel) : null);
         let name = previous?.slug || desired;
         if (previous && !opts['migrate-paths'] && !name.includes('/') && desired.includes('/')) flat.push([name, desired]);
         if (previous && opts['migrate-paths'] && name !== desired) {

@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  noteAssets, noteLinks, noteSlug, noteTags, noteTitle, pageHref, parseFrontmatter, renderMarkdown, safeDecode, syncedSlug, wikiTarget, wikiTargets,
+  indexFolder, linkCandidates, noteAssets, noteLinks, noteSlug, noteTags, noteTitle, pageHref, parseFrontmatter, renderMarkdown, safeDecode, syncedSlug,
+  wikiTarget, wikiTargets,
 } from '../src/markdown.js';
 
 test('frontmatter: scalars, inline and block lists, no frontmatter', () => {
@@ -96,4 +97,15 @@ test('a leading # heading that repeats the title is dropped (the page shows the 
 
 test('[[tags/...]] links go to the tag (Quartz tag pages), nested tags flattened with dashes', () => {
   assert.match(renderMarkdown('See [[tags/plugin/emitter|Emitters]].'), /<a class="tag" href="\/\?category=plugin-emitter" target="_top">Emitters<\/a>/);
+});
+
+test('a link names pages, never anything else: /pages/ names are checked, lists of names parsed with care', () => {
+  for (const href of ['/pages/[y', '/pages/%5By', '/pages/a b.md', '/pages/x/', '/pages/api/x.md']) assert.equal(pageHref(href), null, href);
+  assert.deepEqual(noteLinks('[x](/pages/[y) and [z](/pages/%5Bz) and [[Real]]'), ['Real']);
+  assert.deepEqual(linkCandidates('["docs/a","a"]'), ['docs/a', 'docs-a', 'a']); // a nested note's bare wikilink: where it is, then anywhere
+  for (const name of ['[y', '[1,2]', '[]', '[""]', '{"a":1}']) assert.deepEqual(linkCandidates(name), [name], name); // just names
+  assert.equal(indexFolder('features/index.md'), 'features');
+  assert.equal(indexFolder('a/b/INDEX.markdown'), 'a/b');
+  assert.equal(indexFolder('index.md'), null); // the top's index is just a page
+  assert.equal(indexFolder('features/index.html'), null);
 });

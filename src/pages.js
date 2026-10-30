@@ -131,8 +131,9 @@ const PIN = '<svg class="pin" viewBox="0 0 16 16" aria-hidden="true"><path d="M9
  * The cards for a result set. Each card leads with a live, scaled-down preview of the
  * page (?preview=1: not counted as a view, no sidebar), loaded only when it scrolls
  * into view; the frame needs no sandbox attribute, the page itself is served with a
- * sandbox CSP header. Tags sit as small chips beside the title; a checkbox (shown in
- * select mode) is how pages are picked for bulk tagging and pinning.
+ * sandbox CSP header (for a preview, scripts only: PREVIEW_CSP). Tags sit as small chips
+ * beside the title; a checkbox (shown in select mode) is how pages are picked for bulk
+ * tagging and pinning.
  */
 export function galleryCards(items, q, { base = '/' } = {}) {
   return items.map((i) => {
@@ -164,12 +165,14 @@ export function galleryCards(items, q, { base = '/' } = {}) {
  * pages above "All pages"; otherwise one list. Also what live search swaps in. One
  * grid either way, its section titles spanning it, so live search can show, hide and
  * reorder the cards without moving them (a preview moved in the document reloads).
+ * `count`, the line above the cards (countLabel), travels with them for live search.
  */
-export function resultsBody(items, q, { base = '/' } = {}) {
-  if (!items.length) return `<p class="empty">${q ? 'No matches.' : 'Nothing here yet.'}</p>`;
+export function resultsBody(items, q, { base = '/', count } = {}) {
+  const c = count ? ` data-count="${esc(count)}"` : '';
+  if (!items.length) return `<p class="empty"${c}>${q ? 'No matches.' : 'Nothing here yet.'}</p>`;
   const pinned = !q && base === '/' ? items.filter((i) => i.pinned) : [];
-  if (!pinned.length) return `<div class="cards">${galleryCards(items, q, { base })}</div>`;
-  return `<div class="cards"><h2 class="section-title" data-section="featured">${PIN}Featured</h2>${galleryCards(pinned, q, { base })}
+  if (!pinned.length) return `<div class="cards"${c}>${galleryCards(items, q, { base })}</div>`;
+  return `<div class="cards"${c}><h2 class="section-title" data-section="featured">${PIN}Featured</h2>${galleryCards(pinned, q, { base })}
 <h2 class="section-title" data-section="all">All pages</h2>${galleryCards(items.filter((i) => !i.pinned), q, { base })}</div>`;
 }
 
@@ -180,6 +183,16 @@ function totalLabel(total, items, section) {
   if (section === 'gallery') return plural(total, 'example page');
   const featured = items.filter((i) => i.pinned).length;
   return `${plural(total, 'page')}${featured ? ` · ${featured} featured` : ''}`;
+}
+
+/**
+ * The line above the cards: "18 pages · 2 featured", or searching, "3 matches". `total` and
+ * `found` are counted (all the pages, all the matches); when the cards stop short of them
+ * (a listing shows at most LIST_LIMIT), it says how many are shown.
+ */
+export function countLabel(items, { q = '', total = items.length, found = items.length, section = 'pages' } = {}) {
+  const label = q ? plural(found, 'match') : totalLabel(total, items, section);
+  return items.length < (q ? found : total) ? `${label} · showing the first ${items.length}` : label;
 }
 
 /**
@@ -205,7 +218,7 @@ function sortControl({ q, category, view, sort, base = '/', recursive = false })
  * /gallery ("gallery"). Category chips, search, sorting (your pages), grid/list and previews.
  */
 export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages', total = items.length,
-  explorer = null, sort = '', base: customBase, folder = '', folders = [], recursive = false }) {
+  found = items.length, explorer = null, sort = '', base: customBase, folder = '', folders = [], recursive = false }) {
   const base = customBase || (section === 'gallery' ? '/gallery' : '/');
   // Links keep the other settings, so the page works fully without JS.
   const link = (over) => {
@@ -235,8 +248,8 @@ ${folder ? `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(folder + 
 ${folders.length ? `<nav class="folder-list" aria-label="Subfolders">${folders.map((f) => `<a href="/${encodePath(f.path)}/">▸ ${esc(f.name)}</a>`).join('')}</nav>` : ''}
 <p><a href="${esc(link({ recursive: recursive ? '' : '1' }))}">${recursive ? 'Show direct contents' : 'Include subfolders'}</a>${q ? ' · Search includes subfolders' : ''}</p>` : ''}
 ${intro}${controls}
-<p id="count" class="meta" data-total="${esc(totalLabel(total, items, section))}">${q ? plural(items.length, 'match') : esc(totalLabel(total, items, section))}</p>
-<section id="results" class="${view}">${resultsBody(items, q, { base })}</section>
+<p id="count" class="meta">${esc(countLabel(items, { q, total, found, section }))}</p>
+<section id="results" class="${view}">${resultsBody(items, q, { base, count: countLabel(items, { q, total, found, section }) })}</section>
 ${section === 'pages' ? `<div id="bulk" class="bulk" hidden role="region" aria-label="Selected pages">
   <span id="bulk-count">0 selected</span>
   <input id="bulk-tag" placeholder="tag, e.g. trips" autocomplete="off" aria-label="Tag">
@@ -556,8 +569,8 @@ export function reviewPage(slug) {
 <select id="ver" aria-label="Version"></select>
 <button id="move-page" hidden>Move…</button>
 <button id="changes">Show changes</button><button id="restore" hidden>Make this version current</button>
-<a id="open" target="_blank">Open page</a> <a id="hist">History</a> <a id="jump" href="#comments">Comments</a></header>
-<div class="review"><div id="frame-slot"><iframe id="frame" title="Page"></iframe></div><aside id="comments">
+<a id="open" target="_blank">Open page</a> <button id="hist" aria-expanded="false" aria-controls="history">History</button> <a id="jump" href="#comments">Comments</a></header>
+<div class="review"><div id="frame-slot"><iframe id="frame" title="Page"></iframe></div><section id="history" hidden></section><aside id="comments">
 <h2 id="ctitle">Comments</h2><p id="who" class="meta"></p>
 <details id="signin"><summary>Sign in to comment</summary>
 <p class="meta">Paste your token (ask the admin for one). It is saved in this browser only.</p>

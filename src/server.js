@@ -4,13 +4,13 @@ import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { fileBytes, fileText } from './files.js';
 import {
-  CARD_SNIPPETS, MAX_BODY_BYTES, MAX_INLINE_BYTES, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
+import { VIEWS, countLabel, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, findExamples } from './examples.js';
 import { renderMarkdown, safeDecode } from './markdown.js';
-import { encodePath, pageUrl, parentPath, validatePath } from './paths.js';
+import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
 import { isNote, isNotebook, parseNotebook, renderNotebook } from './notebook.js';
 import { Store, pageMeta, summary } from './store.js';
 import { TOOLS as MCP_TOOLS } from './mcp.js';
@@ -219,7 +219,7 @@ class Ctx {
 
   /** An artifact (or anything showing its content): sandboxed so its scripts can't reach the API. */
   page(body) {
-    this.send(200, 'text/html; charset=utf-8', body, { 'Content-Security-Policy': this.csp, 'X-Content-Type-Options': 'nosniff' });
+    this.send(200, 'text/html; charset=utf-8', body, { 'Content-Security-Policy': this.preview() ? PREVIEW_CSP : this.csp, 'X-Content-Type-Options': 'nosniff' });
   }
 
   /** ?page=<name>[&depth=n]: a local graph around one page (depth 1-3, default 1). */
@@ -236,7 +236,7 @@ class Ctx {
    */
   listing(items, opts, page = () => ({})) {
     const base = opts.base || (opts.section === 'gallery' ? '/gallery' : '/');
-    if (this.query.get('fragment')) return this.html(resultsBody(items, opts.q, { base }));
+    if (this.query.get('fragment')) return this.html(resultsBody(items, opts.q, { base, count: countLabel(items, opts) }));
     const view = VIEWS.includes(this.query.get('view')) ? this.query.get('view') : 'grid';
     this.html(galleryPage(items, { ...opts, ...page(), view, explorer: opts.section === 'pages' ? this.store.explorer(this.viewerId()) : null }));
   }
@@ -434,9 +434,11 @@ const handlers = {
     const q = (c.query.get('q') || '').trim();
     const category = c.query.get('category') || '';
     const sort = c.query.get('sort') || '';
-    const items = c.store.list(null, { q: q || undefined, category: category || undefined, sort: sort || undefined, limit: 500, snippets: CARD_SNIPPETS });
-    c.listing(items, { q, category, sort, section: 'pages' },
-      () => ({ categories: c.store.categories(null), total: category ? items.length : c.store.countPages(null) }));
+    const items = c.store.list(null, { q: q || undefined, category: category || undefined, sort: sort || undefined, limit: LIST_LIMIT, snippets: CARD_SNIPPETS });
+    // Counted, not the cards: a listing stops at LIST_LIMIT.
+    const total = c.store.count(null, { category: category || undefined });
+    c.listing(items, { q, category, sort, section: 'pages', total, found: q ? c.store.count(null, { q, category: category || undefined }) : total },
+      () => ({ categories: c.store.categories(null) }));
   },
   folders(c) {
     const paths = new Set();
@@ -453,10 +455,11 @@ const handlers = {
     const q = (c.query.get('q') || '').trim(), sort = c.query.get('sort') || '';
     const recursive = !!q || c.query.get('recursive') === '1';
     const category = c.query.get('category') || '';
-    const opts = { folder, recursive, q, sort: sort || undefined, category, limit: 500 };
+    const opts = { folder, recursive, q, sort: sort || undefined, category, limit: LIST_LIMIT };
     const items = c.store.list(viewer, opts);
+    const total = c.store.count(viewer, { folder, recursive, category });
     c.listing(items, { q, sort, category, section: 'pages', base: `/${encodePath(folder)}/`, folder, folders,
-      recursive, total: c.store.list(viewer, { ...opts, q: '' }).length });
+      recursive, total, found: q ? c.store.count(viewer, { folder, recursive, category, q }) : total });
   },
   async movePages(c) {
     const user = c.user();
@@ -473,8 +476,8 @@ const handlers = {
     const q = (c.query.get('q') || '').trim();
     const category = c.query.get('category') || '';
     const found = findExamples({ q, category });
-    c.listing(found, { q, category, section: 'gallery' },
-      () => ({ categories: exampleCategories(), total: q ? findExamples({ category }).length : found.length }));
+    c.listing(found, { q, category, section: 'gallery', total: q ? findExamples({ category }).length : found.length, found: found.length },
+      () => ({ categories: exampleCategories() }));
   },
   example(c, { file }) {
     const body = exampleHtml(file);
@@ -496,7 +499,7 @@ const handlers = {
     c.send(200, type, body, { 'Cache-Control': 'no-cache' });
   },
   render(c, { slug }) {
-    try { validatePath(slug); } catch { throw new ApiError(404, 'no such page'); }
+    if (!isPagePath(slug)) throw new ApiError(404, 'no such page'); // /research/report finds research/report.html
     const exact = c.store.find(slug, { exact: true });
     if (!exact) {
       try { c.store.folder(slug, c.viewerId()); return c.send(302, 'text/plain', '', { Location: `/${encodePath(slug)}/${c.url.search}` }); }
@@ -537,7 +540,7 @@ const handlers = {
     c.json(200, c.store.list(viewer, {
       q: c.query.get('q') || undefined,
       state,
-      limit: Math.min(c.int('limit') ?? 50, 500),
+      limit: Math.min(c.int('limit') ?? 50, LIST_LIMIT),
       offset: c.int('offset') ?? 0,
       owner: c.query.get('owner') || undefined,
       category: c.query.get('category') || undefined,

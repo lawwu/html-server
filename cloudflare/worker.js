@@ -4,18 +4,20 @@
 // cloudflare` (or `npx wrangler deploy`); see README "Deploy to Cloudflare".
 //
 // One Durable Object, so every request sees one consistent database, like the single
-// Node process. Its SQLite holds at most 2 MB per row, so uploads are capped below that.
+// Node process. Its SQLite holds at most 2 MB per row, so uploads are capped below that,
+// and a bigger request is refused before it's read (cloudflare/body.js).
 import './files.generated.js'; // first: the package's own files, before anything reads them
-import { Buffer } from 'node:buffer';
 import { Readable } from 'node:stream';
 import { DurableObject } from 'cloudflare:workers';
 import { setUploadLimits } from '../src/config.js';
 import { handleRequest } from '../src/server.js';
 import { Store } from '../src/store.js';
+import { readBody } from './body.js';
 import { DurableSqlite } from './sqlite.js';
 
 const ROW_LIMIT = Math.floor(1.9 * 1024 * 1024); // under the 2 MB row limit, leaving room for the row's other columns
 setUploadLimits({ body: ROW_LIMIT, asset: ROW_LIMIT });
+const TOO_BIG = `too big: this server takes up to ${+(ROW_LIMIT / 1024 / 1024).toFixed(1)} MB per upload`; // as the handler says it
 
 export class HtmlServer extends DurableObject {
   constructor(ctx, env) {
@@ -30,7 +32,8 @@ export class HtmlServer extends DurableObject {
 
   async fetch(request) {
     const url = new URL(request.url);
-    const body = request.body ? Buffer.from(await request.arrayBuffer()) : Buffer.alloc(0);
+    const body = await readBody(request, ROW_LIMIT);
+    if (!body) return Response.json({ error: TOO_BIG }, { status: 413 });
     const req = Readable.from(body.length ? [body] : []);
     Object.assign(req, {
       method: request.method,
