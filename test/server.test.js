@@ -337,7 +337,7 @@ test('legacy /pages/{slug} URLs: new uploads, with or without .html', async () =
 
   // The gallery and the review page link to the /pages/ form.
   assert.match((await req('GET', '/'))[1], /href="\/pages\/roadmap"/);
-  assert.match((await req('GET', '/_static/review.js'))[1], /\/pages\/\$\{S\}/);
+  assert.match((await req('GET', '/_static/review.js'))[1], /\$\{meta.url\}/);
 });
 
 test('open editing: others add versions to public pages; the owner keeps control', async () => {
@@ -1108,7 +1108,7 @@ test('Markdown links to other files of a synced folder go to their pages, #secti
   assert.match(page, /<a href="\/pages\/finance-profile.md#savings">the profile<\/a>/);
   assert.match(page, /<a href="\/pages\/finance.md">finance<\/a>/); // a folder's index.md is the folder's page
   assert.match(page, /<a href="\/pages\/finance-profile.md">from the top<\/a>/);
-  assert.match(page, /<a href="\/pages\/health-other.md">a sibling<\/a>/); // not written yet: where it would be
+  assert.match(page, /<a href="\/health\/other.md">a sibling<\/a>/); // not written yet: where it would be
   assert.deepEqual(backlinksOf('finance-profile.md'), ['health-README.md']);
   assert.deepEqual(await graphEdges(), ['health-README.md>finance-profile.md', 'health-README.md>finance.md']);
 });
@@ -1250,4 +1250,173 @@ test('diffs: big versions with a few changes are quick; versions too far apart s
   const [s3, page] = await req('GET', '/review/long.html/changes');
   assert.equal(s3, 200);
   assert.match(page, /<p class="same">Too many changes to show/);
+});
+
+const move = (moves, token = admin) => req('POST', '/api/moves', { token, body: JSON.stringify({ moves }) });
+
+test('folders: nested addresses, direct contents, descendants, scoped search and privacy', async () => {
+  await put('research/report.html', '<title>Research report</title>');
+  await put('research/deep/experiment.md', '# Unique experiment');
+  await put('researcher/other.md', '# Outside');
+  await put('research/hidden/secret.md', '# Hidden title', admin, '?visibility=private');
+  assert.equal((await req('GET', '/research/report.html'))[0], 200);
+  assert.equal((await req('GET', '/pages/research/report.html'))[0], 200);
+  let [status, html] = await req('GET', '/research/');
+  assert.equal(status, 200);
+  assert.match(html, /href="\/research\/deep\/"/);
+  const cards = html.slice(html.indexOf('<section id="results"'));
+  assert.match(cards, /Research report/);
+  assert.doesNotMatch(cards, /Unique experiment|Hidden title|Outside/);
+  assert.doesNotMatch(html, /research\/hidden|Hidden title/);
+  assert.match((await req('GET', '/research/?recursive=1&fragment=1'))[1], /Unique experiment/);
+  assert.match((await req('GET', '/research/?q=Unique&fragment=1'))[1], /Unique experiment/);
+  assert.deepEqual(slugs((await req('GET', '/api/artifacts?folder=research&recursive=0'))[1]), ['research/report.html']);
+  assert.equal((await req('GET', '/research/hidden/'))[0], 404);
+  assert.equal((await req('GET', '/research/hidden/', { token: admin }))[0], 200);
+  const redirect = await fetch(base + '/research?q=report', { redirect: 'manual' });
+  assert.equal(redirect.headers.get('location'), '/research/?q=report');
+  assert.deepEqual((await req('GET', '/api/folders'))[1], ['research', 'research/deep', 'researcher']);
+});
+
+test('moves preserve identity, content history, comments, views, tags, shares and old addresses', async () => {
+  const [, before] = await put('old.html', '<title>Old</title><a href="sibling.html">Sibling</a>');
+  await put('old.html', '<title>New</title>');
+  await req('POST', '/api/artifacts/old.html/comments', { token: admin, body: '{"body":"Keep this comment"}' });
+  await req('POST', '/api/tags', { token: admin, body: '{"pages":["old.html"],"add":["kept"]}' });
+  await req('GET', '/old.html');
+  const id = store.find('old.html').id;
+  const [status, { results: [after] }] = await move([{ from: 'old.html', to: 'research/report.html' }]);
+  assert.equal(status, 200);
+  assert.equal(store.find('research/report.html').id, id);
+  assert.equal(after.latest_version, 2);
+  assert.equal(after.share_url, before.share_url);
+  assert.equal(after.views, 1);
+  assert.deepEqual(after.tags, ['kept']);
+  assert.equal(after.moves.length, 1);
+  assert.equal((await req('GET', '/api/artifacts/research/report.html/comments'))[1][0].body, 'Keep this comment');
+  for (const path of ['/old.html', '/pages/old.html', '/old']) {
+    const r = await fetch(base + path + '?v=1&raw=1', { redirect: 'manual' });
+    assert.equal(r.status, 302);
+    assert.equal(r.headers.get('location'), '/research/report.html?v=1&raw=1');
+  }
+  assert.match((await req('GET', '/research/report.html?v=1'))[1], /base href="\/pages\/old.html\?v=1"/);
+  assert.match((await req('GET', before.share_url + '?v=1'))[1], /<title>Old/);
+  assert.equal((await put('old.html', '<p>stale publisher</p>'))[0], 409);
+  assert.equal((await move([{ from: 'research/report.html', to: 'archive/report.html' }]))[0], 200);
+  assert.equal((await fetch(base + '/old.html', { redirect: 'manual' })).headers.get('location'), '/archive/report.html');
+  assert.equal((await move([{ from: 'archive/report.html', to: 'old.html' }]))[0], 200);
+  assert.equal((await fetch(base + '/old.html', { redirect: 'manual' })).status, 200);
+});
+
+test('bulk moves are atomic, owner-only, validate paths and refuse collisions and stale sources', async () => {
+  const other = store.createUser('other');
+  await put('a.html', '<p>A</p>'); await put('b.html', '<p>B</p>');
+  await put('taken/a.html', '<p>Taken</p>', other);
+  assert.equal((await move([{ from: 'b.html', to: 'new/b.html' }, { from: 'a.html', to: 'taken/a.html' }]))[0], 409);
+  assert.ok(!store.find('new/b.html', { exact: true }));
+  assert.equal(store.find('b.html').slug, 'b.html');
+  store.setEditing('open');
+  assert.equal((await move([{ from: 'a.html', to: 'stolen/a.html' }], other))[0], 403);
+  for (const to of ['api/a.html', 'foo/../a.html', 'foo//a.html', '/foo/a.html', 'foo/a.md', 'foo/\\a.html']) {
+    assert.equal((await move([{ from: 'a.html', to }]))[0], 400, to);
+  }
+  assert.equal((await move([{ from: 'a.html', to: 'new/a.html' }, { from: 'b.html', to: 'new/a.html' }]))[0], 409);
+  assert.equal((await move([{ from: 'a.html', to: 'new/a.html' }, { from: 'b.html', to: 'new/b.html' }]))[0], 200);
+  assert.equal((await move([{ from: 'a.html', to: 'other/a.html' }]))[0], 409);
+  assert.equal((await put('NEW/A.html', '<p>collision</p>'))[0], 409);
+  assert.equal((await put('api%2Fnested.html', 'bad'))[0], 400);
+  assert.equal((await put('nested%2F..%2Fbad.html', 'bad'))[0], 400);
+  assert.equal((await move([null]))[0], 400);
+});
+
+test('private moved pages do not disclose their new address or sibling pages', async () => {
+  const [, a] = await put('secret.md', '# Secret', admin, '?visibility=private');
+  await move([{ from: 'secret.md', to: 'hidden/secret.md' }]);
+  const r = await fetch(base + '/secret.md', { redirect: 'manual' });
+  assert.equal(r.status, 404); assert.equal(r.headers.get('location'), null);
+  assert.equal((await req('GET', '/hidden/'))[0], 404);
+  assert.doesNotMatch((await req('GET', a.share_url))[1], /href="\/hidden\/"/);
+});
+
+test('relative Markdown links, HTML links, backlinks and graphs survive moves and version restores', async () => {
+  await put('work/target.md', '# Target');
+  await put('work/note.md', '# Source\n\n[read](./target.md#section) and [[target]]');
+  await put('work/html.html', '<a href="./target.md">Read</a>');
+  const source = store.find('work/note.md').id, target = store.find('work/target.md').id;
+  await move([{ from: 'work/note.md', to: 'archive/note.md' }, { from: 'work/target.md', to: 'elsewhere/target.md' }]);
+  assert.match((await req('GET', '/archive/note.md'))[1], /href="\/elsewhere\/target.md#section"/);
+  const graph = (await req('GET', '/api/graph'))[1];
+  assert.ok(graph.edges.some((e) => e.source === source && e.target === target));
+  assert.ok(store.backlinks(store.find('elsewhere/target.md'), null).some((p) => p.slug === 'archive/note.md'));
+  await put('archive/note.md', '# Changed');
+  assert.equal((await req('POST', '/api/artifacts/archive/note.md/versions/1/restore', { token: admin }))[0], 200);
+  assert.match((await req('GET', '/archive/note.md'))[1], /href="\/elsewhere\/target.md#section"/);
+});
+
+test('move aliases and version link bases survive reopening the database', async () => {
+  await put('persist/note.md', '# Persistent\n[relative](target.md)');
+  await move([{ from: 'persist/note.md', to: 'else/note.md' }]);
+  const second = new Store(join(dir, 't.db'));
+  try {
+    const page = second.find('persist/note.md');
+    assert.equal(page.slug, 'else/note.md');
+    assert.equal(second.versionBase(page), 'persist/note.md');
+    assert.equal(second.describe('else/note.md', null).moves.length, 1);
+  } finally { second.close(); }
+});
+
+test('wikilink graph resolution matches rendered local, global, and qualified links', async () => {
+  await put('other/Global.md', '# Global');
+  await put('local/Local.md', '# Local');
+  await put('other/Local.md', '# Other local');
+  await put('local/source.md', '# Source\n[[Global]] [[Local]] [[other/Local]]');
+  const graph = store.graph(null), source = store.find('local/source.md').id;
+  const targets = graph.edges.filter((e) => e.source === source).map((e) => graph.nodes.find((n) => n.id === e.target).slug).sort();
+  assert.deepEqual(targets, ['local/Local.md', 'other/Global.md', 'other/Local.md']);
+  const html = (await req('GET', '/local/source.md'))[1];
+  for (const path of targets) assert.ok(html.includes(`href="/${path}"`));
+});
+
+test('a page gets a <base> only away from where it was written, and its #section links stay on the page', async () => {
+  const toc = '<!doctype html><html><head><title>Contents</title></head><body><a href="#b">B</a> <a href="sibling.html">Sibling</a><h2 id="b">B</h2></body></html>';
+  const [, shared] = await put('anchors/toc.html', toc, admin, '?visibility=private');
+  await put('flat-toc.html', toc);
+  const page = async (path, token = admin) => (await req('GET', path, { token }))[1];
+  const count = (html, s) => html.split(s).length - 1;
+  // Where it was written, by any form of its address: the browser reads its links right.
+  for (const path of ['/anchors/toc.html', '/pages/anchors/toc.html?raw=1', '/Anchors/toc.html', '/flat-toc.html', '/pages/flat-toc.html']) {
+    const html = await page(path);
+    assert.doesNotMatch(html, /<base\b/, path);
+    assert.doesNotMatch(html, /data-html-server-links/, path);
+  }
+  // The frame is as tall as the page, so its #section links scroll the window around it.
+  let html = await page('/pages/anchors/toc.html?embed=1');
+  assert.doesNotMatch(html, /<base\b/);
+  assert.equal(count(html, 'data-html-server-links'), 1);
+  // A share link isn't where the page was written: relative links get a <base>, and #b stays on the page.
+  html = await page(shared.share_url, null);
+  assert.match(html, /<head><base href="\/pages\/anchors\/toc.html"><title>/);
+  assert.equal(count(html, 'data-html-server-links'), 1);
+  // Moved: the same, at the new address, in the frame (once) and on its own.
+  await move([{ from: 'anchors/toc.html', to: 'elsewhere/toc.html' }]);
+  for (const path of ['/elsewhere/toc.html', '/pages/elsewhere/toc.html?embed=1']) {
+    html = await page(path);
+    assert.equal(count(html, '<base href="/pages/anchors/toc.html">'), 1, path);
+    assert.equal(count(html, 'data-html-server-links'), 1, path);
+  }
+  // A page with a <base> of its own keeps it, and its links mean what it says.
+  await put('own/base.html', '<head><base href="https://example.com/docs/"></head><a href="#b">B</a>');
+  await move([{ from: 'own/base.html', to: 'moved-own/base.html' }]);
+  html = await page('/moved-own/base.html');
+  assert.equal(count(html, '<base'), 1);
+  assert.doesNotMatch(html, /data-html-server-links/);
+});
+
+test('an old address redirects to a name in any script with an ASCII Location', async () => {
+  await put('ascii/note.html', '<p>note</p>');
+  await move([{ from: 'ascii/note.html', to: '笔记.html' }]);
+  const r = await fetch(base + '/ascii/note.html?raw=1', { redirect: 'manual' });
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.get('location'), `/pages/${encodeURIComponent('笔记.html')}?raw=1`);
+  assert.equal((await fetch(base + r.headers.get('location'))).status, 200);
 });

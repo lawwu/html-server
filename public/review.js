@@ -1,8 +1,10 @@
 // The review page: the artifact full width on top, its comments underneath.
 // The commenting token lives in this origin's localStorage; artifacts can't read
 // it because they render sandboxed (opaque origin).
+import { openMove } from './move.js';
 const SLUG = document.body.dataset.slug;
-const S = encodeURIComponent(SLUG);
+const S = encodeURIComponent(SLUG); // for the API
+const P = SLUG.split('/').map(encodeURIComponent).join('/'); // for links: research/report.html
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const when = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -38,7 +40,7 @@ function setFrame(url) {
   $('frame').replaceWith(f);
 }
 function showPage() { showingDiff = false; $('changes').textContent = 'Show changes'; setFrame(`${meta.share_url}?v=${cur}`); }
-function showDiff() { showingDiff = true; $('changes').textContent = 'Show page'; setFrame(`/review/${S}/changes?from=${cur - 1}&to=${cur}`); }
+function showDiff() { showingDiff = true; $('changes').textContent = 'Show page'; setFrame(`/review/${P}/changes?from=${cur - 1}&to=${cur}`); }
 
 async function load(n) {
   try { meta = await api(`/api/artifacts/${S}`); } catch (e) {
@@ -50,10 +52,13 @@ async function load(n) {
   $('title').textContent = meta.title;
   $('ver').innerHTML = meta.versions.slice().reverse().map((v) =>
     `<option value=${v.n} ${v.n === cur ? 'selected' : ''}>v${v.n}${v.n === meta.latest_version ? ' (current)' : ''} · ${esc(v.author)}${v.note ? ` · ${esc(v.note)}` : ''}</option>`).join('');
+  $('move-page').hidden = !meta.can_move;
+  $('move-page').onclick = () => openMove([meta.slug], (out) => { location.href = `/review/${out[0].slug.split('/').map(encodeURIComponent).join('/')}`; });
+  if (meta.can_move && new URLSearchParams(location.search).get('move')) $('move-page').click();
   $('restore').hidden = cur === meta.latest_version || !meta.can_edit;
-  $('hist').href = `/history/${S}`;
+  $('hist').href = `/history/${P}`;
   $('changes').disabled = cur === 1;
-  $('open').href = `/pages/${S}${cur === meta.latest_version ? '' : `?v=${cur}`}`;
+  $('open').href = `${meta.url}${cur === meta.latest_version ? '' : `?v=${cur}`}`;
   history.replaceState(null, '', `?v=${cur}`);
   showPage();
   loadComments();

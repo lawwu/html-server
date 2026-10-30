@@ -5,6 +5,7 @@
 import { Marked } from 'marked';
 import { PAGE_EXT_RE } from './config.js';
 import { highlight } from './highlight.js';
+import { linkPath, pageUrl } from './paths.js';
 import { escapeHtml as esc } from './text.js';
 
 export const MARKDOWN_RE = /\.(md|markdown)$/i;
@@ -45,10 +46,14 @@ export function linkName(target) {
  * "plugins/Backlinks" → ["plugins-Backlinks", "Backlinks"]; "Weekly-Review" → ["Weekly-Review"].
  * The bare file name is the fallback Quartz calls "shortest path".
  */
-export const linkCandidates = (name) => (name.includes('/') ? [name.replace(/\//g, '-'), name.slice(name.lastIndexOf('/') + 1)] : [name]);
+export const linkCandidates = (name) => name.startsWith('[') ? [...new Set(JSON.parse(name).flatMap(linkCandidates))] : name.includes('/') ? [...new Set([name, syncedSlug(name), name.replace(/\//g, '-'), name.slice(name.lastIndexOf('/') + 1)])] : [name];
 
 /** A wikilink target → the page name(s) it may mean, most specific first (see linkCandidates). */
 export const wikiTargets = (target) => linkCandidates(linkName(target));
+export function wikiCandidates(target, path = '') {
+  const name = linkName(target);
+  return !name.includes('/') && path.includes('/') ? [linkPath(name, path), name] : [name];
+}
 export const wikiTarget = (target) => wikiTargets(target)[0];
 
 /** decodeURIComponent, or the text as it is when it isn't valid percent-encoding ("100%.md"). */
@@ -72,7 +77,7 @@ export function pageHref(href, path = '') {
   const hash = at === -1 ? '' : href.slice(at).replace(/^\?[^#]*/, '');
   let h = safeDecode(at === -1 ? href : href.slice(0, at));
   if (!h || /^[a-z][a-z0-9+.-]*:|^\/\//i.test(h) || ASSET_RE.test(h) || SERVER_PATH_RE.test(h)) return null;
-  if (h.startsWith('/pages/')) return h.length > 7 && !h.slice(7).includes('/') ? { name: h.slice(7), hash } : null;
+  if (h.startsWith('/pages/')) return h.length > 7 ? { name: h.slice(7), hash } : null;
   const bare = h.replace(/^\.?\//, '');
   if (!bare.includes('/') && !PAGE_EXT_RE.test(bare)) { // a name, found as a URL would find it; a data.csv isn't one
     return bare && !/\.[A-Za-z0-9]{1,8}$/.test(bare) ? { name: noteSlug(bare), hash } : null;
@@ -84,7 +89,7 @@ export function pageHref(href, path = '') {
     if (p === '..') parts.pop();
     else if (p && p !== '.') parts.push(p);
   }
-  const name = parts.length ? syncedSlug(parts.join('/')) : '';
+  const name = parts.map(noteSlug).filter(Boolean).join('/');
   return name ? { name, hash } : null;
 }
 
@@ -186,7 +191,10 @@ export function noteLinks(md, { path = '' } = {}) {
   const out = new Set();
   for (const m of body.matchAll(WIKILINK_RE)) {
     const target = m[1].replace(/\\$/, '');
-    if (!ASSET_RE.test(target) && !/^tags\//i.test(target.trim())) out.add(linkName(target));
+    if (!ASSET_RE.test(target) && !/^tags\//i.test(target.trim())) {
+      const names = wikiCandidates(target, path);
+      out.add(names.length === 1 ? names[0] : JSON.stringify(names));
+    }
   }
   for (const m of body.matchAll(MD_LINK_RE)) out.add(pageHref(m[1], path)?.name);
   return [...out].filter(Boolean);
@@ -237,7 +245,7 @@ export function renderMarkdown(md, { resolve = () => null, asset = () => null, t
             return `<a class="tag" href="/?category=${encodeURIComponent(tag)}" target="_top">${esc(t.alias || `#${tag}`)}</a>`;
           }
           const text = esc(t.alias || (t.heading ? `${t.target} › ${t.heading}` : t.target.split('/').pop()));
-          const hit = wikiTargets(t.target).map(resolve).find((h) => h?.exists);
+          const hit = wikiCandidates(t.target, path).map(resolve).find((h) => h?.exists);
           if (t.embed) return `<a class="embed" href="${esc(hit?.url ?? '#')}" title="Embedded notes show as links">↪ ${text}</a>`;
           if (!hit?.exists) return `<a class="wikilink missing" title="Not written yet">${text}</a>`;
           return `<a class="wikilink" href="${esc(hit.url)}${t.heading ? `#${headingId(t.heading)}` : ''}">${text}</a>`;
@@ -267,7 +275,7 @@ export function renderMarkdown(md, { resolve = () => null, asset = () => null, t
       // A link to a page here goes to that page's URL (the default renderer draws it).
       link(token) {
         const page = pageHref(token.href, path);
-        if (page) token.href = (resolve(page.name)?.url ?? `/pages/${encodeURIComponent(page.name)}`) + page.hash;
+        if (page) token.href = (resolve(page.name)?.url ?? pageUrl(page.name)) + page.hash;
         return false;
       },
       // Code blocks get the same highlighting as notebook code (src/highlight.js).

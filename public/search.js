@@ -119,7 +119,7 @@ async function run() {
 function titleMatches(q) {
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const seen = new Set();
-  return [...document.querySelectorAll('.tree a[href^="/pages/"]')].map((a) => ({ title: a.textContent.trim(), url: a.getAttribute('href') }))
+  return [...document.querySelectorAll('.tree a[href^="/"]')].map((a) => ({ title: a.textContent.trim(), url: a.getAttribute('href') }))
     .filter((r) => {
       if (seen.has(r.url)) return false;
       seen.add(r.url);

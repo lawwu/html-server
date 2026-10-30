@@ -29,7 +29,7 @@ Sign this CLI in to a server (saved, so there's nothing to add to your shell pro
   logout
 
 Use a running server:
-  put FILE [NOTE] [--private] [--name NAME] [--base N]
+  put FILE [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]
                                         upload an .html page, .md note or .ipynb notebook; it lives at /pages/<file name>.
                                         --base N: refuse if someone added a version after vN
   history NAME                          every version, with date, author and note
@@ -37,13 +37,14 @@ Use a running server:
   tag add TAG NAME... | tag rm TAG NAME...   tag or untag many pages at once
   tags                                  every tag in use, with counts
   import DIR [--private]                upload every .html file in DIR (re-runnable: unchanged files are skipped)
-  sync DIR [--private] [--prune] [--dry-run] [--install-hook]
+  sync DIR [--private] [--folder FOLDER] [--migrate-paths] [--prune] [--dry-run] [--install-hook]
                                         upload a Markdown/Quartz/Obsidian folder (notes, notebooks, .html, images), recursively;
                                         re-runnable; --prune trashes pages whose file is gone; --install-hook re-syncs
                                         on every git commit and pull. A Quartz repo syncs content/ and its ignorePatterns
-  ls [--sort updated|created|views|title]
+  mv FROM TO                            move or rename; old links and history survive
+  ls [--folder FOLDER] [--sort updated|created|views|title]
                                         your pages and everyone's public ones, featured first
-  search WORDS... [--tag T] [--sort S] [--json]
+  search WORDS... [--folder FOLDER] [--tag T] [--sort S] [--json]
                                         search titles, file names and text; best matches first
                                         (--sort: updated, created, views or title instead)
   find WORDS...                         the same as search

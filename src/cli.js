@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
 import { PAGE_EXT_RE, VERSION } from './config.js';
+import { encodePath, pageUrl } from './paths.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
 
@@ -250,8 +251,8 @@ function openInBrowser(url) {
 
 const clientCommands = {
   async put([file, note = ''], opts) {
-    if (!file || !existsSync(file)) fail('usage: put FILE [NOTE] [--private] [--name NAME] [--base N]');
-    const name = opts.name || basename(file); // upload to the base name, so out/page.html works
+    if (!file || !existsSync(file)) fail('usage: put FILE [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]');
+    const name = [opts.folder?.replace(/^\/+|\/+$/g, ''), opts.name || basename(file)].filter(Boolean).join('/'); // upload to the base name, so out/page.html works
     // The name is in the URL, so options can ride in the query string (any characters, unlike headers).
     const q = new URLSearchParams();
     if (note) q.set('note', note);
@@ -262,7 +263,7 @@ const clientCommands = {
     }
     const a = await api('PUT', `/api/artifacts/${enc(name)}${q.size ? `?${q}` : ''}`, { body: readFileSync(file), auth: 'required' });
     console.log(`published v${a.latest_version}: ${SERVER}${a.url}`);
-    console.log(`review:       ${SERVER}/review/${enc(a.slug)}`);
+    console.log(`review:       ${SERVER}/review/${encodePath(a.slug)}`);
     if (a.visibility === 'private') console.log(`share link:   ${SERVER}${a.share_url}`);
   },
   /**
@@ -271,6 +272,14 @@ const clientCommands = {
    * working. Safe to re-run: a file identical to the page's latest version is
    * skipped, and a changed one becomes a new version.
    */
+  async mv([from, to]) {
+    if (!from || !to) fail('usage: mv FROM TO (a full page path, or a folder ending in /)');
+    if (to.endsWith('/')) to += from.split('/').at(-1);
+    to = to.replace(/^\/+/, '');
+    const { results } = await api('POST', '/api/moves', { body: JSON.stringify({ moves: [{ from, to }] }), auth: 'required', json: true });
+    console.log(`${from} → ${SERVER}${results[0].url} (old links still work)`);
+  },
+
   async import([dir], opts) {
     if (!dir || !existsSync(dir) || !statSync(dir).isDirectory()) fail('usage: import DIR [--private]');
     const files = readdirSync(dir).filter((f) => /\.html$/i.test(f) && statSync(join(dir, f)).isFile()).sort();
@@ -332,7 +341,7 @@ const clientCommands = {
       const cur = v.n === a.latest_version ? ' (current)' : '';
       console.log(`  v${String(v.n).padEnd(4)} ${when}  ${v.author.padEnd(16)} ${v.note}${cur}`);
     }
-    console.log(`changes: html-server diff ${a.slug} FROM TO   ·   ${SERVER}/history/${enc(a.slug)}`);
+    console.log(`changes: html-server diff ${a.slug} FROM TO   ·   ${SERVER}/history/${encodePath(a.slug)}`);
   },
   /**
    * Bring a Markdown knowledge base in, one way: Quartz, Obsidian, or any folder of
@@ -349,7 +358,7 @@ const clientCommands = {
    * hooks so every commit and pull re-syncs in the background.
    */
   async sync([dir], opts) {
-    if (!dir || !existsSync(dir) || !statSync(dir).isDirectory()) fail('usage: sync DIR [--private] [--prune] [--dry-run] [--install-hook]');
+    if (!dir || !existsSync(dir) || !statSync(dir).isDirectory()) fail('usage: sync DIR [--private] [--folder FOLDER] [--migrate-paths] [--prune] [--dry-run] [--install-hook]');
     const { noteSlug, parseFrontmatter, syncedSlug, ASSET_RE } = await import('./markdown.js');
     const { parseNotebook } = await import('./notebook.js');
     let root = resolvePath(dir);
@@ -381,9 +390,18 @@ const clientCommands = {
       try { return execFileSync('git', ['-C', root, 'log', '-1', '--format=%s', '--', rel], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return ''; }
     };
 
-    const count = { new: 0, updated: 0, renamed: 0, unchanged: 0, skipped: 0, failed: 0, trashed: 0 };
+    // A source file keeps its published identity when a user moves it on the server.
+    const synced = [];
+    for (let offset = 0; ; offset += 500) {
+      const batch = await api('GET', `/api/artifacts?source=${enc(root)}&limit=500&offset=${offset}`, { auth: 'required' });
+      synced.push(...batch);
+      if (batch.length < 500) break;
+    }
+    const bySource = new Map(synced.filter((p) => p.source_path).map((p) => [p.source_path, p]));
+    const count = { new: 0, updated: 0, renamed: 0, moved: 0, unchanged: 0, skipped: 0, failed: 0, trashed: 0 };
     const say = (what, rel, extra = '') => console.log(`${what.padEnd(9)} ${rel}${extra}`);
     const seen = new Map(); // page name (lowercase) → file, to catch two notes that would share a URL
+    const flat = []; // pages still at a flat address from before folders: [address, its file's path]
     const known = new Map((await api('GET', '/api/assets', { auth: 'required' })).map((a) => [a.name.toLowerCase(), a.sha256])); // yours
 
     for (const file of files) {
@@ -401,37 +419,45 @@ const clientCommands = {
           say(isNew ? 'new' : 'updated', rel);
           continue;
         }
-        // Page names follow Quartz's paths: plugins/Backlinks.md → plugins-Backlinks.md, so notes
-        // sharing a file name in different folders stay distinct; a folder's index.md is the
-        // folder's page (features/index.md → features.md). nameKey lets [[Backlinks]] find it.
-        const parts = rel.split('/');
-        const isIndex = /^index\.(md|markdown)$/i.test(parts.at(-1)) && parts.length > 1;
-        const name = syncedSlug(rel);
-        const nameKey = (isIndex ? noteSlug(parts.at(-2)) : noteSlug(parts.at(-1)).replace(PAGE_EXT_RE, '')).toLowerCase();
         if (/\.(md|markdown|ipynb)$/i.test(file)) { // drafts stay out, for notes and notebooks alike
           const { data } = /\.ipynb$/i.test(file) ? (({ front, metadata }) => ({ data: { ...metadata, ...front } }))(parseNotebook(body.toString('utf8')))
             : parseFrontmatter(body.toString('utf8'));
           if (data.draft === true || data.publish === false) { count.skipped++; say('draft', rel); continue; }
         }
+        const parts = rel.split('/');
+        const desired = [opts.folder?.replace(/^\/+|\/+$/g, ''), ...parts.map(noteSlug)].filter(Boolean).join('/');
+        const previous = bySource.get(rel);
+        let name = previous?.slug || desired;
+        if (previous && !opts['migrate-paths'] && !name.includes('/') && desired.includes('/')) flat.push([name, desired]);
+        if (previous && opts['migrate-paths'] && name !== desired) {
+          if (!opts['dry-run']) await api('POST', '/api/moves', { body: JSON.stringify({ moves: [{ from: name, to: desired }] }), auth: 'required', json: true });
+          count.moved++;
+          say(opts['dry-run'] ? 'would move' : 'moved', name, ` → ${desired}`);
+          name = desired;
+          if (!opts['dry-run']) previous.slug = desired;
+        }
+        const nameKey = noteSlug(parts.at(-1)).replace(PAGE_EXT_RE, '').toLowerCase();
         if (seen.has(name.toLowerCase())) {
           count.skipped++;
           console.error(`skipped   ${rel}: same page name as ${seen.get(name.toLowerCase())} (${name}); rename one`);
           continue;
         }
         seen.set(name.toLowerCase(), rel);
+        if (opts['dry-run'] && previous) seen.set(previous.slug.toLowerCase(), rel);
         // Looking a page up forgives case, so compare the name it comes back with: the same
         // name is this file's page; the same but for case is that page, its file renamed
         // (Notes.md → notes.md), which the upload renames too rather than making a second page.
         let page = null;
-        try { page = await api('GET', `/api/artifacts/${enc(name)}`); } catch (e) {
+        const at = opts['dry-run'] && previous ? previous.slug : name; // a dry run moves nothing: the page is still there
+        try { page = await api('GET', `/api/artifacts/${enc(at)}`); } catch (e) {
           if (e.message !== 'no such artifact') throw e;
         }
-        const renamed = page && page.slug !== name && page.slug.toLowerCase() === name.toLowerCase() ? page.slug : null;
-        if (page?.slug !== name && !renamed) page = null; // another page answering to the name isn't this file's
+        const renamed = page && page.slug !== at && page.slug.toLowerCase() === at.toLowerCase() ? page.slug : null;
+        if (page?.slug !== at && !renamed) page = null; // another page answering to the name isn't this file's
         const latest = page?.versions.at(-1);
         if (latest?.sha256 === sha && !renamed) { count.unchanged++; continue; }
         const what = renamed ? 'renamed' : latest ? 'updated' : 'new';
-        if (opts['dry-run']) { count[what]++; say(renamed ? 'would rename' : latest ? 'would update' : 'would add', rel, ` → /pages/${name}`); continue; }
+        if (opts['dry-run']) { count[what]++; say(renamed ? 'would rename' : latest ? 'would update' : 'would add', rel, ` → ${pageUrl(name)}`); continue; }
         const q = new URLSearchParams({ note: commitNote(rel) || (renamed ? `renamed from ${renamed}` : latest ? 'synced' : 'imported'), source: root, name: nameKey, path: rel });
         if (renamed) q.set('rename_from', renamed);
         if (opts.private && !latest) q.set('visibility', 'private');
@@ -444,14 +470,8 @@ const clientCommands = {
       }
     }
 
-    if (opts.prune) { // pages synced from this folder whose file is gone → trash (restorable)
-      // Every one of them, a page of the list at a time (500 at most each), before trashing any.
-      const mine = [];
-      for (let got = PRUNE_PAGE; got === PRUNE_PAGE;) {
-        const batch = await api('GET', `/api/artifacts?source=${enc(root)}&sort=created&limit=${PRUNE_PAGE}&offset=${mine.length}`, { auth: 'required' });
-        mine.push(...batch);
-        got = batch.length;
-      }
+    if (opts.prune && count.failed === 0) { // pages synced from this folder whose file is gone → trash (restorable)
+      const mine = synced;
       for (const p of mine) {
         if (seen.has(p.slug.toLowerCase())) continue;
         if (opts['dry-run']) { count.trashed++; say('would trash', p.slug); continue; }
@@ -462,13 +482,19 @@ const clientCommands = {
       }
     }
     console.log(`${opts['dry-run'] ? '(dry run) ' : ''}${Object.entries(count).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'nothing to do'}`);
+    if (flat.length) {
+      const one = flat.length === 1;
+      console.log(`${flat.length} ${one ? 'page has a flat address' : 'pages have flat addresses'} from before folders (${one ? '' : 'e.g. '}${flat[0][0]}, for ${flat[0][1]}): `
+        + `sync --migrate-paths moves ${one ? 'it' : 'them'}; old links keep working`);
+    }
     if (count.failed) process.exitCode = 1;
   },
-  async ls(args, opts) { printList(await api('GET', `/api/artifacts?limit=500${opts.sort ? `&sort=${enc(opts.sort)}` : ''}`)); },
+  async ls(args, opts) { printList(await api('GET', `/api/artifacts?limit=500${opts.folder ? `&folder=${enc(opts.folder)}` : ''}${opts.sort ? `&sort=${enc(opts.sort)}` : ''}`)); },
   async search(words, opts) {
     if (!words.length) fail('usage: search WORDS... [--tag TAG] [--json]');
     const q = new URLSearchParams({ q: words.join(' ') });
     if (opts.tag) q.set('tag', opts.tag);
+    if (opts.folder) q.set('folder', opts.folder);
     if (opts.sort) q.set('sort', opts.sort);
     const r = await api('GET', `/api/search?${q}`);
     if (opts.json) return console.log(JSON.stringify(r, null, 2));
@@ -484,8 +510,8 @@ const clientCommands = {
     if (!words.length) fail('usage: find WORDS...');
     printList(await api('GET', `/api/artifacts?q=${enc(words.join(' '))}`));
   },
-  async open([name]) { if (!name) fail('usage: open NAME'); openInBrowser(`${SERVER}/pages/${enc(name)}`); },
-  async review([name]) { if (!name) fail('usage: review NAME'); openInBrowser(`${SERVER}/review/${enc(name)}`); },
+  async open([name]) { if (!name) fail('usage: open NAME'); openInBrowser(`${SERVER}/pages/${encodePath(name)}`); },
+  async review([name]) { if (!name) fail('usage: review NAME'); openInBrowser(`${SERVER}/review/${encodePath(name)}`); },
   async diff([name, from, to], opts) {
     if (!name) fail('usage: diff NAME [FROM TO] [--source]');
     const q = new URLSearchParams();
@@ -546,7 +572,7 @@ function installHook(root, opts) {
     fail(`${root} isn't in a git repository`);
   }
   const MARK = '# html-server sync hook';
-  const cmd = [process.execPath, fileURLToPath(import.meta.url), 'sync', root, '--prune', ...(opts.private ? ['--private'] : [])]
+  const cmd = [process.execPath, fileURLToPath(import.meta.url), 'sync', root, '--prune', ...(opts.private ? ['--private'] : []), ...(opts.folder ? ['--folder', opts.folder] : [])]
     .map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ');
   const script = `#!/bin/sh\n${MARK} (installed by html-server ${VERSION}; delete this file to stop)\n(${cmd} >> '${join(HOME_DIR, 'sync.log')}' 2>&1 &)\n`;
   mkdirSync(hooks, { recursive: true });
@@ -587,6 +613,8 @@ export async function main(argv) {
       purge: { type: 'boolean', default: false },
       source: { type: 'boolean', default: false },
       name: { type: 'string' },
+      folder: { type: 'string' },
+      'migrate-paths': { type: 'boolean', default: false },
       base: { type: 'string' },
       keep: { type: 'string' },
       tag: { type: 'string' },

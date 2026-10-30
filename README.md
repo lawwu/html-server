@@ -110,7 +110,7 @@ paths, because apps don't see your shell's PATH:
 
 Tools: `publish_page` (HTML, Markdown or a notebook), `search_pages`, `list_pages`,
 `get_page`, `page_history`, `diff_versions`, `restore_version`, `list_comments`,
-`add_comment`, `tag_pages`, `feature_page` and `server_info`. **New pages published over
+`add_comment`, `tag_pages`, `move_pages`, `feature_page` and `server_info`. **New pages published over
 MCP are private unless the call says `public: true`**, so a chat can't put something in the
 public gallery by accident; a private page comes back with its share link. A new version of
 an existing page keeps that page's visibility (`public: true` makes it public). Editing goes
@@ -131,6 +131,63 @@ See [HTTP API](#http-api).
 Every page, whatever its kind, gets versions, search, tags, comments, views, the graph,
 featuring and a stable URL: `/pages/<file name>`, with the extension optional
 (`/pages/trip-plan` finds `trip-plan.html`).
+
+### Folders and moving pages
+
+Publish under any non-reserved folder, including nested folders:
+
+```bash
+html-server put report.html --folder research
+html-server put report.html --name research/experiments/report.html
+html-server mv research/report.html archive/report.html
+html-server mv archive/report.html research/    # keep the file name
+html-server ls --folder research
+html-server sync ~/notes --folder research
+```
+
+A nested page opens at `/research/report.html`; `/pages/research/report.html` also
+works. `/research/` is an automatic contents page with subfolders, search, sorting,
+and grid/list views. It shows direct children by default; **Include subfolders**
+shows descendants, and searches always include them. Folder names also become links
+in the explorer and breadcrumbs. The home page still shows all pages.
+
+Use **Move…** on a page (through its review screen), or **Select → Move…** for a
+selection. The dialog previews destination addresses and lets you choose or type a
+folder. Only owners may move pages. A bulk move either succeeds entirely or changes
+nothing. Occupied addresses are never overwritten; moves keep the file extension.
+Folders are inferred from their pages, so empty folders are not stored separately.
+
+Moves keep versions, comments, tags, view counts, visibility and share links. Old
+page addresses redirect to the latest address, including version query parameters.
+Old addresses remain reserved until the page is permanently deleted. Publish later
+edits to the current address: writes to an old address are refused. Moves appear in
+History separately from content versions. Each version retains its original base
+address for relative links; restoring a version preserves that base too. An HTML page
+shown away from where it was written (after a move, or through a share link) gets a
+`<base>` at that address, and its links to `#sections` still stay on the page. HTML
+with its own `<base>` keeps that explicit setting.
+
+Sync tracks the original source file separately from the published address, so a
+server-side move survives subsequent syncs and pruning. Renaming a file locally is
+not automatic rename detection: sync treats that as a new source file. Existing
+flat sync addresses can be migrated explicitly:
+
+```bash
+html-server sync ~/notes --migrate-paths --dry-run
+html-server sync ~/notes --migrate-paths
+```
+
+Migration uses the current local folder structure (and optional `--folder`), so it
+also resets earlier server-side moves to that structure. Ordinary sync preserves
+them. Assets keep their existing `/assets/<name>` addresses. Folder pages obey page
+visibility; sharing one private page does not share its folder or siblings. Custom
+folder introductions are not part of this first version.
+
+For HTTP clients, use `POST /api/moves` with
+`{"moves":[{"from":"report.html","to":"research/report.html"}]}`.
+`GET /api/folders` lists visible folders, and `GET /api/artifacts?folder=research`
+filters pages recursively (`&recursive=0` for direct children). MCP supports folder
+paths in `publish_page`, folder filters in search/list, and the `move_pages` tool.
 
 ### HTML pages
 
@@ -226,10 +283,10 @@ html-server sync ~/github/my-garden --install-hook   # re-sync on every git comm
   `content/`. Sync then reads `content/` and honours the config's `ignorePatterns`. Any
   other folder is read as is, skipping hidden folders (`.obsidian`, `.git`,
   `.ipynb_checkpoints`).
-- **Pages are named like Quartz's paths:** `plugins/Backlinks.md` becomes
-  `/pages/plugins-Backlinks.md`, so notes sharing a file name in different folders stay
-  separate. A folder's `index.md` is that folder's page. Where each file lives drives the
-  explorer and breadcrumbs.
+- **Pages keep their folders:** `plugins/Backlinks.md` becomes `/plugins/Backlinks.md`.
+  `/plugins/` automatically lists the folder's pages and subfolders. Existing synced
+  pages keep their old addresses until you run `sync DIR --migrate-paths`; the old URLs
+  then redirect. A folder's `index.md` remains a regular note in the listing.
 - **`[[Wikilinks]]` resolve the way Quartz does:** `[[Backlinks]]` finds the note named
   Backlinks wherever it lives (the shortest path wins if several do), `[[plugins/Backlinks]]`
   goes exactly there, `aliases` work, and `[[tags/plugin/emitter]]` goes to that tag.

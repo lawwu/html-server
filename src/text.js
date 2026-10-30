@@ -2,9 +2,10 @@
 // FTS5 query building, search snippets, and line diffs (unified + grouped for the
 // side-by-side view).
 import {
-  DIFF_CONTEXT_LINES, DIFF_MAX_CELLS, DIFF_MAX_STEPS, FUZZY_CUTOFF, FUZZY_MAX_EXPANSIONS, FUZZY_MIN_LEN, MAX_WORD_FORMS, PAGE_EXT_RE, SCRIPT_TEXT_CHARS,
+  RESERVED_SLUGS, DIFF_CONTEXT_LINES, DIFF_MAX_CELLS, DIFF_MAX_STEPS, FUZZY_CUTOFF, FUZZY_MAX_EXPANSIONS, FUZZY_MIN_LEN, MAX_WORD_FORMS, PAGE_EXT_RE, SCRIPT_TEXT_CHARS,
   SNIPPET_WORDS,
 } from './config.js';
+import { linkPath } from './paths.js';
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -63,17 +64,14 @@ export function metaContent(doc, name) {
  * whether each one exists is decided when the graph is drawn, so a link to a page
  * uploaded later starts counting then.
  */
-export function extractLinks(doc, { isSlug = () => true } = {}) {
+export function extractLinks(doc, { isSlug = () => true, basePath = '' } = {}) {
   const out = new Set();
   for (const m of doc.matchAll(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
     let href = (m[1] ?? m[2] ?? m[3] ?? '').trim().replace(/[?#].*$/, '');
     if (!href || /^[a-z][a-z0-9+.-]*:|^\/\//i.test(href)) continue; // other sites, mailto:, data:, …
     try { href = decodeURIComponent(href); } catch { continue; }
-    let slug;
-    if (href.startsWith('/pages/')) slug = href.slice(7);
-    else if (href.startsWith('/')) slug = href.slice(1);
-    else slug = href.replace(/^\.\//, '');
-    if (slug && !slug.includes('/') && isSlug(slug)) out.add(slug);
+    const slug = linkPath(href, basePath);
+    if (slug && !RESERVED_SLUGS.has(slug.split('/')[0].toLowerCase()) && isSlug(slug)) out.add(slug);
   }
   return [...out];
 }

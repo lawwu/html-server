@@ -27,7 +27,7 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'File name to publish as, which becomes the URL: lowercase-with-dashes, e.g. "q3-report.html"' },
+        name: { type: 'string', description: 'Path to publish as (folders supported, e.g. research/report.html), which becomes the URL: lowercase-with-dashes, e.g. "q3-report.html"' },
         html: { type: 'string', description: 'The complete, self-contained HTML document (for .html names)' },
         markdown: { type: 'string', description: 'The note\'s Markdown, including any frontmatter (for .md names)' },
         notebook: { type: 'string', description: 'A Jupyter notebook\'s JSON, as saved (for .ipynb names); its saved outputs are shown, nothing runs' },
@@ -62,6 +62,15 @@ export const TOOLS = [
     },
   },
   {
+    name: 'move_pages',
+    title: 'Move pages',
+    description: 'Move or rename your pages atomically. Give exact current and destination paths, keeping file extensions. Versions, comments and share links survive; old URLs redirect. Refuses occupied destinations.',
+    inputSchema: { type: 'object', properties: { moves: { type: 'array', minItems: 1, maxItems: 500,
+      items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] } } }, required: ['moves'] },
+    annotations: { destructiveHint: false, idempotentHint: false },
+    async run({ moves }) { return (await api('POST', '/api/moves', { body: JSON.stringify({ moves }), auth: 'required', json: true })).results.map(brief); },
+  },
+  {
     name: 'search_pages',
     title: 'Search pages',
     description: 'Search page titles, file names and text. Typo-tolerant; pages whose title has the words rank first, whatever the sort. Returns matches with highlighted snippets.',
@@ -70,16 +79,18 @@ export const TOOLS = [
       properties: {
         query: { type: 'string', description: 'Words to search for' },
         tag: { type: 'string', description: 'Only pages with this tag' },
+        folder: { type: 'string', description: 'Only pages under this folder, including subfolders' },
         limit: { type: 'integer', description: 'Most results to return (default 10, max 50)' },
         sort: { type: 'string', enum: ['relevance', 'updated', 'created', 'views', 'title'], description: 'Order: relevance (default), recently updated, newest, most viewed, or title' },
       },
       required: ['query'],
     },
     annotations: { readOnlyHint: true },
-    async run({ query, tag, limit = 10, sort }) {
+    async run({ query, tag, folder, limit = 10, sort }) {
       const q = new URLSearchParams({ q: query, limit: String(Math.min(Math.max(limit, 1), 50)) });
       if (tag) q.set('tag', tag);
       if (sort) q.set('sort', sort);
+      if (folder != null) q.set('folder', folder);
       const r = await api('GET', `/api/search?${q}`);
       return { count: r.count, results: r.results.map(brief) };
     },
@@ -92,15 +103,17 @@ export const TOOLS = [
       type: 'object',
       properties: {
         tag: { type: 'string', description: 'Only pages with this tag' },
+        folder: { type: 'string', description: 'Only pages under this folder, including subfolders' },
         limit: { type: 'integer', description: 'Default 25, max 200' },
         sort: { type: 'string', enum: ['updated', 'created', 'views', 'title'], description: 'After featured pages: recently updated (default), newest, most viewed, or title' },
       },
     },
     annotations: { readOnlyHint: true },
-    async run({ tag, limit = 25, sort }) {
+    async run({ tag, folder, limit = 25, sort }) {
       const q = new URLSearchParams({ limit: String(Math.min(Math.max(limit, 1), 200)) });
       if (tag) q.set('category', tag);
       if (sort) q.set('sort', sort);
+      if (folder != null) q.set('folder', folder);
       return (await api('GET', `/api/artifacts?${q}`)).map(brief);
     },
   },

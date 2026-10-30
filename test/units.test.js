@@ -60,7 +60,7 @@ test('extractLinks: links to pages on this server, in the forms people write the
   const doc = `<a href="/pages/plan.html">a</a> <a href='/budget'>b</a> <a href=notes.html>c</a> <a href="./faq.html#q2">d</a>
     <a href="https://example.com/x.html">e</a> <a href="mailto:a@b.c">f</a> <a href="/api/artifacts">g</a> <a href="#top">h</a>
     <a href="/pages/plan.html?v=2">dup</a> <a href="sub/dir.html">i</a>`;
-  assert.deepEqual(extractLinks(doc), ['plan.html', 'budget', 'notes.html', 'faq.html']);
+  assert.deepEqual(extractLinks(doc), ['plan.html', 'budget', 'notes.html', 'faq.html', 'sub/dir.html']);
 });
 
 test('a typo near the start of a longer word still finds it', () => {

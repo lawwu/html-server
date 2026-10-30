@@ -5,6 +5,7 @@
 // Each card leads with a live preview, and a preview put back into the document loads
 // its page again, so new results never replace the cards on show: those stay where
 // they are, take the new highlights, and are reordered (CSS order) or hidden.
+import { openMove } from './move.js';
 const box = document.getElementById('q');
 const results = document.getElementById('results');
 const count = document.getElementById('count');
@@ -27,6 +28,7 @@ let view = [url.get('view'), pref()].find((v) => v === 'grid' || v === 'list') |
 /** The URL for the current state; grid is the default, so it stays implicit. */
 function stateParams(q = box.value.trim()) {
   const p = new URLSearchParams();
+  if (url.get('recursive') === '1') p.set('recursive', '1');
   if (q) p.set('q', q);
   if (category) p.set('category', category);
   if (view !== 'grid') p.set('view', view);
@@ -58,6 +60,7 @@ function setView(v) {
 /** Where the cards for a query come from: just the results area of the page. */
 function fragmentUrl(q = box.value.trim()) {
   const p = new URLSearchParams({ fragment: '1' });
+  if (url.get('recursive') === '1') p.set('recursive', '1');
   if (q) p.set('q', q);
   if (category) p.set('category', category);
   if (sortFor(q)) p.set('sort', sortFor(q));
@@ -140,6 +143,7 @@ for (const t of toggles) t.addEventListener('click', (e) => { e.preventDefault()
 document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('click', (e) => {
   e.preventDefault();
   const p = new URLSearchParams();
+  if (url.get('recursive') === '1') p.set('recursive', '1');
   const q = box.value.trim();
   if (q) p.set('q', q);
   if (chip.dataset.category) p.set('category', chip.dataset.category);
@@ -233,6 +237,7 @@ if (selectBtn && bulk) {
     if (!act) return;
     if (act === 'done') return setSelecting(false);
     if (!picked.size) return say('Tick some pages first.', true);
+    if (act === 'move') return openMove([...picked], () => location.reload());
     if (!token) return askToken();
     const pages = [...picked];
     try {

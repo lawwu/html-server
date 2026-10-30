@@ -95,7 +95,7 @@ test('--version prints the package.json version', async () => {
 
 test('errors are one line with a non-zero exit', async () => {
   let r = (await cli(['put', '/nope.html']));
-  assert.deepEqual([r.code, r.err.trim()], [1, 'error: usage: put FILE [NOTE] [--private] [--name NAME] [--base N]']);
+  assert.deepEqual([r.code, r.err.trim()], [1, 'error: usage: put FILE [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]']);
   r = (await cli(['whoami'], { HTML_SERVER_HOME: join(dir, 'empty-home') })); // no token anywhere
   assert.equal(r.code, 1);
   assert.match(r.err, /^error: not signed in: run `html-server login`/);
@@ -298,9 +298,9 @@ test('sync: a Quartz repo — content/, ignorePatterns, Quartz paths, index page
   let r = await cli(['sync', repo], env);
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^Quartz repo: syncing content\/, ignoring private, \*\.tmp\.md/);
-  assert.match(r.out, /new +daily\/Reading List\.md → .*\/pages\/daily-Reading-List\.md/);
-  assert.match(r.out, /new +features\/index\.md → .*\/pages\/features\.md/); // a folder's index is the folder's page
-  assert.match(r.out, /new +plugins\/Backlinks\.md → .*\/pages\/plugins-Backlinks\.md/); // no clash with features/Backlinks
+  assert.match(r.out, /new +daily\/Reading List\.md → .*\/daily\/Reading-List\.md/);
+  assert.match(r.out, /new +features\/index\.md → .*\/features\/index\.md/); // a folder's index is the folder's page
+  assert.match(r.out, /new +plugins\/Backlinks\.md → .*\/plugins\/Backlinks\.md/); // no clash with features/Backlinks
   assert.match(r.out, /new +img\/chart\.png/);
   assert.match(r.out, /draft +daily\/Secret\.md/);
   assert.doesNotMatch(r.out, /diary|scratch|workspace|README/); // ignorePatterns, hidden folders, outside content/
@@ -308,9 +308,9 @@ test('sync: a Quartz repo — content/, ignorePatterns, Quartz paths, index page
   assert.equal(store.describe('index.md', null).versions[0].note, 'Plant the garden'); // the git commit message
 
   const home = await (await fetch(`${url}/pages/index`, { headers: { 'User-Agent': 'Mozilla/5.0 test' } })).text();
-  assert.match(home, /href="\/pages\/daily-Reading-List.md">Reading List</); // [[Reading List]] by file name
-  assert.match(home, /href="\/pages\/plugins-Backlinks.md">Backlinks</); // [[folder/name]] goes exactly there, labelled by name
-  assert.match(home, /href="\/pages\/daily-Reading-List.md">WR</); // an alias
+  assert.match(home, /href="\/daily\/Reading-List.md">Reading List</); // [[Reading List]] by file name
+  assert.match(home, /href="\/plugins\/Backlinks.md">Backlinks</); // [[folder/name]] goes exactly there, labelled by name
+  assert.match(home, /href="\/daily\/Reading-List.md">WR</); // an alias
   assert.match(home, /<img src="data:image\/png;base64,[^"]+" alt="chart.png" width="300"/); // embedded image, inlined
   const again = await cli(['sync', repo], env);
   assert.match(again.out, /6 unchanged, 1 skipped/, again.err); // re-run: nothing to do (5 notes + 1 image; the draft)
@@ -320,10 +320,10 @@ test('sync: a Quartz repo — content/, ignorePatterns, Quartz paths, index page
   await git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'Tidy up');
   r = await cli(['sync', repo, '--prune'], env);
   assert.match(r.out, /updated +index\.md/);
-  assert.match(r.out, /trashed +features-Backlinks\.md \(its file is gone; restorable\)/);
+  assert.match(r.out, /trashed +features\/Backlinks\.md \(its file is gone; restorable\)/);
   assert.equal(store.describe('index.md', null).versions[1].note, 'Tidy up');
-  assert.equal(store.find('features-Backlinks.md').state, 'trashed');
-  assert.equal(store.find('plugins-Backlinks.md').state, 'active');
+  assert.equal(store.find('features/Backlinks.md').state, 'trashed');
+  assert.equal(store.find('plugins/Backlinks.md').state, 'active');
 
   r = await cli(['sync', repo, '--install-hook'], env);
   assert.match(r.out, /installed .*\.git\/hooks\/post-commit/);
@@ -378,4 +378,63 @@ test('the CLI labels its requests with the command, for the usage stats', async 
   await cli(['search', 'anything']);
   await cli(['ls', '--sort', 'views']);
   assert.deepEqual(store.all('SELECT client, name FROM api_calls ORDER BY id').map((r) => `${r.client}/${r.name}`), ['cli/search', 'cli/ls']);
+});
+
+test('folder publishing, mv, sync after moving, and explicit legacy path migration', async () => {
+  const token = store.createUser('folder-sync');
+  const env = { HTML_SERVER_TOKEN: token };
+  const user = store.userForToken(token).id;
+  const root = join(dir, 'folder-sync');
+  mkdirSync(join(root, 'source'), { recursive: true });
+  const file = join(root, 'source', 'note.md');
+  writeFileSync(file, '# Note\n\n[Sibling](sibling.md)');
+  writeFileSync(join(root, 'source', 'sibling.md'), '# Sibling');
+  let r = await cli(['sync', root], env);
+  assert.equal(r.code, 0, r.err);
+  const id = store.find('source/note.md').id;
+  r = await cli(['mv', 'source/note.md', 'destination/'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(store.find('destination/note.md').id, id);
+  r = await cli(['sync', root, '--prune'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /2 unchanged/);
+  assert.equal(store.find('destination/note.md').state, 'active');
+  writeFileSync(file, '# Updated note\n\n[Sibling](sibling.md)');
+  r = await cli(['sync', root, '--prune'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(store.find('destination/note.md').latest_version, 2);
+  assert.equal(store.versionBase(store.find('destination/note.md')), 'source/note.md');
+  assert.equal(store.all('SELECT id FROM artifacts WHERE id = ?', id).length, 1);
+  const html = await (await fetch(url + '/destination/note.md')).text();
+  assert.match(html, /href="\/source\/sibling.md"/);
+
+  // Seed a page as an older version of sync would, with a flat URL and source provenance.
+  writeFileSync(join(root, 'source', 'legacy.md'), '# Legacy');
+  store.putVersion(user, 'source-legacy.md', Buffer.from('# Legacy'), { source: root, path: 'source/legacy.md' });
+  const oldId = store.find('source-legacy.md').id;
+  r = await cli(['sync', root], env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(store.find('source-legacy.md').slug, 'source-legacy.md');
+  assert.match(r.out, /^1 page has a flat address from before folders \(source-legacy.md, for source\/legacy.md\): sync --migrate-paths moves it/m);
+  assert.doesNotMatch(r.out, /destination/); // a page moved on purpose isn't nagged about
+  r = await cli(['sync', root, '--migrate-paths', '--dry-run', '--prune'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /would move source-legacy.md → source\/legacy.md/);
+  assert.doesNotMatch(r.out, /would (trash|add|update)/); // what moves is the page that's there, unchanged
+  assert.match(r.out, /\(dry run\) 2 moved, 3 unchanged$/m);
+  assert.equal(store.find('source-legacy.md').slug, 'source-legacy.md');
+  r = await cli(['sync', root, '--migrate-paths', '--prune'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^moved +source-legacy.md → source\/legacy.md$/m);
+  assert.match(r.out, /^2 moved, 3 unchanged$/m);
+  assert.equal(store.find('source/legacy.md').id, oldId);
+  assert.equal(store.find('source-legacy.md').id, oldId);
+  assert.equal(store.find('source/legacy.md').latest_version, 1);
+  assert.equal(store.find('source/note.md').id, id);
+  assert.equal(store.find('source/note.md').state, 'active');
+
+  r = await cli(['put', file, '--folder', 'published', '--name', 'report.md'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /\/published\/report.md/);
+  assert.match(r.out, /review: +\S+\/review\/published\/report.md\n/); // a path, not published%2Freport.md
 });

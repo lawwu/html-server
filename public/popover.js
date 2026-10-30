@@ -11,7 +11,7 @@ const data = JSON.parse(document.getElementById('page-previews')?.textContent ||
 // (scripts/build-site.js), whose links are relative, by the link's own address.
 const previewOf = (a) => {
   const href = a.getAttribute('href') || '';
-  const m = href.match(/^\/pages\/([^?#]+)/);
+  const m = href.match(/^\/(?:pages\/)?([^?#]+)/);
   let key = href.replace(/#.*/, '');
   try { if (m) key = decodeURIComponent(m[1]); } catch { return null; }
   return Object.hasOwn(data, key) ? data[key] : null;
