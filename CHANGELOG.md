@@ -7,6 +7,8 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.10.1 (2026-10-30)
+
 - **A malformed link no longer stops a note publishing, or the server starting.** A
   Markdown link to `/pages/` and something no page could be called (`[x](/pages/[y)`,
   `/pages/%5By`) failed the upload with an internal error; a note with one from before
