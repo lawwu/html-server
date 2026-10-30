@@ -1,0 +1,37 @@
+# Moves the `latest` tag to the newest release, so `npm install -g
+# github:lawwu/html-server#latest` installs it. It runs when a release tag (vX.Y.Z) is
+# pushed or a release is published, however the release was cut, and by hand from the
+# Actions tab. Newest means the highest vX.Y.Z, so a patch to an older version doesn't
+# move it back. Moved by hand, it stayed at 0.7.1 for three releases.
+name: latest
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: write
+# One move at a time: pushing a tag and publishing its release both start a run.
+concurrency:
+  group: latest-tag
+  cancel-in-progress: false
+jobs:
+  latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # every tag
+      - name: Point latest at the newest release
+        run: |
+          newest=$(git tag -l 'v*' --sort=-v:refname | grep -m1 -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          if [ -z "$newest" ]; then echo "No release tags yet."; exit 0; fi
+          if [ "$(git rev-parse -q --verify 'refs/tags/latest^{commit}')" = "$(git rev-parse "$newest^{commit}")" ]; then
+            echo "latest is already $newest."; exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -fa latest -m "Moving tag: the newest release (currently $newest)" "$newest^{commit}"
+          git push -f origin refs/tags/latest
+          echo "latest is now $newest."

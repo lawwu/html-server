@@ -7,6 +7,11 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **`#latest` follows every release.** A workflow moves the `latest` tag to the newest
+  `vX.Y.Z` whenever a release tag is pushed, so `npm install -g
+  github:lawwu/html-server#latest` installs the newest release. Moved by hand, it stayed at
+  0.7.1 through 0.9.1.
+
 ## 0.10.0 (2026-10-30)
 
 - **Folders, and moving pages without breaking links.** Publish into folders
