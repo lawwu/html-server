@@ -783,8 +783,10 @@ npm version minor          # or patch / major: bumps package.json, commits, tags
 git push --follow-tags
 ```
 
-Then move the `latest` tag to it. It doesn't move on its own, and existing installs update
-only when the install is re-run:
+Pushing the tag moves `latest` to it (`.github/workflows/latest.yml`, which points it at
+the highest `vX.Y.Z`, so a patch to an older version doesn't move it back). Existing installs
+update only when the install is re-run. To move it by hand, run that workflow from the
+Actions tab, or:
 
 ```bash
 git tag -fa latest -m "Moving tag: the newest release (currently vX.Y.Z)" "vX.Y.Z^{commit}"
