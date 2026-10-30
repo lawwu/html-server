@@ -7,6 +7,53 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **A malformed link no longer stops a note publishing, or the server starting.** A
+  Markdown link to `/pages/` and something no page could be called (`[x](/pages/[y)`,
+  `/pages/%5By`) failed the upload with an internal error; a note with one from before
+  0.10.0 stopped the server starting, since links are read again then. Such a link is now
+  an ordinary link, not one to a page, and a link kept as a list of names is read with care.
+- **`[[features]]` finds `features/index.md` again.** Before folders, sync named a folder's
+  `index.md` after the folder (`features.md`), so `[[features]]` found it; synced at its
+  folder path, or moved there, it went unfound. A folder's name now also means its index
+  note, after any page actually called that.
+- **Syncing a vault from another checkout keeps its pages.** Sync knew the pages it made
+  only by the folder it ran in, so from another checkout or folder of the same vault, a
+  nested file that an older sync had published under a flat name (`notes/plan.md` →
+  `notes-plan.md`) got a second page at its folder path. Now that page is the file's again
+  when it was synced from that file's path and is yours to edit; another page that just
+  has the name is left alone.
+- **A page in a folder needs its file extension.** `/api/artifacts/plan/comments` is
+  `plan`'s comments, but 0.10.0 also let a page be called `plan/comments`, which its own
+  routes could never reach (nor `…/pin`, `…/restore`, `…/views`). Names in folders now end
+  in `.html`, `.md` or `.ipynb`. Top-level names may still leave it off, reading still
+  forgives a missing one, and folders browse as before. A page named without one takes
+  `.html` when moved into a folder, and one already named that way can be moved to a name
+  with one.
+- **Listings count everything, and say when they stop.** The home page, a folder and a
+  search of either show up to 500 cards, and their count stopped there too: a folder of 800
+  pages said "500 pages". They now count every page or match you can see, add "showing the
+  first 500" when that's fewer, and live search keeps the count as you type, in the folder
+  you're in.
+- **The review page shows history in place, and a private page's changes.** History and
+  **Show changes** were plain links, which a browser follows without the saved token, so a
+  private page's were "not found". The review page now asks with the token: **History**
+  opens the version table and Compare in place, and changes show in a sandboxed frame (no
+  scripts, no way to the token), as the page does.
+- **Gallery previews can only draw.** A card's preview ran with the page's whole sandbox,
+  so a page could show alerts or open windows over the gallery, or, with `serve
+  --sandbox-allow allow-top-navigation`, send the gallery's tab elsewhere. A preview now
+  runs the page's scripts and nothing else. Category chips leave ⌘-, Ctrl- and
+  Shift-clicks to the browser, which opens them in a new tab or window.
+- **Pasted SVGs in notebooks show.** An SVG attachment kept as its text, as some tools save
+  it, was read as base64 and showed as a broken image.
+- **On Cloudflare, an oversized upload is refused before it's read.** The Worker read a
+  whole request into memory before the size check, so one far over the 1.9 MB limit could
+  run the Durable Object out of memory. It now refuses a `Content-Length` over the limit
+  unread, and stops reading a chunked upload at the limit.
+- **`deploy cloudflare` never guesses about the admin token.** When it couldn't read the
+  Worker's secrets (a network error, unexpected output), it took the deployment for a new
+  one: it replaced the `ADMIN_TOKEN` secret and signed this CLI in with a token the server
+  didn't know. Now it stops and says so; the new code is deployed, and nothing else changes.
 - **`#latest` follows every release.** A workflow moves the `latest` tag to the newest
   `vX.Y.Z` whenever a release tag is pushed, so `npm install -g
   github:lawwu/html-server#latest` installs the newest release. Moved by hand, it stayed at

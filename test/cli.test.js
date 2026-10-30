@@ -438,3 +438,40 @@ test('folder publishing, mv, sync after moving, and explicit legacy path migrati
   assert.match(r.out, /\/published\/report.md/);
   assert.match(r.out, /review: +\S+\/review\/published\/report.md\n/); // a path, not published%2Freport.md
 });
+
+test("sync from another checkout of a vault keeps the pages a sync before folders made, when they're the file's and yours", async () => {
+  const token = store.createUser('two-checkouts');
+  const env = { HTML_SERVER_TOKEN: token };
+  const user = store.userForToken(token).id;
+  const [first, second] = [join(dir, 'checkout-one'), join(dir, 'checkout-two')];
+  for (const root of [first, second]) {
+    for (const d of ['notes', 'topics']) mkdirSync(join(root, d), { recursive: true });
+    for (const f of ['notes/plan.md', 'notes/stranger.md', 'notes/theirs.md', 'topics/index.md']) writeFileSync(join(root, f), `# ${f}`);
+  }
+  // As sync named them before folders, from the first checkout: flat names, each with its file's path.
+  store.putVersion(user, 'notes-plan.md', Buffer.from('# notes/plan.md'), { source: first, path: 'notes/plan.md' });
+  store.putVersion(user, 'topics.md', Buffer.from('# topics/index.md'), { source: first, path: 'topics/index.md' });
+  const ids = ['notes-plan.md', 'topics.md'].map((n) => store.find(n).id);
+  // Pages with a name like that which aren't: made from another file, or someone else's.
+  store.putVersion(user, 'notes-stranger.md', Buffer.from('# Stranger'), { source: first, path: 'elsewhere/stranger.md' });
+  store.putVersion(store.userForToken(store.createUser('someone-else')).id, 'notes-theirs.md', Buffer.from('# Theirs'), { source: first, path: 'notes/theirs.md' });
+
+  let r = await cli(['sync', second], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^2 new, 2 unchanged$/m);
+  assert.ok(!store.find('notes/plan.md', { exact: true }));
+  assert.ok(!store.find('topics/index.md', { exact: true }));
+  assert.match(r.out, /^2 pages have flat addresses from before folders \(e\.g\. notes-plan\.md, for notes\/plan\.md\): sync --migrate-paths moves them/m);
+  for (const name of ['notes/stranger.md', 'notes/theirs.md']) assert.ok(store.find(name, { exact: true }), name); // pages of their own
+  assert.equal(store.find('notes-theirs.md').latest_version, 1);
+
+  writeFileSync(join(second, 'notes', 'plan.md'), '# Plan, revised');
+  r = await cli(['sync', second], env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(store.find('notes-plan.md').id, ids[0]);
+  assert.equal(store.find('notes-plan.md').latest_version, 2);
+  r = await cli(['sync', second, '--migrate-paths'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^2 moved, 4 unchanged$/m);
+  assert.deepEqual(['notes/plan.md', 'topics/index.md'].map((n) => store.find(n, { exact: true })?.id), ids);
+});

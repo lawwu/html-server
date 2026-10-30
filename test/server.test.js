@@ -511,7 +511,14 @@ test('card previews load the page without counting a view or drawing extras', as
   assert.match((await req('GET', '/'))[1], /<iframe src="\/pages\/long.html\?preview=1" loading="lazy"/);
   const [, prev, h] = await req('GET', '/pages/long.html?preview=1&v=1');
   assert.doesNotMatch(prev, /data-artifact-toc-script|data-artifact-version-badge/);
-  assert.match(h.get('content-security-policy'), /sandbox/);
+  assert.equal(h.get('content-security-policy'), 'sandbox allow-scripts');
+  // Scripts alone, whatever the server allows pages: a page in a list can't move the list's tab, open windows or alert.
+  const open = makeServer(store, { sandboxAllow: ['allow-top-navigation'] });
+  await new Promise((r) => open.listen(0, '127.0.0.1', r));
+  const at = `http://127.0.0.1:${open.address().port}/pages/long.html`;
+  assert.match((await fetch(`${at}?raw=1`)).headers.get('content-security-policy'), /allow-top-navigation/);
+  assert.equal((await fetch(`${at}?preview=1`)).headers.get('content-security-policy'), 'sandbox allow-scripts');
+  await new Promise((r) => open.close(r));
   assert.equal((await req('GET', '/api/artifacts/long.html/views', { token: admin }))[1].views, 0);
   assert.doesNotMatch((await req('GET', '/gallery/kmeans-step-through.html?preview=1'))[1], /data-artifact-toc-script/);
 });
@@ -626,7 +633,7 @@ test('featured pages: pinned to the top by their owner or an admin, in pin order
 
   const [, page] = await req('GET', '/');
   // One grid, its section titles inside it, so live search can reorder cards without moving them.
-  assert.match(page, /<div class="cards"><h2 class="section-title" data-section="featured">.*Featured<\/h2>.*bobs\.html.*one\.html.*<h2 class="section-title" data-section="all">All pages<\/h2>.*three\.html/s);
+  assert.match(page, /<div class="cards"[^>]*><h2 class="section-title" data-section="featured">.*Featured<\/h2>.*bobs\.html.*one\.html.*<h2 class="section-title" data-section="all">All pages<\/h2>.*three\.html/s);
   assert.match(page, /<article class="card pinned" data-slug="one.html">/);
   assert.doesNotMatch((await req('GET', '/?q=three&fragment=1'))[1], /Featured/); // searching: one ranked list
 
@@ -790,10 +797,11 @@ test('home shows the page count; header links to GitHub with the version', async
   await put('p2.html', '<title>Two</title>');
   await req('POST', '/api/artifacts/p1.html/pin', { token: admin });
   const [, page] = await req('GET', '/');
-  assert.match(page, /<p id="count" class="meta" data-total="2 pages · 1 featured">2 pages · 1 featured<\/p>/);
+  assert.match(page, /<p id="count" class="meta">2 pages · 1 featured<\/p>/);
+  assert.match(page, /<div class="cards" data-count="2 pages · 1 featured">/); // what live search shows when the box is cleared
   assert.match((await req('GET', '/?q=one'))[1], /<p id="count"[^>]*>1 match<\/p>/);
   assert.match(page, new RegExp(`<a class="gh" href="https://github.com/lawwu/html-server/releases/tag/v${pkg.version}" target="_top"[^>]*><svg[^]*?</svg><span>v${pkg.version.replace(/\./g, '\\.')}</span></a>`));
-  assert.match((await req('GET', '/gallery'))[1], /data-total="13 example pages"/);
+  assert.match((await req('GET', '/gallery'))[1], /<p id="count" class="meta">13 example pages<\/p>/);
 });
 
 test('HEAD is answered like GET, without a body, and is not a page view', async () => {
@@ -1419,4 +1427,106 @@ test('an old address redirects to a name in any script with an ASCII Location', 
   assert.equal(r.status, 302);
   assert.equal(r.headers.get('location'), `/pages/${encodeURIComponent('笔记.html')}?raw=1`);
   assert.equal((await fetch(base + r.headers.get('location'))).status, 200);
+});
+
+test('a /pages/ link to a name no page could have is no link: publishing, and links read again on startup, go on', async () => {
+  for (const [name, md] of [['odd.md', '# Odd\n\n[x](/pages/[y) and [[Real]]'], ['odd2.md', '[x](/pages/%5By)'], ['odd3.md', '[x](/pages/[1,2])']]) {
+    assert.equal((await put(name, md))[0], 201, name);
+  }
+  await put('Real.md', '# Real');
+  assert.deepEqual(store.all("SELECT to_slug FROM links l JOIN artifacts a ON a.id = l.from_id WHERE a.slug LIKE 'odd%'").map((r) => r.to_slug), ['Real']);
+  assert.deepEqual(backlinksOf('Real.md'), ['odd.md']);
+  assert.equal((await req('GET', '/pages/odd.md'))[0], 200);
+  // As after an upgrade: every page's links are read again when the database opens.
+  store.setSetting('links_resolved', '2');
+  store.close();
+  store = new Store(join(dir, 't.db'));
+  assert.deepEqual(backlinksOf('Real.md'), ['odd.md']);
+  assert.deepEqual(store.candidates('[y'), []); // a name, not a list of them
+});
+
+test("a folder's name links to its index note: synced, uploaded or moved there", async () => {
+  await put('home.md', '# Home\n\nSee [[features]], [[guide/topics]], [[roadmap]] and [[plans]].');
+  await put('features/index.md', '# Features', admin, '?name=index&path=features/index.md'); // as sync names it now
+  await put('guide/topics/index.md', '# Topics');
+  await put('roadmap.md', '# Roadmap'); // as sync named a folder's index before folders
+  await move([{ from: 'roadmap.md', to: 'roadmap/index.md' }]);
+  await put('drafts/index.md', '# Plans');
+  await move([{ from: 'drafts/index.md', to: 'plans/index.md' }]);
+  const [, home] = await req('GET', '/pages/home.md');
+  for (const to of ['features/index.md', 'guide/topics/index.md', 'roadmap/index.md', 'plans/index.md']) {
+    assert.match(home, new RegExp(`<a class="wikilink" href="/${to}">`), to);
+  }
+  assert.deepEqual(await graphEdges(), ['home.md>features/index.md', 'home.md>guide/topics/index.md', 'home.md>plans/index.md', 'home.md>roadmap/index.md']);
+  assert.deepEqual(backlinksOf('features/index.md'), ['home.md']);
+  // The folder itself still browses, and a page called features.md still comes first.
+  assert.match((await fetch(base + '/features', { redirect: 'manual' })).headers.get('location'), /^\/features\/$/);
+  assert.equal((await req('GET', '/features/'))[0], 200);
+  await put('features.md', '# Features, flat');
+  assert.match((await req('GET', '/pages/home.md'))[1], /<a class="wikilink" href="\/pages\/features.md">/);
+});
+
+test('a page in a folder needs its extension, so its name never reads as one of its routes', async () => {
+  await put('plan', '<p>plan</p>'); // at the top, a name may leave it off
+  await req('POST', '/api/artifacts/plan/comments', { token: admin, body: '{"body":"On the plan"}' });
+  for (const name of ['plan/comments', 'plan/pin', 'plan/restore', 'research/report']) {
+    const [s, e] = await put(name, '<p>x</p>');
+    assert.equal(s, 400, name);
+    assert.match(e.error, /a page in a folder needs its file extension/, name);
+  }
+  assert.ok(!store.find('plan/comments', { exact: true }));
+  assert.equal((await put('plan/comments.html', '<p>comments page</p>'))[0], 201);
+  assert.equal((await req('GET', '/api/artifacts/plan/comments'))[1][0].body, 'On the plan'); // plan's comments
+  assert.equal((await req('GET', '/api/artifacts/plan/comments.html'))[1].slug, 'plan/comments.html');
+  assert.match((await req('GET', '/plan/comments?raw=1'))[1], /comments page/); // reading, the extension stays optional
+  assert.equal((await req('GET', '/plan/'))[0], 200); // and a folder is a folder
+  // Into a folder, a page without an extension takes .html; any other change of extension is refused.
+  assert.equal((await move([{ from: 'plan', to: 'trips/plan' }]))[0], 400);
+  assert.equal((await move([{ from: 'plan/comments.html', to: 'plan/comments.md' }]))[0], 400);
+  const [s, { results: [moved] }] = await move([{ from: 'plan', to: 'trips/plan.html' }]);
+  assert.deepEqual([s, moved.slug], [200, 'trips/plan.html']);
+  assert.equal((await fetch(base + '/plan?raw=1', { redirect: 'manual' })).headers.get('location'), '/trips/plan.html?raw=1');
+  // A page that has such a name already (0.10.0 allowed it) can move to one with its extension.
+  await put('legacy/notes.html', '<p>notes</p>');
+  store.run("UPDATE artifacts SET slug = 'legacy/notes' WHERE slug = 'legacy/notes.html'");
+  assert.equal((await move([{ from: 'legacy/notes', to: 'legacy/notes.html' }]))[0], 200);
+});
+
+test('listings count all the pages and matches the viewer can see, and say when they show only the first 500', async () => {
+  const id = store.userForToken(admin).id;
+  for (let i = 1; i <= 502; i++) store.putVersion(id, `reports/r${String(i).padStart(3, '0')}.html`, Buffer.from(`<title>Report ${i}</title><p>quarterly figures</p>`));
+  await put('reports/private.html', '<title>Private report</title><p>quarterly figures</p>', admin, '?visibility=private');
+  await put('other.html', '<title>Other</title><p>quarterly figures</p>');
+  const line = (html) => html.match(/<p id="count" class="meta">([^<]*)<\/p>/)[1];
+  const cards = (html) => (html.match(/<article class="card/g) || []).length;
+  let [, html] = await req('GET', '/reports/');
+  assert.deepEqual([line(html), cards(html)], ['502 pages · showing the first 500', 500]);
+  [, html] = await req('GET', '/reports/?q=quarterly');
+  assert.deepEqual([line(html), cards(html)], ['502 matches · showing the first 500', 500]);
+  [, html] = await req('GET', '/?q=quarterly');
+  assert.equal(line(html), '503 matches · showing the first 500');
+  assert.equal(line((await req('GET', '/'))[1]), '503 pages · showing the first 500');
+  assert.equal(line((await req('GET', '/?q=Other'))[1]), '1 match');
+  // Live search swaps in the cards with their line, from the folder it was typed in.
+  assert.match((await req('GET', '/reports/?q=quarterly&fragment=1'))[1], /^<div class="cards" data-count="502 matches · showing the first 500">/);
+  assert.match((await req('GET', '/reports/?q=Report+7&fragment=1'))[1], /data-count="\d+ match(es)?"/);
+  assert.match((await req('GET', '/?q=zebra&fragment=1'))[1], /^<p class="empty" data-count="0 matches">No matches.<\/p>$/);
+  assert.equal(line((await req('GET', '/reports/', { token: admin }))[1]), '503 pages · showing the first 500'); // your private page too
+});
+
+test('the review page shows history in place, and fetches changes with the saved token, to show them sandboxed', async () => {
+  await put('secret.html', '<p>one</p>', admin, '?visibility=private');
+  await put('secret.html', '<p>two</p>');
+  const [, page] = await req('GET', '/review/secret.html');
+  assert.match(page, /<button id="hist" aria-expanded="false" aria-controls="history">History<\/button>/);
+  assert.match(page, /<section id="history" hidden><\/section>/);
+  assert.doesNotMatch(page, /href="\/history\//);
+  // What review.js fetches: a private page's changes need its token, and come sandboxed.
+  assert.equal((await req('GET', '/review/secret.html/changes?from=1&to=2'))[0], 404);
+  const [s, diff, h] = await req('GET', '/review/secret.html/changes?from=1&to=2', { token: admin });
+  assert.equal(s, 200);
+  assert.match(diff, /two/);
+  assert.match(h.get('content-security-policy'), /sandbox/);
+  const script = readFileSync(new URL('../public/review.js', import.meta.url), 'utf8');
+  assert.match(script, /f\.setAttribute\('sandbox', ''\);\s*f\.srcdoc = html;/); // shown with no scripts and an origin of its own
 });

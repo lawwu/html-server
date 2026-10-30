@@ -81,7 +81,7 @@ function remember(key, html) {
   }
 }
 
-/** Lay out a results fragment over the cards on show; returns how many cards it has. */
+/** Lay out a results fragment over the cards on show; returns the line for above them ("812 matches · showing the first 500"). */
 function show(html) {
   const next = document.createElement('template');
   next.innerHTML = html;
@@ -107,7 +107,8 @@ function show(html) {
   results.querySelector(':scope > .empty')?.remove();
   const empty = next.content.querySelector('.empty');
   if (empty) results.append(empty);
-  return next.content.querySelectorAll('.card').length;
+  const n = next.content.querySelectorAll('.card').length;
+  return [...next.content.children].find((el) => el.dataset.count != null)?.dataset.count ?? `${n} match${n === 1 ? '' : 'es'}`;
 }
 
 /** Show the cards for what's typed; `fresh` after a change to the pages themselves. */
@@ -130,8 +131,7 @@ async function search({ fresh = false } = {}) {
       return;
     }
   }
-  const n = show(html);
-  count.textContent = q ? `${n} match${n === 1 ? '' : 'es'}` : count.dataset.total; // back to "18 pages" when cleared
+  count.textContent = show(html); // counted by the server, so a search past the listing's limit says how many there are
 }
 
 remember(fragmentUrl(), results.innerHTML); // what's on show now
@@ -139,8 +139,10 @@ remember(fragmentUrl(), results.innerHTML); // what's on show now
 box.addEventListener('input', () => { clearTimeout(timer); if (cache.has(fragmentUrl())) search(); else timer = setTimeout(search, 60); });
 box.form.addEventListener('submit', (e) => { e.preventDefault(); search(); });
 for (const t of toggles) t.addEventListener('click', (e) => { e.preventDefault(); setView(t.dataset.view); });
-// Keep the typed query and the layout when switching category.
+// Keep the typed query and the layout when switching category. A click that opens a tab or
+// window (⌘, Ctrl, Shift, the middle button) is the browser's: the link has the rest.
 document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('click', (e) => {
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
   const p = new URLSearchParams();
   if (url.get('recursive') === '1') p.set('recursive', '1');

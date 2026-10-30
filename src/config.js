@@ -99,6 +99,12 @@ export function renderCsp(extra = []) {
 }
 
 export const RENDER_CSP = renderCsp();
+// A gallery card's preview (?preview=1) gets to run the page's scripts, so it can draw
+// itself, and nothing else, whatever `serve --sandbox-allow` adds: a page in a list can't
+// send the list's tab elsewhere, open windows or show alerts. (Not a sandbox attribute on
+// the card's frame, which would also hold if the page navigated its frame: some embedded
+// browsers refuse to load a sandboxed frame at all, leaving every card blank.)
+export const PREVIEW_CSP = 'sandbox allow-scripts';
 
 // Fuzzy search: each typed word also matches indexed words at least this similar
 // (Ratcliff/Obershelp ratio, 0-1, the same measure as Python's difflib), so
@@ -120,6 +126,9 @@ export const SEARCH_WEIGHTS = { title: 10, name: 5, body: 1 };
 // its first cards only (the others show their description), so broad searches stay quick.
 export const SNIPPET_WORDS = 12;
 export const CARD_SNIPPETS = 48;
+// The most pages one listing shows (the home page, a folder, a search of either) and one
+// /api/artifacts request returns. A listing with more says how many there are in all.
+export const LIST_LIMIT = 500;
 // Text a page writes with JavaScript (a board's tickets, a quiz's questions, a chart's
 // messages) is searchable too, up to this much of it per page.
 export const SCRIPT_TEXT_CHARS = 20000;

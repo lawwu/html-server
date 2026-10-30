@@ -179,7 +179,11 @@ details[open] > summary > .chev { rotate: 90deg; }
 #frame-slot { display: flex; height: 78vh; min-height: 12rem; resize: vertical; overflow: hidden; border-bottom: 1px solid var(--line); }
 #frame-slot iframe { flex: 1; border: 0; background: #fff; }
 .review aside { max-width: 46rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
-.review aside h2 { font: 700 1.25rem/1.2 var(--head-font); margin: 0 0 .5rem; }
+.review aside h2, #history h2 { font: 700 1.25rem/1.2 var(--head-font); margin: 0 0 .5rem; }
+/* History, in place: the review page has the viewer's token, so a private page's shows too. */
+#history { max-width: 46rem; margin: 0 auto; padding: 1.5rem 1rem 0; }
+#history .compare { margin: .5rem 0; font-size: 14px; }
+#history .versions button { font: inherit; font-weight: 600; padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; } /* links, in look */
 .review textarea { width: 100%; min-height: 4.5rem; }
 .review #tok { width: 100%; }
 @media (max-width: 800px) { #frame-slot { height: 70vh; } }
