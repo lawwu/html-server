@@ -7,6 +7,8 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.10.0 (2026-10-30)
+
 - **Folders, and moving pages without breaking links.** Publish into folders
   (`put --folder research`, or `--name research/report.html`): a nested page opens at
   `/research/report.html`, and `/research/` lists its pages and subfolders, with search
