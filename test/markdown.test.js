@@ -18,10 +18,10 @@ test('frontmatter: scalars, inline and block lists, no frontmatter', () => {
 test('names: Quartz-style slugs and wikilink targets', () => {
   assert.equal(noteSlug('Weekly Review.md'), 'Weekly-Review.md');
   assert.equal(noteSlug('  Q&A notes (draft).md'), 'QA-notes-draft.md');
-  assert.equal(wikiTarget('folder/Weekly Review'), 'folder-Weekly-Review'); // Quartz paths: folder-qualified first
+  assert.equal(wikiTarget('folder/Weekly Review'), 'folder/Weekly-Review'); // Quartz paths: folder-qualified first
   assert.deepEqual(noteLinks('---\ntags: [x]\n---\n[[Weekly Review]] and [[b#sec|B]] and ![[img.png]] and [c](c.md) and [[sub/d]] and [web](https://x.y)').sort(),
     ['Weekly-Review', 'b', 'c.md', 'sub/d'].sort()); // images aren't page links; a link is kept once, as written
-  assert.deepEqual(wikiTargets('sub/d'), ['sub-d', 'd']); // which means its exact path, then its name
+  assert.deepEqual(wikiTargets('sub/d'), ['sub/d', 'sub-d', 'd']); // which means its exact path, then its name
 });
 
 test('names keep letters and digits of any script', () => {
@@ -40,10 +40,10 @@ test('code is not links or titles: fenced blocks and `inline` spans', () => {
 
 test('Markdown links: read from where the note lives, the way sync names files', () => {
   const at = 'health/notes/README.md';
-  assert.deepEqual(pageHref('../../finance/profile.md#savings', at), { name: 'finance-profile.md', hash: '#savings' });
-  assert.deepEqual(pageHref('/finance/profile.md', at), { name: 'finance-profile.md', hash: '' }); // from the top of the folder
-  assert.deepEqual(pageHref('other.md', at), { name: 'health-notes-other.md', hash: '' });
-  assert.deepEqual(pageHref('../index.md', at), { name: 'health.md', hash: '' }); // a folder's index is the folder's page
+  assert.deepEqual(pageHref('../../finance/profile.md#savings', at), { name: 'finance/profile.md', hash: '#savings' });
+  assert.deepEqual(pageHref('/finance/profile.md', at), { name: 'finance/profile.md', hash: '' }); // from the top of the folder
+  assert.deepEqual(pageHref('other.md', at), { name: 'health/notes/other.md', hash: '' });
+  assert.deepEqual(pageHref('../index.md', at), { name: 'health/index.md', hash: '' }); // a folder's index is the folder's page
   assert.deepEqual(pageHref('My%20Note.md', ''), { name: 'My-Note.md', hash: '' });
   assert.deepEqual(pageHref('/pages/x.md?v=2#top', at), { name: 'x.md', hash: '#top' });
   assert.deepEqual(pageHref('budget', at), { name: 'budget', hash: '' }); // a name, found as URLs find pages
@@ -51,12 +51,12 @@ test('Markdown links: read from where the note lives, the way sync names files',
     assert.equal(pageHref(href, at), null, href);
   }
   assert.equal(syncedSlug('plugins/Back links.md'), 'plugins-Back-links.md');
-  assert.deepEqual(noteLinks('[a](../finance/profile.md) [b](../finance/profile.md "Profile")', { path: 'health/README.md' }), ['finance-profile.md']);
+  assert.deepEqual(noteLinks('[a](../finance/profile.md) [b](../finance/profile.md "Profile")', { path: 'health/README.md' }), ['finance/profile.md']);
   const html = renderMarkdown('[a](../finance/profile.md#x) [b](https://x.y/q.md) [c](100%.md)',
-    { path: 'health/README.md', resolve: (n) => (n === 'finance-profile.md' ? { exists: true, url: '/pages/finance-profile.md' } : null) });
+    { path: 'health/README.md', resolve: (n) => (n === 'finance/profile.md' ? { exists: true, url: '/pages/finance-profile.md' } : null) });
   assert.match(html, /<a href="\/pages\/finance-profile.md#x">a<\/a>/);
   assert.match(html, /<a href="https:\/\/x.y\/q.md">b<\/a>/);
-  assert.match(html, /<a href="\/pages\/health-100.md">c<\/a>/); // a stray % is text, not an error
+  assert.match(html, /<a href="\/pages\/health%2F100.md">c<\/a>/); // a stray % is text, not an error
 });
 
 test('percent signs that aren\'t escapes never throw', () => {

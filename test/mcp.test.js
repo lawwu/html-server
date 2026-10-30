@@ -137,3 +137,12 @@ test('every request a tool call makes is labelled with that tool, for the usage 
   const rows = store.all("SELECT client, name, route FROM api_calls ORDER BY id");
   assert.deepEqual(rows.map((r) => `${r.client}/${r.name} ${r.route}`), ['mcp/search_pages /api/search', 'mcp/list_pages /api/artifacts']);
 });
+
+test('MCP publishes nested paths, moves pages, and scopes lists by folder', async () => {
+  const first = data(await call('publish_page', { name: 'mcp-folder/note.md', markdown: '# Folder MCP', public: true }));
+  assert.match(first.url, /\/mcp-folder\/note.md$/);
+  const moved = data(await call('move_pages', { moves: [{ from: 'mcp-folder/note.md', to: 'mcp-archive/note.md' }] }));
+  assert.match(moved[0].url, /\/mcp-archive\/note.md$/);
+  const list = data(await call('list_pages', { folder: 'mcp-archive' }));
+  assert.deepEqual(list.map((p) => p.name), ['mcp-archive/note.md']);
+});

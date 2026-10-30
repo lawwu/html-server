@@ -458,3 +458,15 @@ details[open] > summary > .chev { rotate: 90deg; }
 .range-picker a { font: 600 12.5px/1 var(--body-font); color: var(--mute); padding: .4rem .7rem; border-radius: 7px; }
 .range-picker a:hover { color: var(--fg); }
 .range-picker a.on { color: var(--fg); background: var(--accent-soft); }
+
+/* Folder navigation and the shared single/bulk move dialog. */
+.folder-list { display:flex; flex-wrap:wrap; gap:.6rem; margin:1rem 0; }
+.folder-list a { padding:.55rem .9rem; border:1px solid var(--line); border-radius:6px; }
+.move-dialog { width:min(38rem, calc(100vw - 2rem)); max-height:85vh; overflow:auto; padding:1.5rem; border:1px solid #888; border-radius:10px; color:var(--text); background:var(--bg); }
+.move-dialog::backdrop { background:#0007; }
+.move-dialog label { display:block; margin:1rem 0; }
+.move-dialog input { display:block; width:100%; box-sizing:border-box; margin-top:.35rem; padding:.6rem; }
+.move-dialog [hidden] { display:none; }
+.move-preview { max-height:12rem; overflow:auto; overflow-wrap:anywhere; padding-left:1.2rem; }
+.move-buttons { display:flex; justify-content:flex-end; gap:.7rem; }
+.move-error { color:#b42318; }

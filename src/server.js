@@ -1,3 +1,4 @@
+import { encodePath, pageUrl, validatePath } from './paths.js';
 // The HTTP server: the route table (which also generates the /api docs page) and
 // its handlers. The command line (serve, create-user, put, ls, ...) is src/cli.js.
 import { createServer } from 'node:http';
@@ -15,13 +16,17 @@ import { Store, pageMeta, summary } from './store.js';
 import { TOOLS as MCP_TOOLS } from './mcp.js';
 import { ApiError, unifiedDiff } from './text.js';
 
-const SLUG = '(?<slug>[\\p{L}\\p{N}][\\p{L}\\p{N}\\p{M}_.-]*)'; // a page or asset name (see SLUG_RE)
+const FILE = '(?<slug>[\\p{L}\\p{N}][\\p{L}\\p{N}\\p{M}_.-]*)'; // a page or asset name (see SLUG_RE)
+const SLUG = '(?<slug>[\\p{L}\\p{N}][\\p{L}\\p{N}\\p{M}_./-]*)'; // a page or asset name (see SLUG_RE)
 const CID = '(?<cid>\\d+)';
 
 // [method, path regex, handler, who may call it, what it does]. The /api docs page
 // renders from this table, so documenting a route means filling in its row; rows
 // with no description stay off the page. The bare /<slug> page route matches last.
 export const ROUTES = [
+  ['GET', '/(?<folder>[\\p{L}\\p{N}][\\p{L}\\p{N}\\p{M}_./-]*)/', 'folder', 'anyone*', 'Folder contents, subfolders, and scoped search. `?recursive=1` includes descendants'],
+  ['POST', '/api/moves', 'movePages', 'owner', 'Move pages atomically: `{"moves":[{"from":"report.html","to":"research/report.html"}]}`. History and share links survive; old addresses redirect'],
+  ['GET', '/api/folders', 'folders', 'anyone*', 'Folder choices visible to the viewer'],
   ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first, whatever the sort); `?sort=updated|created|views|title` (featured pages stay on top); `?view=list` for the list layout'],
   ['GET', '/stats', 'stats', 'anyone*', 'Totals, views and uploads over time, most viewed and edited pages, tags, recent uploads'],
   ['GET', '/api/stats', 'statsData', 'anyone*', 'The same numbers as JSON'],
@@ -62,11 +67,11 @@ export const ROUTES = [
     'Search pages: `?q=` (required; typo-tolerant, titles rank first), `&tag=`, `&limit=` (default 20), `&sort=` (default `relevance`; or updated, created, views, title, after the pages whose title has the words). Results carry'
     + ' `title_highlight` and `snippet` with matched words in [brackets]. Answers cross-origin requests (sandboxed'
     + ' notes search with it), which carry no token: public pages only'],
-  ['GET', `/assets/${SLUG}`, 'assetFile', 'anyone*',
+  ['GET', `/assets/${FILE}`, 'assetFile', 'anyone*',
     'An image or PDF that notes embed: for whoever uploaded it, and for anyone who can see one of their pages that shows it'],
   ['GET', '/api/assets', 'assets', 'token', 'Your assets (images, PDFs; an admin: every one) with their size and sha256'],
-  ['PUT', `/api/assets/${SLUG}`, 'putAsset', 'token', 'Upload or replace an asset (png, jpg, gif, webp, avif, svg, pdf; up to 10 MB). Notes embed it by file name'],
-  ['DELETE', `/api/assets/${SLUG}`, 'deleteAsset', 'owner', 'Delete an asset'],
+  ['PUT', `/api/assets/${FILE}`, 'putAsset', 'token', 'Upload or replace an asset (png, jpg, gif, webp, avif, svg, pdf; up to 10 MB). Notes embed it by file name'],
+  ['DELETE', `/api/assets/${FILE}`, 'deleteAsset', 'owner', 'Delete an asset'],
   ['GET', '/api/categories', 'categories', 'anyone', 'Tags in use, with counts, as `{category, count}` (older name)'],
   ['GET', '/api/tags', 'tags', 'anyone*', 'Tags in use on pages you can see, with counts'],
   ['POST', '/api/tags', 'tagPages', 'token',
@@ -108,7 +113,14 @@ export const ROUTES = [
     'Issue a new token for a user who lost theirs. Their pages are untouched; the old token stops working'],
   ['DELETE', '/api/users/(?<name>[^/]+)', 'deleteUser', 'admin', 'Delete a user and all of their pages'],
 ].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`, 'u'), label: routeLabel(path) }))
-  .sort((a, b) => (a.handler === 'render') - (b.handler === 'render'));
+  .sort((a, b) => routePriority(a) - routePriority(b));
+
+function routePriority(r) {
+  if (r.handler === 'render') return 4;
+  if (r.handler === 'folder') return 3;
+  if (['describe', 'put', 'review'].includes(r.handler)) return 2;
+  return 0;
+}
 
 const TOC_SCRIPT = fileText('public/toc.js');
 const VERSION_BADGE_SCRIPT = fileText('public/version-badge.js');
@@ -204,10 +216,10 @@ class Ctx {
    * fragment, asked for at every key pressed, doesn't work them out.
    */
   listing(items, opts, page = () => ({})) {
-    const base = opts.section === 'gallery' ? '/gallery' : '/';
+    const base = opts.base || (opts.section === 'gallery' ? '/gallery' : '/');
     if (this.query.get('fragment')) return this.html(resultsBody(items, opts.q, { base }));
     const view = VIEWS.includes(this.query.get('view')) ? this.query.get('view') : 'grid';
-    this.html(galleryPage(items, { ...opts, ...page(), view, explorer: opts.section === 'pages' ? this.store.explorer(null) : null }));
+    this.html(galleryPage(items, { ...opts, ...page(), view, explorer: opts.section === 'pages' ? this.store.explorer(this.viewerId()) : null }));
   }
 
   /**
@@ -218,12 +230,13 @@ class Ctx {
   note(page, source, n) {
     const viewer = this.viewerId();
     const text = source.toString('utf8');
-    const meta = pageMeta(page.slug, text, { path: page.path });
+    const basePath = this.store.versionBase(page, n);
+    const meta = pageMeta(page.slug, text, { path: basePath });
     const nb = isNotebook(page.slug) ? parseNotebook(text) : null;
-    const opts = { ...this.resolvers(viewer, { page }), title: meta.title, path: page.path };
+    const opts = { ...this.resolvers(viewer, { page }), title: meta.title, path: basePath };
     const html = nb ? renderNotebook(nb, opts) : renderMarkdown(text, opts);
     const backlinks = this.store.backlinks(page, viewer);
-    const linked = [...html.matchAll(/href="\/pages\/([^"?#]+)/g)].map((m) => safeDecode(m[1])).concat(backlinks.map((b) => b.slug));
+    const linked = [...html.matchAll(/href="\/(?:pages\/)?([^"?#]+)/g)].map((m) => safeDecode(m[1])).concat(backlinks.map((b) => b.slug));
     return Buffer.from(notePage({
       slug: page.slug, chrome: !this.preview(), latest: page.latest_version,
       title: meta.title, description: meta.description, tags: meta.tags, version: n,
@@ -232,7 +245,7 @@ class Ctx {
       copyLabel: nb ? 'Copy notebook' : 'Copy markdown',
       extra: nb ? [nb.kernel, `${nb.cells.filter((c) => c.type === 'code').length} code cells`].filter(Boolean).join(' · ') : '',
       theme: (this.req.headers.cookie || '').match(/(?:^|;\s*)theme=(dark|light)/)?.[1],
-      path: page.path, explorer: this.preview() ? [] : this.store.explorer(viewer),
+      path: page.slug.includes('/') || this.store.one('SELECT 1 FROM moves WHERE artifact_id = ? LIMIT 1', page.id) ? page.slug : page.path, explorer: this.preview() ? [] : this.store.explorer(viewer),
       graph: this.preview() ? null : this.store.graph(viewer, { views: false }),
     }));
   }
@@ -249,7 +262,7 @@ class Ctx {
     return {
       resolve: (name) => {
         const a = this.store.linkTarget(name, viewer);
-        return a ? { exists: true, url: `/pages/${a.slug}` } : null;
+        return a ? { exists: true, url: pageUrl(a.slug) } : null;
       },
       asset: (name) => {
         const a = this.store.asset(name);
@@ -318,6 +331,16 @@ class Ctx {
   decorate({ body, n, latest, page }, links) {
     const note = page && isNote(page.slug);
     if (note) body = this.note(page, body, n);
+    else if (page) {
+      // Keep relative links anchored to the source version, including after moves and on /v/ shares.
+      const html = body.toString('utf8');
+      if (!/<base\b/i.test(html)) {
+        const base = `<base href="/pages/${encodePath(this.store.versionBase(page, n))}${n < latest ? `?v=${n}` : ''}">`;
+        const doctype = html.match(/^(\uFEFF?\s*(?:<!--[^]*?-->\s*)*)<!doctype\b[^>]*>/i);
+        body = Buffer.from(/<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, (m) => m + base)
+          : doctype ? html.slice(0, doctype[0].length) + base + html.slice(doctype[0].length) : base + html);
+      }
+    }
     if (this.preview()) return body;
     // In the site's frame the title bar shows the version, and a floating contents box
     // would be pinned to the top of a frame as tall as the page: just size it.
@@ -392,6 +415,31 @@ const handlers = {
     c.listing(items, { q, category, sort, section: 'pages' },
       () => ({ categories: c.store.categories(null), total: category ? items.length : c.store.countPages(null) }));
   },
+  folders(c) {
+    const paths = new Set();
+    for (const a of c.store.explorer(c.viewerId())) {
+      const parts = a.slug.split('/');
+      for (let i = 1; i < parts.length; i++) paths.add(parts.slice(0, i).join('/'));
+    }
+    c.json(200, [...paths].sort());
+  },
+  folder(c, { folder }) {
+    try { validatePath(folder, { folder: true }); } catch { throw new ApiError(404, 'no such folder'); }
+    const viewer = c.viewerId();
+    const { folders } = c.store.folder(folder, viewer);
+    const q = (c.query.get('q') || '').trim(), sort = c.query.get('sort') || '';
+    const recursive = !!q || c.query.get('recursive') === '1';
+    const category = c.query.get('category') || '';
+    const opts = { folder, recursive, q, sort: sort || undefined, category, limit: 500 };
+    const items = c.store.list(viewer, opts);
+    c.listing(items, { q, sort, category, section: 'pages', base: `/${encodePath(folder)}/`, folder, folders,
+      recursive, total: c.store.list(viewer, { ...opts, q: '' }).length });
+  },
+  async movePages(c) {
+    const user = c.user();
+    const body = await c.jsonBody();
+    c.json(200, { results: c.store.movePages(user.id, body.moves) });
+  },
   stats(c) { c.html(statsPage(c.store.stats(c.viewerId()))); },
   statsData(c) { c.json(200, c.store.stats(c.viewerId())); },
   usageData(c) { c.user({ admin: true }); c.json(200, c.store.usage({ days: c.usageDays() })); },
@@ -425,6 +473,17 @@ const handlers = {
     c.send(200, type, body, { 'Cache-Control': 'no-cache' });
   },
   render(c, { slug }) {
+    try { validatePath(slug); } catch { throw new ApiError(404, 'no such page'); }
+    const exact = c.store.find(slug, { exact: true });
+    if (!exact) {
+      try { c.store.folder(slug, c.viewerId()); return c.send(302, 'text/plain', '', { Location: `/${encodePath(slug)}/${c.url.search}` }); }
+      catch (e) { if (e.status !== 404) throw e; }
+    }
+    const a = c.store.readable(slug, c.viewerId());
+    const old = c.store.oldAddress(slug);
+    if (old?.artifact_id === a.id && a.state === ACTIVE) {
+      return c.send(302, 'text/plain', '', { Location: pageUrl(a.slug) + c.url.search, 'Cache-Control': 'no-store' });
+    }
     if (c.wantsFrame()) {
       const a = c.store.readable(slug, c.viewerId());
       if (a.state === 'active' && !isNote(a.slug)) return c.frame(a);
@@ -459,6 +518,8 @@ const handlers = {
       owner: c.query.get('owner') || undefined,
       category: c.query.get('category') || undefined,
       source: c.query.get('source') || undefined,
+      folder: c.query.get('folder') ?? undefined,
+      recursive: c.query.get('recursive') !== '0',
       sort: c.query.get('sort') || undefined,
     }));
   },
@@ -478,7 +539,7 @@ const handlers = {
     const q = (c.query.get('q') || '').trim();
     if (!q) throw new ApiError(400, 'search needs ?q=');
     const tag = c.query.get('tag') || undefined;
-    const results = c.store.list(c.viewerId(), { q, category: tag, sort: c.query.get('sort') || undefined, limit: Math.min(c.int('limit') ?? 20, 200) });
+    const results = c.store.list(c.viewerId(), { q, category: tag, folder: c.query.get('folder') ?? undefined, sort: c.query.get('sort') || undefined, limit: Math.min(c.int('limit') ?? 20, 200) });
     // Readable from sandboxed notes (their origin is opaque), whose ⌘K search calls this.
     // Anonymous there, so only public pages; a token can't ride along cross-origin.
     c.send(200, 'application/json', JSON.stringify({ query: q, tag: tag ?? null, count: results.length, results }, null, 2) + '\n',

@@ -10,6 +10,7 @@ import {
   PAGE_EXT_RE, SEARCH_SORT, SLUG_HINT, SLUG_RE, SORTS, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
+import { pageUrl, validatePath } from './paths.js';
 import { ACTIVE, NONE, PURGED, TRASHED, transition } from './lifecycle.js';
 import {
   assetPaths, isMarkdown, linkCandidates, noteAssets, noteLines, noteLinks, noteTags, noteTitle, parseFrontmatter, renderMarkdown,
@@ -25,7 +26,7 @@ import {
  * category, tags it declares, its searchable text, and the pages it links to (a note's
  * Markdown links are read from where it lives, `path`).
  */
-export function pageMeta(slug, text, { path = '' } = {}) {
+export function pageMeta(slug, text, { path = slug } = {}) {
   if (isNotebook(slug)) {
     // Title, tags and description: frontmatter cell, else notebook metadata; else the first
     // # heading of a Markdown cell, else the file name.
@@ -67,7 +68,7 @@ export function pageMeta(slug, text, { path = '' } = {}) {
   return {
     kind: 'html', title, description: metaContent(text, 'description'), category,
     tags: [normalizeTag(category)].filter(Boolean), body: `${body} ${scriptText(text).replace(/\n/g, ' ')}`.trim(),
-    links: extractLinks(text, { isSlug: (s) => SLUG_RE.test(s) && !RESERVED_SLUGS.has(s.toLowerCase()) }),
+    links: extractLinks(text, { basePath: path, isSlug: (s) => s.split('/').every((p) => SLUG_RE.test(p)) && !RESERVED_SLUGS.has(s.split('/')[0].toLowerCase()) }),
     assets: assetPaths(text),
   };
 }
@@ -94,6 +95,17 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
     UNIQUE (slug)
+);
+CREATE TABLE IF NOT EXISTS page_addresses (
+    path TEXT PRIMARY KEY COLLATE NOCASE,
+    artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS moves (
+    id INTEGER PRIMARY KEY,
+    artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    old_path TEXT NOT NULL,
+    new_path TEXT NOT NULL,
+    created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS versions (
     artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
@@ -213,7 +225,7 @@ const SEARCH_INDEX_VERSION = '3'; // 3: prefix indexes; script text, aliases and
 // So do the links (see ensureLinks): 1, each link kept as written, with the pages it may mean
 // worked out on every change (link_targets), Markdown links read from where a note lives,
 // and the images and PDFs each page shows (asset_refs).
-const LINKS_VERSION = '1';
+const LINKS_VERSION = '2';
 // Columns added after the first release, per table: [name, definition, backfill SQL].
 // Applied on startup if missing, so older databases upgrade in place.
 const ADDED_COLUMNS = {
@@ -231,6 +243,7 @@ const ADDED_COLUMNS = {
       "UPDATE artifacts SET name_key = lower(CASE WHEN slug LIKE '%.markdown' THEN substr(slug, 1, length(slug) - 9) WHEN slug LIKE '%.html' THEN substr(slug, 1, length(slug) - 5) WHEN slug LIKE '%.htm' OR slug LIKE '%.md' THEN substr(slug, 1, length(slug) - (CASE WHEN slug LIKE '%.htm' THEN 4 ELSE 3 END)) ELSE slug END)"],
   ],
   versions: [
+    ['base_path', "TEXT NOT NULL DEFAULT ''", "UPDATE versions SET base_path = (SELECT CASE WHEN path != '' AND (slug LIKE '%.md' OR slug LIKE '%.markdown' OR slug LIKE '%.ipynb') THEN path ELSE slug END FROM artifacts WHERE id = artifact_id)"],
     // Who uploaded each version (0.3.0, for open editing). Versions from before then
     // could only have come from the page's owner, so they're credited to them.
     // NULL afterwards means the uploader's account was deleted.
@@ -285,7 +298,9 @@ export function displayName(name, viewerId) {
 export function summary(a, viewerId = null) {
   return {
     slug: a.slug,
-    url: `/pages/${a.slug}`, // the canonical, stable page URL; /<slug> is an alias
+    url: pageUrl(a.slug),
+    path: a.slug,
+    source_path: a.path || '',
     owner: displayName(a.owner, viewerId),
     title: a.title,
     description: a.description,
@@ -366,9 +381,9 @@ export class Store {
     if (this.setting('links_resolved') === LINKS_VERSION && Number(this.setting('links_upto', '0')) >= newest) return;
     this.tx(() => {
       this.db.exec('DELETE FROM links; DELETE FROM link_targets; DELETE FROM link_names; DELETE FROM asset_refs;');
-      const rows = this.all('SELECT a.id, a.slug, a.path, v.html FROM artifacts a JOIN versions v ON v.artifact_id = a.id AND v.n = a.latest_version');
+      const rows = this.all('SELECT a.id, a.slug, a.path, v.base_path, v.html FROM artifacts a JOIN versions v ON v.artifact_id = a.id AND v.n = a.latest_version');
       for (const r of rows) {
-        const meta = pageMeta(r.slug, Buffer.from(r.html).toString('utf8'), { path: r.path });
+        const meta = pageMeta(r.slug, Buffer.from(r.html).toString('utf8'), { path: r.base_path || r.path || r.slug });
         this.setLinks(r.id, meta.links);
         this.setAssetRefs(r.id, meta.assets);
       }
@@ -414,7 +429,8 @@ export class Store {
     if (!a) return [];
     const slug = a.slug.toLowerCase();
     const aliases = this.all('SELECT alias FROM aliases WHERE artifact_id = ?', id).map((r) => r.alias.toLowerCase());
-    return [slug, slug.replace(PAGE_EXT_RE, ''), a.name_key, ...aliases, ...aliases.map((x) => x.replace(/\s+/g, '-'))];
+    const addresses = this.all('SELECT path FROM page_addresses WHERE artifact_id = ?', id).flatMap((r) => [r.path.toLowerCase(), r.path.toLowerCase().replace(PAGE_EXT_RE, '')]);
+    return [slug, slug.replace(PAGE_EXT_RE, ''), a.name_key, ...addresses, ...aliases, ...aliases.map((x) => x.replace(/\s+/g, '-'))];
   }
 
   /** Pages with a link that may mean one of these names (lowercase). */
@@ -584,6 +600,7 @@ export class Store {
     for (const n of linkCandidates(name)) {
       const forms = [n, `${n}.html`, `${n}.md`, `${n}.ipynb`], lower = forms.map((f) => f.toLowerCase());
       const rows = this.all(`${CANDIDATE} WHERE a.slug COLLATE NOCASE IN (?, ?, ?, ?)`, ...forms);
+      for (const old of this.all(`${CANDIDATE} JOIN page_addresses pa ON pa.artifact_id = a.id WHERE pa.path IN (?, ?, ?, ?)`, ...forms)) if (!rows.some((a) => a.id === old.id)) rows.push(old);
       const place = (a) => { const i = forms.indexOf(a.slug); return i === -1 ? 4 + lower.indexOf(a.slug.toLowerCase()) : i; };
       for (const a of rows.sort((x, y) => place(x) - place(y) || x.id - y.id)) if (!out.has(a.id)) out.set(a.id, a);
       if (!PAGE_EXT_RE.test(n)) {
@@ -613,14 +630,24 @@ export class Store {
 
   /** A page by name, for reading: the best one this viewer can see (see pick). */
   readable(name, viewerId) {
-    const a = this.pick(name, (x) => visible(x, viewerId));
-    if (!a) throw new ApiError(404, 'no such artifact');
+    const a = name.includes('/') ? this.address(name) : this.pick(name, (x) => visible(x, viewerId));
+    if (!a || !visible(a, viewerId)) throw new ApiError(404, 'no such artifact');
     return this.one(`${SELECT} WHERE a.id = ?`, a.id);
   }
 
+  /** Only address matches, including old addresses; no basename or frontmatter aliases. */
+  address(name) {
+    for (const path of [name, `${name}.html`, `${name}.md`, `${name}.ipynb`]) {
+      const a = this.one(`${CANDIDATE} WHERE a.slug = ? COLLATE NOCASE`, path)
+        ?? this.one(`${CANDIDATE} JOIN page_addresses pa ON pa.artifact_id = a.id WHERE pa.path = ?`, path);
+      if (a) return a;
+    }
+    return null;
+  }
+
   /** A page by name, whoever can see it: for tests and scripts. */
-  find(name) {
-    const a = this.pick(name);
+  find(name, { exact = false } = {}) {
+    const a = exact ? this.address(name) : this.pick(name);
     return a ? this.one(`${SELECT} WHERE a.id = ?`, a.id) : undefined;
   }
 
@@ -641,7 +668,7 @@ export class Store {
     const { pages, edges } = this.linkGraph(viewerId);
     const from = new Set(edges.filter((e) => e.target === a.id).map((e) => e.source));
     return pages.filter((p) => from.has(p.id)).sort((x, y) => (x.title < y.title ? -1 : x.title > y.title ? 1 : 0))
-      .map((r) => ({ slug: r.slug, title: r.title, url: `/pages/${r.slug}` }));
+      .map((r) => ({ slug: r.slug, title: r.title, url: pageUrl(r.slug) }));
   }
 
   /** A page by its exact name that this user owns (see exact). */
@@ -659,10 +686,9 @@ export class Store {
    * `base`: the version the uploader started from; refuse if someone has added one since.
    * `renameFrom`: the uploader's page that this is, renamed in case only (sync sends it).
    */
-  putVersion(userId, slug, doc, { title, note = '', visibility, base, source, nameKey, path, renameFrom } = {}) {
-    if (!SLUG_RE.test(slug) || RESERVED_SLUGS.has(slug.toLowerCase())) {
-      throw new ApiError(400, `slug must be ${SLUG_HINT}, and not a name the server uses itself`);
-    }
+  putVersion(userId, slug, doc, { title, note = '', visibility, base, source, nameKey, path, renameFrom, basePath } = {}) {
+    validatePath(slug);
+    if (this.oldAddress(slug)) throw new ApiError(409, 'this address has moved; fetch the current page address before publishing');
     if (visibility != null && !VISIBILITIES.includes(visibility)) {
       throw new ApiError(400, `visibility must be one of ${VISIBILITIES.join(', ')}`);
     }
@@ -679,7 +705,7 @@ export class Store {
       if (a && !this.canEdit(a, userId)) { // someone else's: say whose only if this user can see the page
         throw new ApiError(409, `'${slug}' is taken${visible(a, userId) ? ` by ${a.owner}` : ''}; pick another file name`);
       }
-      const near = a ? null : this.pick(slug, (x) => x.state === ACTIVE && visible(x, userId));
+      const near = a ? null : slug.includes('/') ? this.address(slug) : this.pick(slug, (x) => x.state === ACTIVE && visible(x, userId));
       if (near) {
         throw new ApiError(409, `no page is named '${slug}', but '${near.slug}' answers to that name: did you mean '${near.slug}'? `
           + 'Upload to that name to add a version, or pick another name for a new page');
@@ -692,7 +718,8 @@ export class Store {
           + `see what changed (diff ${base} ${a.latest_version}) and upload again`);
       }
       const state = transition(a ? a.state : NONE, a ? 'update' : 'create');
-      const meta = pageMeta(slug, text, { path: path ?? a?.path ?? '' });
+      const authoredPath = basePath || (source && a?.source === source && a.path === path ? this.versionBase(a) : slug.includes('/') ? slug : path ?? a?.path ?? slug);
+      const meta = pageMeta(slug, text, { path: authoredPath });
       const { title: htmlTitle, body, description, category } = meta;
       const namesBefore = a ? this.namesOf(a.id) : [];
       let id, n;
@@ -713,15 +740,15 @@ export class Store {
           + ' description=?, category=? WHERE id=?',
         title, state, visibility || a.visibility, n, t, description, category, id);
       }
-      this.run('INSERT INTO versions (artifact_id, n, html, sha256, size, note, created_at, author_id) VALUES (?,?,?,?,?,?,?,?)',
-        id, n, doc, sha256(doc), doc.length, note, t, userId);
+      this.run('INSERT INTO versions (artifact_id, n, html, sha256, size, note, created_at, author_id, base_path) VALUES (?,?,?,?,?,?,?,?,?)',
+        id, n, doc, sha256(doc), doc.length, note, t, userId, authoredPath);
       this.run('DELETE FROM aliases WHERE artifact_id = ?', id);
       for (const al of meta.aliases ?? []) this.run('INSERT OR IGNORE INTO aliases (artifact_id, alias) VALUES (?, ?)', id, al);
       if (source != null) this.run('UPDATE artifacts SET source = ? WHERE id = ?', source, id);
       if (path != null) this.run('UPDATE artifacts SET path = ? WHERE id = ?', path, id);
       // The bare name [[wikilinks]] find it by: what sync says, else the name without its
       // extension. Kept when not given, so a version from `put` or a restore keeps sync's.
-      if (nameKey || !a) this.run('UPDATE artifacts SET name_key = ? WHERE id = ?', (nameKey || slug.replace(PAGE_EXT_RE, '')).toLowerCase(), id);
+      if (nameKey || !a) this.run('UPDATE artifacts SET name_key = ? WHERE id = ?', (nameKey || slug.split('/').at(-1).replace(PAGE_EXT_RE, '')).toLowerCase(), id);
       this.setLinks(id, meta.links);
       this.setAssetRefs(id, meta.assets);
       // A new page, or one answering to other names now, may be what other pages' links mean.
@@ -741,6 +768,62 @@ export class Store {
     });
     this.changed();
     return this.describe(slug, userId);
+  }
+
+  /** All moves are atomic, including a bulk selection. Old addresses remain reserved. */
+  movePages(userId, entries) {
+    if (!Array.isArray(entries) || !entries.length || entries.length > 500 || entries.some((e) => !e || typeof e !== 'object' || Array.isArray(e))) throw new ApiError(400, 'give 1–500 moves');
+    const out = this.tx(() => {
+      const seen = new Set(), targets = new Set();
+      const changes = entries.map(({ from, to } = {}) => {
+        validatePath(from); validatePath(to);
+        if (this.oldAddress(from)) throw new ApiError(409, 'page address changed; reload before moving');
+        const a = this.owned(from, userId);
+        if (a.slug !== from) throw new ApiError(409, 'page address changed; reload before moving');
+        if (a.state !== ACTIVE) throw new ApiError(409, 'restore the page before moving it');
+        if (seen.has(a.id) || targets.has(to.toLowerCase())) throw new ApiError(409, 'duplicate page or destination');
+        seen.add(a.id); targets.add(to.toLowerCase());
+        if ((a.slug.match(PAGE_EXT_RE)?.[0] || '').toLowerCase() !== (to.match(PAGE_EXT_RE)?.[0] || '').toLowerCase()) {
+          throw new ApiError(400, 'moving a page must keep its file extension');
+        }
+        const taken = this.one('SELECT id FROM artifacts WHERE lower(slug) = lower(?)', to)
+          ?? (() => { const old = this.oldAddress(to); return old ? { id: old.artifact_id } : null; })();
+        if (taken && taken.id !== a.id) throw new ApiError(409, 'destination is already in use (or reserved by a moved page)');
+        return { a, to };
+      });
+      for (const { a, to } of changes) {
+        if (a.slug === to) continue;
+        const namesBefore = this.namesOf(a.id);
+        this.run('DELETE FROM page_addresses WHERE path = ? AND artifact_id = ?', to, a.id);
+        if (a.slug.toLowerCase() !== to.toLowerCase()) this.run('INSERT INTO page_addresses (path, artifact_id) VALUES (?,?)', a.slug, a.id);
+        this.run('UPDATE artifacts SET slug = ?, name_key = ? WHERE id = ?', to, to.split('/').at(-1).replace(PAGE_EXT_RE, '').toLowerCase(), a.id);
+        this.run('INSERT INTO moves (artifact_id, old_path, new_path, created_at) VALUES (?,?,?,?)', a.id, a.slug, to, now());
+        this.index(a.id);
+        const changed = [...namesBefore, ...this.namesOf(a.id)];
+        this.resolveLinks(this.linkersOf(changed), changed);
+      }
+      return changes.map(({ to }) => this.describe(to, userId));
+    });
+    this.changed();
+    return out;
+  }
+
+  oldAddress(path) {
+    const candidates = PAGE_EXT_RE.test(path) ? [path] : [path, `${path}.html`, `${path}.md`, `${path}.ipynb`];
+    return this.one(`SELECT artifact_id FROM page_addresses WHERE path IN (${candidates.map(() => '?').join(',')})`, ...candidates);
+  }
+
+  versionBase(a, n) {
+    return this.one('SELECT base_path FROM versions WHERE artifact_id = ? AND n = ?', a.id, n || a.latest_version)?.base_path || a.slug;
+  }
+
+  folder(folder, viewerId) {
+    validatePath(folder, { folder: true });
+    const prefix = folder ? `${folder}/` : '';
+    const items = this.explorer(viewerId).filter((a) => a.slug.toLowerCase().startsWith(prefix.toLowerCase()));
+    if (folder && !items.length) throw new ApiError(404, 'no such folder');
+    const folders = [...new Set(items.map((a) => a.slug.slice(prefix.length)).filter((p) => p.includes('/')).map((p) => p.split('/')[0]))].sort();
+    return { folders: folders.map((name) => ({ name, path: prefix + name })), total: items.length };
   }
 
   setVisibility(userId, slug, visibility) {
@@ -772,7 +855,7 @@ export class Store {
   /** Make version n current again by appending a copy of it; history is never rewritten. */
   restoreVersion(userId, slug, n) {
     const a = this.editable(slug, userId);
-    return this.putVersion(userId, a.slug, this.version(a, n), { note: `restored from v${n}` }); // its name_key and path stay
+    return this.putVersion(userId, a.slug, this.version(a, n), { note: `restored from v${n}`, basePath: this.versionBase(a, n) });
   }
 
   // --- reads -----------------------------------------------------------------------
@@ -782,6 +865,8 @@ export class Store {
       + ' FROM versions v LEFT JOIN users u ON u.id = v.author_id WHERE v.artifact_id = ? ORDER BY v.n', a.id);
     return {
       ...summary(a, viewerId),
+      can_move: a.owner_id === viewerId && a.state === ACTIVE,
+      moves: this.all('SELECT old_path, new_path, created_at FROM moves WHERE artifact_id = ? ORDER BY id', a.id),
       can_edit: this.canEdit(a, viewerId), // for the viewer: may they add or restore versions?
       versions: versions.map((v) => ({ ...v, author: v.author ? displayName(v.author, viewerId) : '(deleted user)' })),
     };
@@ -793,10 +878,11 @@ export class Store {
    * (its default). Featured pages come first unless searching. A search gives the first
    * `snippets` results a snippet (default: all of them).
    */
-  list(viewerId, { q, state = ACTIVE, limit = 50, offset = 0, owner, category, source, sort, snippets = limit } = {}) {
+  list(viewerId, { q, state = ACTIVE, limit = 50, offset = 0, owner, category, source, sort, snippets = limit, folder, recursive = true } = {}) {
     if (sort && !(sort in SORT_ORDER) && !(q && sort === SEARCH_SORT)) {
       throw new ApiError(400, `sort must be one of ${[...Object.keys(SORTS), ...(q ? [SEARCH_SORT] : [])].join(', ')}`);
     }
+    if (folder != null) validatePath(folder, { folder: true });
     const ranked = q && (!sort || sort === SEARCH_SORT);
     let where, args;
     if (state === TRASHED) [where, args] = ['a.state = ? AND a.owner_id = ?', [TRASHED, viewerId ?? -1]];
@@ -805,6 +891,11 @@ export class Store {
     if (source) { where += ' AND a.source = ? AND a.owner_id = ?'; args.push(source, viewerId ?? -1); } // your synced pages
     // ?category= is the older name for a tag filter; both match a page's tags.
     if (category) { where += ' AND EXISTS (SELECT 1 FROM tags t WHERE t.artifact_id = a.id AND t.tag = ?)'; args.push(category); }
+    if (folder != null) {
+      const prefix = folder ? `${folder}/` : '';
+      where += ' AND substr(a.slug, 1, ?) = ? COLLATE NOCASE'; args.push(prefix.length, prefix);
+      if (!recursive) { where += " AND instr(substr(a.slug, ?), '/') = 0"; args.push(prefix.length + 1); }
+    }
     if (!q) {
       return this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS} FROM artifacts a`
         + ` JOIN users u ON u.id = a.owner_id WHERE ${where} ORDER BY ${PINNED_FIRST}, ${SORT_ORDER[sort || 'updated']} LIMIT ? OFFSET ?`, ...args, limit, offset)
@@ -880,7 +971,7 @@ export class Store {
         linksOut.set(source, (linksOut.get(source) || 0) + 1);
         linksIn.set(target, (linksIn.get(target) || 0) + 1);
       }
-      return { edges: all, nodes: pages.map((n) => ({ id: n.id, slug: n.slug, title: n.title, category: n.category, url: `/pages/${n.slug}`,
+      return { edges: all, nodes: pages.map((n) => ({ id: n.id, slug: n.slug, title: n.title, category: n.category, url: pageUrl(n.slug),
         links_in: linksIn.get(n.id) || 0, links_out: linksOut.get(n.id) || 0, tags: n.tags_csv ? n.tags_csv.split(',').sort() : [] })) };
     });
     let focusId = null;
@@ -928,9 +1019,9 @@ export class Store {
 
   /** Every page this viewer can see, lightly: what the explorer sidebar lists. */
   explorer(viewerId) {
-    return this.cached(`explorer:${viewerId ?? ''}`, () => this.all("SELECT a.slug, a.title, a.path FROM artifacts a WHERE a.state = 'active'"
+    return this.cached(`explorer:${viewerId ?? ''}`, () => this.all("SELECT a.slug, a.title, a.path, EXISTS (SELECT 1 FROM moves m WHERE m.artifact_id = a.id) AS moved FROM artifacts a WHERE a.state = 'active'"
       + " AND (a.visibility = 'public' OR a.owner_id = ?) ORDER BY lower(a.title)", viewerId ?? -1)
-      .map((r) => ({ slug: r.slug, title: r.title, path: r.path, url: `/pages/${r.slug}` })));
+      .map((r) => ({ slug: r.slug, title: r.title, path: r.moved || r.slug.includes('/') ? r.slug : r.path, url: pageUrl(r.slug) })));
   }
 
   /** Categories in use among pages this viewer can see, with counts. */
@@ -991,7 +1082,7 @@ export class Store {
       if (uploadsByWeek[i]) uploadsByWeek[i].versions++;
     }
 
-    const pageRows = (sql) => this.all(sql, v, top).map((r) => ({ ...r, url: `/pages/${r.slug}` }));
+    const pageRows = (sql) => this.all(sql, v, top).map((r) => ({ ...r, url: pageUrl(r.slug) }));
     return {
       totals,
       views_by_day: viewsByDay,
@@ -1004,7 +1095,7 @@ export class Store {
       recent: this.all(`SELECT a.slug, a.title, x.n, x.note, x.created_at, u.name AS author FROM versions x`
         + ` JOIN artifacts a ON a.id = x.artifact_id LEFT JOIN users u ON u.id = x.author_id WHERE ${vis}`
         + ' ORDER BY x.created_at DESC LIMIT ?', v, top)
-        .map((r) => ({ ...r, author: r.author ? displayName(r.author, viewerId) : '(deleted user)', url: `/pages/${r.slug}` })),
+        .map((r) => ({ ...r, author: r.author ? displayName(r.author, viewerId) : '(deleted user)', url: pageUrl(r.slug) })),
     };
   }
 

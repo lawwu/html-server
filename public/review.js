@@ -1,3 +1,4 @@
+import { openMove } from './move.js';
 // The review page: the artifact full width on top, its comments underneath.
 // The commenting token lives in this origin's localStorage; artifacts can't read
 // it because they render sandboxed (opaque origin).
@@ -50,10 +51,13 @@ async function load(n) {
   $('title').textContent = meta.title;
   $('ver').innerHTML = meta.versions.slice().reverse().map((v) =>
     `<option value=${v.n} ${v.n === cur ? 'selected' : ''}>v${v.n}${v.n === meta.latest_version ? ' (current)' : ''} · ${esc(v.author)}${v.note ? ` · ${esc(v.note)}` : ''}</option>`).join('');
+  $('move-page').hidden = !meta.can_move;
+  $('move-page').onclick = () => openMove([meta.slug], (out) => { location.href = `/review/${encodeURIComponent(out[0].slug)}`; });
+  if (meta.can_move && new URLSearchParams(location.search).get('move')) $('move-page').click();
   $('restore').hidden = cur === meta.latest_version || !meta.can_edit;
   $('hist').href = `/history/${S}`;
   $('changes').disabled = cur === 1;
-  $('open').href = `/pages/${S}${cur === meta.latest_version ? '' : `?v=${cur}`}`;
+  $('open').href = `${meta.url}${cur === meta.latest_version ? '' : `?v=${cur}`}`;
   history.replaceState(null, '', `?v=${cur}`);
   showPage();
   loadComments();

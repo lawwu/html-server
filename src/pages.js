@@ -1,3 +1,4 @@
+import { encodePath } from './paths.js';
 // Server-rendered pages: your pages at /, the example gallery at /gallery, history,
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
 import { MAX_BODY_BYTES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
@@ -110,14 +111,14 @@ export function explorerNav(items, current) {
       if (!node.folders.has(dir)) node.folders.set(dir, { folders: new Map(), files: [], index: null });
       node = node.folders.get(dir);
     }
-    if (parts.length > 1 && /^index\.(md|markdown)$/i.test(parts.at(-1))) node.index = it;
+    if (!it.slug.includes('/') && parts.length > 1 && /^index\.(md|markdown)$/i.test(parts.at(-1))) node.index = it;
     else node.files.push(it);
   }
   const holds = (node) => node.index?.slug === current || node.files.some((f) => f.slug === current) || [...node.folders.values()].some(holds);
   const link = (it, label) => `<a href="${esc(it.url)}" target="_top"${it.slug === current ? ' class="on" aria-current="page"' : ''}>${esc(label)}</a>`;
-  const render = (node) => {
+  const render = (node, prefix = '') => {
     const folders = [...node.folders].sort(([a], [b]) => a.localeCompare(b)).map(([name, f]) => `<li class="folder"><details${holds(f) ? ' open' : ''}>
-<summary>${ICONS.chevron}${f.index ? link(f.index, f.index.title || name) : `<span>${esc(name)}</span>`}</summary><ul>${render(f)}</ul></details></li>`).join('');
+<summary>${ICONS.chevron}${items.some((it) => it.slug.startsWith(`${prefix}${name}/`)) ? `<a href="/${encodePath(prefix + name)}/" target="_top">${esc(f.index?.title || name)}</a>` : f.index ? link(f.index, f.index.title || name) : `<span>${esc(name)}</span>`}</summary><ul>${render(f, prefix + name + '/')}</ul></details></li>`).join('');
     const files = node.files.slice().sort((a, b) => a.title.localeCompare(b.title)).map((f) => `<li>${link(f, f.title)}</li>`).join('');
     return folders + files;
   };
@@ -187,15 +188,15 @@ function totalLabel(total, items, section) {
  * on top whatever the order. A plain GET form, so it works without JS (public/gallery.js
  * re-sorts in place).
  */
-function sortControl({ q, category, view, sort }) {
+function sortControl({ q, category, view, sort, base = '/', recursive = false }) {
   const current = sort || (q ? SEARCH_SORT : 'updated');
   const options = [[SEARCH_SORT, 'Best match'], ...Object.entries(SORTS)].map(([v, label]) => {
     const off = v === SEARCH_SORT && !q; // only while searching
     return `<option value="${v}"${v === current ? ' selected' : ''}${off ? ' hidden disabled' : ''}>${esc(label)}</option>`;
   }).join('');
-  const keep = Object.entries({ q, category, view: view === 'grid' ? '' : view }).filter(([, v]) => v)
+  const keep = Object.entries({ q, category, recursive: recursive ? '1' : '', view: view === 'grid' ? '' : view }).filter(([, v]) => v)
     .map(([k, v]) => `<input type="hidden" name="${k}" value="${esc(v)}">`).join('');
-  return `<form class="sort" method="get" action="/">${keep}<label><span>Sort</span><select id="sort" name="sort">${options}</select></label>`
+  return `<form class="sort" method="get" action="${esc(base)}">${keep}<label><span>Sort</span><select id="sort" name="sort">${options}</select></label>`
     + '<noscript><button>Go</button></noscript></form>';
 }
 
@@ -204,11 +205,11 @@ function sortControl({ q, category, view, sort }) {
  * /gallery ("gallery"). Category chips, search, sorting (your pages), grid/list and previews.
  */
 export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages', total = items.length,
-  explorer = null, sort = '' }) {
-  const base = section === 'gallery' ? '/gallery' : '/';
+  explorer = null, sort = '', base: customBase, folder = '', folders = [], recursive = false }) {
+  const base = customBase || (section === 'gallery' ? '/gallery' : '/');
   // Links keep the other settings, so the page works fully without JS.
   const link = (over) => {
-    const p = new URLSearchParams(Object.entries({ q, category, view, sort, ...over }).filter(([k, v]) => v && !(k === 'view' && v === 'grid')));
+    const p = new URLSearchParams(Object.entries({ q, category, view, sort, recursive: recursive ? '1' : '', ...over }).filter(([k, v]) => v && !(k === 'view' && v === 'grid')));
     return `${base}${p.size ? `?${p}` : ''}`;
   };
   const chip = (value, label, count) => `<a class="chip${value === category ? ' on' : ''}" data-category="${esc(value)}"
@@ -221,14 +222,18 @@ export function galleryPage(items, { q = '', category = '', categories = [], vie
     ? '<p class="intro">Example pages that ship with HTML Server: what single-file HTML can do, from explainers and diagrams to small tools. Open one, or use it as a starting point for your own.</p>'
     : '';
   // Search, filters, sorting and layouts ask the server for the cards again.
-  const controls = STATIC_SITE ? '' : `<form id="search" role="search" data-base="${base}"><input id="q" name="q" value="${esc(q)}" placeholder="${section === 'gallery' ? 'Search examples' : 'Search pages'}" autocomplete="off" autofocus>
+  const controls = STATIC_SITE ? '' : `<form id="search" role="search" data-base="${base}"><input id="q" name="q" value="${esc(q)}" placeholder="${folder ? 'Search this folder' : section === 'gallery' ? 'Search examples' : 'Search pages'}" autocomplete="off" autofocus>
+${recursive ? '<input type="hidden" name="recursive" value="1">' : ''}
 ${category ? `<input type="hidden" name="category" value="${esc(category)}">` : ''}
 ${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : ''}
 ${sort ? `<input type="hidden" name="sort" value="${esc(sort)}">` : ''}</form>
 <div class="bar2"><nav class="chips" aria-label="Categories">${chip('', 'All')}${categories.map((c) => chip(c.category, categoryLabel(c.category), c.count)).join('')}</nav>
-<div class="tools">${section === 'pages' ? sortControl({ q, category, view, sort }) + '<button type="button" id="select" class="select-btn">Select</button>' : ''}
+<div class="tools">${section === 'pages' ? sortControl({ q, category, view, sort, base, recursive }) + '<button type="button" id="select" class="select-btn">Select</button>' : ''}
 <div class="views" role="group" aria-label="Layout">${toggle('grid', 'Grid view', grid)}${toggle('list', 'List view', list)}</div></div></div>`;
-  return shell(section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section, { explorer, search: false })}<main class="wrap">
+  return shell(folder ? `${folder} · HTML Server` : section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section, { explorer, search: false })}<main class="wrap">
+${folder ? `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(folder + '/_', folder.split('/').at(-1), explorer || [], true)}</nav><h1>${esc(folder.split('/').at(-1))}</h1>
+${folders.length ? `<nav class="folder-list" aria-label="Subfolders">${folders.map((f) => `<a href="/${encodePath(f.path)}/">▸ ${esc(f.name)}</a>`).join('')}</nav>` : ''}
+<p><a href="${esc(link({ recursive: recursive ? '' : '1' }))}">${recursive ? 'Show direct contents' : 'Include subfolders'}</a>${q ? ' · Search includes subfolders' : ''}</p>` : ''}
 ${intro}${controls}
 <p id="count" class="meta" data-total="${esc(totalLabel(total, items, section))}">${q ? plural(items.length, 'match') : esc(totalLabel(total, items, section))}</p>
 <section id="results" class="${view}">${resultsBody(items, q, { base })}</section>
@@ -237,6 +242,7 @@ ${section === 'pages' ? `<div id="bulk" class="bulk" hidden role="region" aria-l
   <input id="bulk-tag" placeholder="tag, e.g. trips" autocomplete="off" aria-label="Tag">
   <button type="button" data-act="add">Add tag</button><button type="button" data-act="remove">Remove tag</button>
   <button type="button" data-act="pin">Feature</button><button type="button" data-act="unpin">Unfeature</button>
+  <button type="button" data-act="move">Move…</button>
   <button type="button" data-act="done" class="ghost">Done</button>
   <p id="bulk-msg" class="bulk-msg"></p>
 </div>` : ''}</main>`, { scripts: STATIC_SITE ? [] : ['gallery.js'] });
@@ -393,7 +399,7 @@ const noteCss = () => (NOTE_CSS ??= ['style.css', 'note.css']
  */
 export function notePage({ slug, title, tags = [], html, backlinks = [], updated, version, latest, description, chrome = true,
   explorer = [], path = '', graph = null, theme = null, previews = {}, source = null, copyLabel, extra = '' }) {
-  const S = encodeURIComponent(slug);
+  const S = encodePath(slug);
   const day = updated ? new Date(updated * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
   const words = html.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
   const top = (s) => s.replace(/<a (?![^>]*target=)/g, '<a target="_top" '); // site links break out of any frame
@@ -403,7 +409,7 @@ export function notePage({ slug, title, tags = [], html, backlinks = [], updated
   const head = `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(path, title, explorer)}</nav>
 <h1 class="article-title">${esc(title)}</h1>
 <p class="content-meta">${day ? `${esc(day)}, ` : ''}${Math.max(1, Math.round(words / 200))} min read${extra ? ` · ${esc(extra)}` : ''}${versions}</p>
-${source != null ? `<p class="page-actions">${copyButton(copyLabel)}</p>` : ''}
+${source != null ? `<p class="page-actions">${copyButton(copyLabel)} ${STATIC_SITE ? '' : `<a href="/review/${S}?move=1" target="_top">Move…</a>`}</p>` : ''}
 ${tags.length ? `<ul class="note-tags">${tags.map((t) => `<li>${tag(t)}</li>`).join('')}</ul>` : ''}`;
   const toc = [...html.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h\1>/g)]
     .map(([, d, id, inner]) => `<li class="d${d}"><a href="#${esc(id)}">${inner.replace(/<[^>]+>/g, '')}</a></li>`);
@@ -433,19 +439,19 @@ const previewData = (previews) => `<script id="page-previews" type="application/
  * Below it, its local graph and backlinks. ?raw=1 is the page alone.
  */
 export function htmlFramePage({ page, n, backlinks, explorer, graph, previews = {} }) {
-  const S = encodeURIComponent(page.slug);
+  const S = encodePath(page.slug);
   const old = n !== page.latest_version;
   const src = `/pages/${S}${old ? `?v=${n}` : ''}`;
   const embed = `/pages/${S}?${old ? `v=${n}&` : ''}embed=1`;
   const day = new Date(page.updated_at * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   return shell(`${page.title} · HTML Server`, `${siteNav('pages', { explorer, current: page.slug })}<main class="center framed">
 <header class="frame-head"><div class="frame-title">
-<nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="/">Home</a><span class="sep" aria-hidden="true">❯</span><span aria-current="page">${esc(page.title)}</span></nav>
+<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(page.slug, page.title, explorer)}</nav>
 <h1 class="article-title">${esc(page.title)}</h1>
 <p class="content-meta">${old ? '' : `${esc(day)} · `}v${n}${old ? ` of ${page.latest_version}` : ''} · ${plural(page.views ?? 0, 'view')}
   · <a href="/history/${S}">history</a> · <a href="/review/${S}${old ? `?v=${n}` : ''}">comments</a>
   · <a href="${src}${old ? '&amp;' : '?'}raw=1">full page ↗</a></p>
-<p class="page-actions"><button type="button" class="copy-source" data-src="/api/artifacts/${S}/versions/${n}">${COPY_ICON}<span>Copy HTML</span></button></p>
+<p class="page-actions"><button type="button" class="copy-source" data-src="/api/artifacts/${S}/versions/${n}">${COPY_ICON}<span>Copy HTML</span></button> <a href="/review/${S}?move=1">Move…</a></p>
 </div>${page.tags.length ? `<ul class="note-tags">${page.tags.map((t) => `<li><a class="tag-link" href="/?category=${encodeURIComponent(t)}">${esc(t)}</a></li>`).join('')}</ul>` : ''}</header>
 <iframe class="page-frame auto" src="${esc(embed)}" title="${esc(page.title)}"></iframe>
 <div class="frame-foot">${graph ? localGraph(graph, page.slug) : ''}${backlinksSection(backlinks)}</div>
@@ -462,14 +468,16 @@ if(e.data.mode==='window'){f.classList.remove('auto');f.style.height='';return}
 if(!native&&f.classList.contains('auto')&&e.data.height>=40)f.style.height=Math.min(e.data.height,100000)+'px'})})()</script>`;
 
 /** Home › folder › note, from where the note lives; a folder with an index note links to it. */
-function crumbs(path, title, explorer) {
+function crumbs(path, title, explorer, folderPage = false) {
   const parts = path ? path.split('/').slice(0, -1) : [];
   const isIndex = /(^|\/)index\.(md|markdown)$/i.test(path);
   const byPath = new Map(explorer.map((e) => [e.path.toLowerCase(), e]));
   const out = ['<a href="/" target="_top">Home</a>'];
   parts.forEach((dir, i) => {
-    if (isIndex && i === parts.length - 1) return; // a folder's own index note: the folder is the page itself
+    if ((isIndex || folderPage) && i === parts.length - 1) return; // a folder's own index note: the folder is the page itself
     const idx = byPath.get(`${parts.slice(0, i + 1).join('/')}/index.md`.toLowerCase());
+    const dirPath = parts.slice(0, i + 1).join('/');
+    if (explorer.some((e) => e.slug.startsWith(dirPath + '/'))) { out.push(`<a href="/${encodePath(dirPath)}/" target="_top">${esc(dir)}</a>`); return; }
     out.push(idx ? `<a href="${esc(idx.url)}" target="_top">${esc(idx.title)}</a>` : `<span>${esc(dir)}</span>`);
   });
   out.push(`<span aria-current="page">${esc(title)}</span>`);
@@ -540,12 +548,13 @@ ${a.versions.length > 1 ? `<form class="compare" action="/review/${S}/changes" m
   <label><input type="checkbox" name="of" value="source"> HTML source</label> <input type="hidden" name="back" value="1">
   <button>Show changes</button></form>` : ''}
 <div class="scroll"><table class="versions"><thead><tr><th>Version</th><th>Uploaded</th><th>By</th><th>Note</th><th class="num">Size</th><th></th></tr></thead>
-<tbody>${rows}</tbody></table></div></main>`);
+<tbody>${rows}</tbody></table></div>${a.moves?.length ? `<h2>Moves</h2><ul>${a.moves.map((m) => `<li>${esc(when(m.created_at))}: ${esc(m.old_path)} → ${esc(m.new_path)}</li>`).join('')}</ul>` : ''}</main>`);
 }
 
 export function reviewPage(slug) {
   return shell('Review', `<header class="bar"><h1><a href="/">HTML Server</a> / <span id="title"></span></h1>
 <select id="ver" aria-label="Version"></select>
+<button id="move-page" hidden>Move…</button>
 <button id="changes">Show changes</button><button id="restore" hidden>Make this version current</button>
 <a id="open" target="_blank">Open page</a> <a id="hist">History</a> <a id="jump" href="#comments">Comments</a></header>
 <div class="review"><div id="frame-slot"><iframe id="frame" title="Page"></iframe></div><aside id="comments">
@@ -676,6 +685,7 @@ curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"
 
 ### Rules
 
+- **Folders:** publish with \`--folder research\` or \`--name research/report.html\`. Nested URLs open at \`/research/report.html\`; \`/research/\` lists the folder. Use \`mv FROM TO\` or **Move…** to organize pages without losing versions or old links. Use \`sync DIR --migrate-paths\` to migrate old flat sync addresses explicitly.
 - **The URL is the file name:** \`trip-plan.html\` is served at \`/pages/trip-plan.html\`, and \`/pages/trip-plan\`
   works too. Names are shared across the whole server: the first user to upload a name owns it.
 - **HTML pages, Markdown notes and notebooks:** a \`.md\` upload is a note, rendered in the site's layout, with
