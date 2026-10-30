@@ -1,4 +1,3 @@
-import { encodePath, pageUrl, validatePath } from './paths.js';
 // The HTTP server: the route table (which also generates the /api docs page) and
 // its handlers. The command line (serve, create-user, put, ls, ...) is src/cli.js.
 import { createServer } from 'node:http';
@@ -11,6 +10,7 @@ import { ACTIVE, TRASHED } from './lifecycle.js';
 import { VIEWS, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, findExamples } from './examples.js';
 import { renderMarkdown, safeDecode } from './markdown.js';
+import { encodePath, pageUrl, parentPath, validatePath } from './paths.js';
 import { isNote, isNotebook, parseNotebook, renderNotebook } from './notebook.js';
 import { Store, pageMeta, summary } from './store.js';
 import { TOOLS as MCP_TOOLS } from './mcp.js';
@@ -125,6 +125,7 @@ function routePriority(r) {
 const TOC_SCRIPT = fileText('public/toc.js');
 const VERSION_BADGE_SCRIPT = fileText('public/version-badge.js');
 const EMBED_SIZE_SCRIPT = fileText('public/embed-size.js').replace(/^(\/\/.*\n)+/, ''); // without its header comment
+const IN_PAGE_LINKS_SCRIPT = fileText('public/in-page-links.js').replace(/^(\/\/.*\n)+/, '');
 
 /** Insert a script just before the page's last </body> (or at the end). Display-time only. */
 function injectScript(html, attrs, code) {
@@ -152,14 +153,32 @@ export function withToc(doc) {
 export function withEmbedSizing(doc) {
   let html = doc.toString('utf8');
   if (!/<meta\b[^>]*name\s*=\s*["']?html-server-frame["']?[^>]*content\s*=\s*["']?window/i.test(html)) {
-    const meta = '<meta name="responsive-embedded-sizing" content="allow-origins=*">';
-    if (/<head\b[^>]*>/i.test(html)) html = html.replace(/<head\b[^>]*>/i, (m) => m + meta);
-    else { // no <head>: after the doctype, which must stay first (anything before it means quirks mode)
-      const doctype = html.match(/^(\uFEFF?\s*(?:<!--[^]*?-->\s*)*)<!doctype\b[^>]*>/i);
-      html = doctype ? html.slice(0, doctype[0].length) + meta + html.slice(doctype[0].length) : meta + html;
-    }
+    html = inHead(html, '<meta name="responsive-embedded-sizing" content="allow-origins=*">');
   }
   return Buffer.from(injectScript(html, 'data-html-server-embed', EMBED_SIZE_SCRIPT));
+}
+
+/**
+ * A page shown away from where it was written (moved since, or a share link): a <base> at
+ * its written address, so its relative links reach the pages it was written next to (an
+ * old address redirects to where that page is now). A page with a <base> of its own keeps
+ * it: null.
+ */
+export function withBase(doc, href) {
+  const html = doc.toString('utf8');
+  return /<base\b/i.test(html) ? null : Buffer.from(inHead(html, `<base href="${href}">`));
+}
+
+/** Keep links to a place on the page (#section) on the page: public/in-page-links.js. */
+export function withInPageLinks(doc) {
+  return Buffer.from(injectScript(doc.toString('utf8'), 'data-html-server-links', IN_PAGE_LINKS_SCRIPT));
+}
+
+/** A tag at the start of the <head>; with none, after the doctype, which must stay first (anything before it means quirks mode). */
+function inHead(html, tag) {
+  if (/<head\b[^>]*>/i.test(html)) return html.replace(/<head\b[^>]*>/i, (m) => m + tag);
+  const doctype = html.match(/^(\uFEFF?\s*(?:<!--[^]*?-->\s*)*)<!doctype\b[^>]*>/i);
+  return doctype ? html.slice(0, doctype[0].length) + tag + html.slice(doctype[0].length) : tag + html;
 }
 
 /** On an old version, a small badge: "v2 of 6", with links to the current version and the history. */
@@ -327,26 +346,30 @@ class Ctx {
   /** ?preview=1: a gallery-card thumbnail. Not a view, and no sidebar or badge drawn over it. */
   preview() { return !!this.query.get('preview'); }
 
-  /** What we add to a page at display time: the contents sidebar, and on an old version a badge. */
-  decorate({ body, n, latest, page }, links) {
+  /**
+   * What we add to a page at display time: the contents sidebar, and on an old version a
+   * badge. `at`: the path the page was asked for (/pages/<at> or /<at>); none for a share link.
+   */
+  decorate({ body, n, latest, page }, links, at = null) {
     const note = page && isNote(page.slug);
+    let based = false;
     if (note) body = this.note(page, body, n);
     else if (page) {
-      // Keep relative links anchored to the source version, including after moves and on /v/ shares.
-      const html = body.toString('utf8');
-      if (!/<base\b/i.test(html)) {
-        const base = `<base href="/pages/${encodePath(this.store.versionBase(page, n))}${n < latest ? `?v=${n}` : ''}">`;
-        const doctype = html.match(/^(\uFEFF?\s*(?:<!--[^]*?-->\s*)*)<!doctype\b[^>]*>/i);
-        body = Buffer.from(/<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, (m) => m + base)
-          : doctype ? html.slice(0, doctype[0].length) + base + html.slice(doctype[0].length) : base + html);
+      // Relative links go where they went when this version was written. Shown from
+      // another folder (moved since, or a share link), the page gets a <base> there.
+      const written = this.store.versionBase(page, n);
+      if (at == null || parentPath(at).toLowerCase() !== parentPath(written).toLowerCase()) {
+        const doc = withBase(body, `/pages/${encodePath(written)}${n < latest ? `?v=${n}` : ''}`);
+        if (doc) { body = doc; based = true; }
       }
     }
     if (this.preview()) return body;
     // In the site's frame the title bar shows the version, and a floating contents box
     // would be pinned to the top of a frame as tall as the page: just size it.
-    if (!note && this.query.get('embed')) return withEmbedSizing(body);
+    if (!note && this.query.get('embed')) return withInPageLinks(withEmbedSizing(body));
     // Notes carry their contents in the right sidebar already.
     let doc = note || this.query.get('toc') === '0' ? body : withToc(body);
+    if (based) doc = withInPageLinks(doc);
     if (n < latest) doc = withVersionBadge(doc, { n, latest, ...links });
     return doc;
   }
@@ -482,15 +505,16 @@ const handlers = {
     const a = c.store.readable(slug, c.viewerId());
     const old = c.store.oldAddress(slug);
     if (old?.artifact_id === a.id && a.state === ACTIVE) {
-      return c.send(302, 'text/plain', '', { Location: pageUrl(a.slug) + c.url.search, 'Cache-Control': 'no-store' });
+      const to = pageUrl(a.slug).replace(/[^\x00-\x7f]+/gu, encodeURIComponent); // a header is ASCII: a name in any script, encoded
+      return c.send(302, 'text/plain', '', { Location: to + c.url.search, 'Cache-Control': 'no-store' });
     }
     if (c.wantsFrame()) {
       const a = c.store.readable(slug, c.viewerId());
       if (a.state === 'active' && !isNote(a.slug)) return c.frame(a);
     }
     const r = c.store.render(slug, c.int('v'), c.viewerId(), c.preview() ? null : c.visit());
-    const S = encodeURIComponent(r.slug);
-    c.page(c.decorate(r, { current: `/pages/${S}`, history: `/history/${S}` }));
+    const S = encodePath(r.slug);
+    c.page(c.decorate(r, { current: `/pages/${S}`, history: `/history/${S}` }, slug));
   },
   renderShare(c, { share }) {
     // A share link may be a private page, whose history needs a sign-in: no history link.
@@ -503,7 +527,7 @@ const handlers = {
   history(c, { slug }) { c.html(historyPage(c.store.describe(slug, c.viewerId()))); },
   reviewChanges(c, { slug }) {
     const [from, to, a, b] = c.store.diff(slug, c.viewerId(), c.int('from'), c.int('to'), c.query.get('of') || 'text');
-    c.page(diffPage(from, to, a, b, { back: c.query.get('back') ? `/history/${encodeURIComponent(slug)}` : null }));
+    c.page(diffPage(from, to, a, b, { back: c.query.get('back') ? `/history/${encodePath(slug)}` : null }));
   },
   list(c) {
     const viewer = c.viewerId();

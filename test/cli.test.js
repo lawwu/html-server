@@ -415,13 +415,18 @@ test('folder publishing, mv, sync after moving, and explicit legacy path migrati
   r = await cli(['sync', root], env);
   assert.equal(r.code, 0, r.err);
   assert.equal(store.find('source-legacy.md').slug, 'source-legacy.md');
+  assert.match(r.out, /^1 page has a flat address from before folders \(source-legacy.md, for source\/legacy.md\): sync --migrate-paths moves it/m);
+  assert.doesNotMatch(r.out, /destination/); // a page moved on purpose isn't nagged about
   r = await cli(['sync', root, '--migrate-paths', '--dry-run', '--prune'], env);
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /would move/);
-  assert.doesNotMatch(r.out, /would trash/);
+  assert.match(r.out, /would move source-legacy.md → source\/legacy.md/);
+  assert.doesNotMatch(r.out, /would (trash|add|update)/); // what moves is the page that's there, unchanged
+  assert.match(r.out, /\(dry run\) 2 moved, 3 unchanged$/m);
   assert.equal(store.find('source-legacy.md').slug, 'source-legacy.md');
   r = await cli(['sync', root, '--migrate-paths', '--prune'], env);
   assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^moved +source-legacy.md → source\/legacy.md$/m);
+  assert.match(r.out, /^2 moved, 3 unchanged$/m);
   assert.equal(store.find('source/legacy.md').id, oldId);
   assert.equal(store.find('source-legacy.md').id, oldId);
   assert.equal(store.find('source/legacy.md').latest_version, 1);
@@ -431,4 +436,5 @@ test('folder publishing, mv, sync after moving, and explicit legacy path migrati
   r = await cli(['put', file, '--folder', 'published', '--name', 'report.md'], env);
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /\/published\/report.md/);
+  assert.match(r.out, /review: +\S+\/review\/published\/report.md\n/); // a path, not published%2Freport.md
 });

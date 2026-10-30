@@ -56,7 +56,7 @@ test('Markdown links: read from where the note lives, the way sync names files',
     { path: 'health/README.md', resolve: (n) => (n === 'finance/profile.md' ? { exists: true, url: '/pages/finance-profile.md' } : null) });
   assert.match(html, /<a href="\/pages\/finance-profile.md#x">a<\/a>/);
   assert.match(html, /<a href="https:\/\/x.y\/q.md">b<\/a>/);
-  assert.match(html, /<a href="\/pages\/health%2F100.md">c<\/a>/); // a stray % is text, not an error
+  assert.match(html, /<a href="\/health\/100.md">c<\/a>/); // a stray % is text, not an error
 });
 
 test('percent signs that aren\'t escapes never throw', () => {

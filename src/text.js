@@ -1,4 +1,3 @@
-import { linkPath } from './paths.js';
 // Text helpers: HTML → visible text (for search and diffs), fuzzy word matching,
 // FTS5 query building, search snippets, and line diffs (unified + grouped for the
 // side-by-side view).
@@ -6,6 +5,7 @@ import {
   RESERVED_SLUGS, DIFF_CONTEXT_LINES, DIFF_MAX_CELLS, DIFF_MAX_STEPS, FUZZY_CUTOFF, FUZZY_MAX_EXPANSIONS, FUZZY_MIN_LEN, MAX_WORD_FORMS, PAGE_EXT_RE, SCRIPT_TEXT_CHARS,
   SNIPPET_WORDS,
 } from './config.js';
+import { linkPath } from './paths.js';
 
 export class ApiError extends Error {
   constructor(status, message) {

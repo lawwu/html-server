@@ -1108,7 +1108,7 @@ test('Markdown links to other files of a synced folder go to their pages, #secti
   assert.match(page, /<a href="\/pages\/finance-profile.md#savings">the profile<\/a>/);
   assert.match(page, /<a href="\/pages\/finance.md">finance<\/a>/); // a folder's index.md is the folder's page
   assert.match(page, /<a href="\/pages\/finance-profile.md">from the top<\/a>/);
-  assert.match(page, /<a href="\/pages\/health%2Fother.md">a sibling<\/a>/); // not written yet: where it would be
+  assert.match(page, /<a href="\/health\/other.md">a sibling<\/a>/); // not written yet: where it would be
   assert.deepEqual(backlinksOf('finance-profile.md'), ['health-README.md']);
   assert.deepEqual(await graphEdges(), ['health-README.md>finance-profile.md', 'health-README.md>finance.md']);
 });
@@ -1172,7 +1172,7 @@ test('responses: nosniff on text, Vary always, favicon.ico and robots.txt answer
 test('a framed page with no <head> keeps its doctype first (no quirks mode)', async () => {
   await put('bare.html', '<!doctype html><p>no head here</p>');
   const r = await fetch(`${base}/pages/bare.html?embed=1`, { headers: { 'user-agent': BROWSER } });
-  assert.match(await r.text(), /^<!doctype html><meta name="responsive-embedded-sizing" content="allow-origins=\*"><base href="\/pages\/bare.html"><p>no head here/);
+  assert.match(await r.text(), /^<!doctype html><meta name="responsive-embedded-sizing" content="allow-origins=\*"><p>no head here/);
 });
 
 test('tagging checks the 20-tag limit before writing anything', async () => {
@@ -1375,4 +1375,48 @@ test('wikilink graph resolution matches rendered local, global, and qualified li
   assert.deepEqual(targets, ['local/Local.md', 'other/Global.md', 'other/Local.md']);
   const html = (await req('GET', '/local/source.md'))[1];
   for (const path of targets) assert.ok(html.includes(`href="/${path}"`));
+});
+
+test('a page gets a <base> only away from where it was written, and its #section links stay on the page', async () => {
+  const toc = '<!doctype html><html><head><title>Contents</title></head><body><a href="#b">B</a> <a href="sibling.html">Sibling</a><h2 id="b">B</h2></body></html>';
+  const [, shared] = await put('anchors/toc.html', toc, admin, '?visibility=private');
+  await put('flat-toc.html', toc);
+  const page = async (path, token = admin) => (await req('GET', path, { token }))[1];
+  const count = (html, s) => html.split(s).length - 1;
+  // Where it was written, by any form of its address: the browser reads its links right.
+  for (const path of ['/anchors/toc.html', '/pages/anchors/toc.html?raw=1', '/Anchors/toc.html', '/flat-toc.html', '/pages/flat-toc.html']) {
+    const html = await page(path);
+    assert.doesNotMatch(html, /<base\b/, path);
+    assert.doesNotMatch(html, /data-html-server-links/, path);
+  }
+  // The frame is as tall as the page, so its #section links scroll the window around it.
+  let html = await page('/pages/anchors/toc.html?embed=1');
+  assert.doesNotMatch(html, /<base\b/);
+  assert.equal(count(html, 'data-html-server-links'), 1);
+  // A share link isn't where the page was written: relative links get a <base>, and #b stays on the page.
+  html = await page(shared.share_url, null);
+  assert.match(html, /<head><base href="\/pages\/anchors\/toc.html"><title>/);
+  assert.equal(count(html, 'data-html-server-links'), 1);
+  // Moved: the same, at the new address, in the frame (once) and on its own.
+  await move([{ from: 'anchors/toc.html', to: 'elsewhere/toc.html' }]);
+  for (const path of ['/elsewhere/toc.html', '/pages/elsewhere/toc.html?embed=1']) {
+    html = await page(path);
+    assert.equal(count(html, '<base href="/pages/anchors/toc.html">'), 1, path);
+    assert.equal(count(html, 'data-html-server-links'), 1, path);
+  }
+  // A page with a <base> of its own keeps it, and its links mean what it says.
+  await put('own/base.html', '<head><base href="https://example.com/docs/"></head><a href="#b">B</a>');
+  await move([{ from: 'own/base.html', to: 'moved-own/base.html' }]);
+  html = await page('/moved-own/base.html');
+  assert.equal(count(html, '<base'), 1);
+  assert.doesNotMatch(html, /data-html-server-links/);
+});
+
+test('an old address redirects to a name in any script with an ASCII Location', async () => {
+  await put('ascii/note.html', '<p>note</p>');
+  await move([{ from: 'ascii/note.html', to: '笔记.html' }]);
+  const r = await fetch(base + '/ascii/note.html?raw=1', { redirect: 'manual' });
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.get('location'), `/pages/${encodeURIComponent('笔记.html')}?raw=1`);
+  assert.equal((await fetch(base + r.headers.get('location'))).status, 200);
 });

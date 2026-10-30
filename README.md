@@ -162,8 +162,10 @@ page addresses redirect to the latest address, including version query parameter
 Old addresses remain reserved until the page is permanently deleted. Publish later
 edits to the current address: writes to an old address are refused. Moves appear in
 History separately from content versions. Each version retains its original base
-address for relative links; restoring a version preserves that base too. HTML with
-its own `<base>` keeps that explicit setting.
+address for relative links; restoring a version preserves that base too. An HTML page
+shown away from where it was written (after a move, or through a share link) gets a
+`<base>` at that address, and its links to `#sections` still stay on the page. HTML
+with its own `<base>` keeps that explicit setting.
 
 Sync tracks the original source file separately from the published address, so a
 server-side move survives subsequent syncs and pruning. Renaming a file locally is

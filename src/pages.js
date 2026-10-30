@@ -1,4 +1,3 @@
-import { encodePath } from './paths.js';
 // Server-rendered pages: your pages at /, the example gallery at /gallery, history,
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
 import { MAX_BODY_BYTES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
@@ -6,6 +5,7 @@ import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, heroTile, sparkline, stackedColumnChart } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
 import { renderMarkdown } from './markdown.js';
+import { encodePath } from './paths.js';
 import { usage } from './usage.js';
 
 const CATEGORY_LABELS = {
@@ -139,7 +139,7 @@ export function galleryCards(items, q, { base = '/' } = {}) {
     const hits = i[HIT];
     const title = hits?.title ? markHits(esc(hits.title)) : esc(i.title);
     const snippet = hits?.snippet ? markHits(esc(hits.snippet)) : esc(i.description);
-    const S = encodeURIComponent(i.slug);
+    const S = encodePath(i.slug);
     const tags = i.tags ?? (i.category ? [i.category] : []);
     const chip = (t) => (STATIC_SITE ? `<span class="tag">${esc(categoryLabel(t))}</span>`
       : `<a class="tag" href="${base}?category=${encodeURIComponent(t)}">${esc(categoryLabel(t))}</a>`);
@@ -260,7 +260,7 @@ export function graphPage(data) {
   const focus = data.focus != null ? data.nodes.find((n) => n.id === data.focus) : null;
   const intro = focus
     ? `<p class="intro">Pages linked to or from <a href="${esc(focus.url)}">${esc(focus.title)}</a> (ringed).
-<a href="/graph">See all pages</a> · <a href="/history/${encodeURIComponent(focus.slug)}">History</a></p>`
+<a href="/graph">See all pages</a> · <a href="/history/${encodePath(focus.slug)}">History</a></p>`
     : `<p class="intro">Your pages, and the links between them. A dot is a page, sized by how many links it has; a line is
 a link from one page to another (<code>/pages/x</code>, <code>/x</code> or a relative <code>x.html</code>); a small ring is a
 tag, joined to the pages that carry it. Hover to see a node's neighbours, click to open it, drag dots or the background,
@@ -525,7 +525,7 @@ ${expand}
 
 /** Every version, newest first: view it, see what it changed, or compare any two. */
 export function historyPage(a) {
-  const S = encodeURIComponent(a.slug);
+  const S = encodePath(a.slug);
   const when = (t) => { // "2026-10-20 07:12": short, sortable, never wraps
     const d = new Date(t * 1000);
     return `${d.toLocaleDateString('en-CA')} ${d.toTimeString().slice(0, 5)}`;

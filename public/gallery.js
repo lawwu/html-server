@@ -1,4 +1,3 @@
-import { openMove } from './move.js';
 // The gallery: live search (re-fetch the server-rendered cards as you type), sorting
 // (the same, re-fetched in the new order) and the grid/list toggle (the same cards,
 // styled per layout). Without JS the forms and the links still work.
@@ -6,6 +5,7 @@ import { openMove } from './move.js';
 // Each card leads with a live preview, and a preview put back into the document loads
 // its page again, so new results never replace the cards on show: those stay where
 // they are, take the new highlights, and are reordered (CSS order) or hidden.
+import { openMove } from './move.js';
 const box = document.getElementById('q');
 const results = document.getElementById('results');
 const count = document.getElementById('count');

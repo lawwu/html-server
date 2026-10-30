@@ -1,4 +1,3 @@
-import { linkPath } from './paths.js';
 // Markdown notes, Quartz/Obsidian style: frontmatter, [[wikilinks]] that resolve to
 // Markdown or HTML pages on this server, callouts (> [!note]), ==highlights==, heading
 // anchors, and a reading-page template with backlinks. Rendering uses `marked`
@@ -6,6 +5,7 @@ import { linkPath } from './paths.js';
 import { Marked } from 'marked';
 import { PAGE_EXT_RE } from './config.js';
 import { highlight } from './highlight.js';
+import { linkPath, pageUrl } from './paths.js';
 import { escapeHtml as esc } from './text.js';
 
 export const MARKDOWN_RE = /\.(md|markdown)$/i;
@@ -275,7 +275,7 @@ export function renderMarkdown(md, { resolve = () => null, asset = () => null, t
       // A link to a page here goes to that page's URL (the default renderer draws it).
       link(token) {
         const page = pageHref(token.href, path);
-        if (page) token.href = (resolve(page.name)?.url ?? `/pages/${encodeURIComponent(page.name)}`) + page.hash;
+        if (page) token.href = (resolve(page.name)?.url ?? pageUrl(page.name)) + page.hash;
         return false;
       },
       // Code blocks get the same highlighting as notebook code (src/highlight.js).

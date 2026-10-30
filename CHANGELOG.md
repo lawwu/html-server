@@ -7,6 +7,20 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Folders, and moving pages without breaking links.** Publish into folders
+  (`put --folder research`, or `--name research/report.html`): a nested page opens at
+  `/research/report.html`, and `/research/` lists its pages and subfolders, with search
+  and sorting. Folders show in the explorer and breadcrumbs. Move pages with
+  `html-server mv`, **Move…** on a page or on a selection, `POST /api/moves` or MCP's
+  `move_pages`; a bulk move happens entirely or not at all. A moved page keeps its
+  versions, comments, tags, views and share link, its old addresses redirect, and its
+  relative links still go where they went when it was written. `sync` publishes new
+  files at their folder paths (`plugins/Backlinks.md` → `/plugins/Backlinks.md`);
+  pages it published before keep their flat addresses until
+  `sync --migrate-paths` (see first with `--dry-run`), and sync mentions them until then.
+- **Contents links in HTML pages work in the site's frame.** A link to a `#section` of a
+  page shown in the frame did nothing: the frame is as tall as the page, so the page
+  itself never scrolls. Now the window scrolls there.
 - **A docs site, drawn by HTML Server itself:** the Docs page, the README, the changelog
   and the example gallery as static pages on GitHub Pages, at
   https://lawwu.github.io/html-server/. `npm run site` builds them into `_site/`, and
