@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rules of Machine Learning — field reference</title>
+<meta name="description" content="All 43 of Martin Zinkevich's Rules of Machine Learning plotted along the learning curve they describe, from launching without ML to the plateau. Filter by phase or theme, search, and deep-link to any rule.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  --ground:#eef2f0;--sheet:#fbfcfb;--ink:#17201e;--ink-2:#46534f;--ink-3:#66736f;--rule:#d0d8d5;--grid:#dfe6e3;
+  --p0:#636c78;--p1:#0a6f80;--p2:#4f7a17;--p3:#a85b16;
+  --mark:#fff2b8;--focus:#0a6f80;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --fs-xs:.78rem;--fs-s:.9rem;--fs-m:1rem;--fs-l:1.2rem;--fs-xl:1.6rem;--fs-xxl:clamp(2rem,5.4vw,3.4rem);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0e1312;--sheet:#141b1a;--ink:#e2e9e6;--ink-2:#a8b4b0;--ink-3:#85928e;--rule:#2b3634;--grid:#1d2725;
+  --p0:#9aa4b1;--p1:#52c3d4;--p2:#a2cc5e;--p3:#e8a35e;--mark:#4a4320;--focus:#52c3d4;color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --ground:#0e1312;--sheet:#141b1a;--ink:#e2e9e6;--ink-2:#a8b4b0;--ink-3:#85928e;--rule:#2b3634;--grid:#1d2725;
+  --p0:#9aa4b1;--p1:#52c3d4;--p2:#a2cc5e;--p3:#e8a35e;--mark:#4a4320;--focus:#52c3d4;color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--ground);color:var(--ink);font:400 var(--fs-m)/1.55 var(--sans);overflow-x:hidden}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:3px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--sheet);padding:6px 10px;z-index:30}
+.skip:focus{left:8px}
+
+/* header */
+header{padding:40px 0 8px;display:grid;gap:14px}
+.eyebrow{font:500 var(--fs-xs)/1.3 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0}
+h1{font-size:var(--fs-xxl);line-height:1.02;letter-spacing:-.03em;font-weight:760;margin:0;text-wrap:balance}
+.lede{max-width:62ch;color:var(--ink-2);margin:0;font-size:1.05rem}
+blockquote.big{margin:6px 0 0;padding:0 0 0 14px;border-left:3px solid var(--p1);max-width:60ch;font-size:var(--fs-l);line-height:1.4;font-weight:500;text-wrap:balance}
+blockquote.big cite{display:block;margin-top:4px;font:400 var(--fs-xs)/1.4 var(--mono);color:var(--ink-3);font-style:normal}
+
+/* curve */
+figure.curve{margin:22px 0 0;background:var(--sheet);border:1px solid var(--rule);border-radius:6px;padding:14px 14px 10px}
+.curve-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;align-items:baseline}
+.curve-head h2{font-size:var(--fs-s);margin:0;font-weight:650}
+.curve-head p{margin:0;font:400 var(--fs-xs)/1.4 var(--mono);color:var(--ink-3)}
+.plot{position:relative;margin-top:8px}
+svg{display:block;width:100%;height:auto;overflow:visible}
+.gridline{stroke:var(--grid);stroke-width:1}
+.axis{stroke:var(--ink-3);stroke-width:1}
+.axl{fill:var(--ink-3);font:10px var(--mono)}
+.seg{fill:none;stroke-width:3;stroke-linecap:round}
+.band{opacity:.07}
+.dot{stroke:var(--sheet);stroke-width:1.5;cursor:pointer;transition:opacity .2s,r .15s}
+.dot.off{opacity:.14}
+.dot.hit{r:7}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--sheet);font:500 var(--fs-xs)/1.35 var(--sans);padding:6px 8px;border-radius:4px;max-width:260px;transform:translate(-50%,calc(-100% - 12px));opacity:0;transition:opacity .12s;z-index:5}
+.tip.on{opacity:1}
+.phases{display:grid;grid-template-columns:10fr 26fr 38fr 18fr;gap:4px;margin:6px 0 0 4.4%}
+.phases button{all:unset;cursor:pointer;display:block;padding:6px 8px 7px;border-top:3px solid var(--c);font:600 var(--fs-xs)/1.25 var(--sans);color:var(--ink)}
+.phases button small{display:block;font:400 var(--fs-xs)/1.3 var(--mono);color:var(--ink-3)}
+.phases button[aria-pressed="true"]{background:color-mix(in srgb,var(--c) 14%,transparent)}
+.phases button:hover{background:color-mix(in srgb,var(--c) 9%,transparent)}
+.phases button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+@media (max-width:640px){
+  .phases{grid-template-columns:1fr 1fr;margin-left:0}
+  .axl{font-size:28px}
+}
+
+/* toolbar */
+.bar{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--ground) 92%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-bottom:1px solid var(--rule);margin-top:22px}
+.bar .wrap{display:grid;gap:8px;padding-top:10px;padding-bottom:10px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.search{flex:1 1 240px;display:flex;align-items:center;gap:8px;background:var(--sheet);border:1px solid var(--rule);border-radius:5px;padding:0 10px}
+.search label{font:500 var(--fs-xs)/1 var(--mono);color:var(--ink-3)}
+.search input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:400 var(--fs-m)/1 var(--sans);padding:9px 0}
+.search input:focus{outline:none}
+.search:focus-within{outline:2px solid var(--focus);outline-offset:1px}
+kbd{font:500 .72rem/1 var(--mono);border:1px solid var(--rule);border-bottom-width:2px;border-radius:3px;padding:2px 5px;color:var(--ink-3)}
+.count{font:500 var(--fs-xs)/1.3 var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.reset{all:unset;cursor:pointer;font:500 var(--fs-xs)/1 var(--mono);color:var(--ink-2);text-decoration:underline;text-underline-offset:3px;padding:4px 2px}
+.reset[hidden]{display:none}
+.themes{display:flex;flex-wrap:wrap;gap:6px}
+@media (max-width:760px){.themes{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;padding-bottom:2px}}
+.themes .lab{font:500 var(--fs-xs)/1.2 var(--mono);color:var(--ink-3);white-space:nowrap;align-self:center;margin-right:2px}
+.chip{all:unset;cursor:pointer;white-space:nowrap;font:500 var(--fs-xs)/1 var(--sans);padding:6px 9px;border:1px solid var(--rule);border-radius:3px;background:var(--sheet);color:var(--ink-2)}
+.chip:hover{border-color:var(--ink-3)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--sheet);border-color:var(--ink)}
+.chip:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+
+/* list */
+main{padding:10px 0 40px}
+.phase{padding-top:26px;--c:var(--p0)}
+.phase[data-p="1"]{--c:var(--p1)}.phase[data-p="2"]{--c:var(--p2)}.phase[data-p="3"]{--c:var(--p3)}
+.phase>h2{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0;font-size:var(--fs-xl);line-height:1.15;letter-spacing:-.015em;font-weight:720;padding-bottom:8px;border-bottom:3px solid var(--c);text-wrap:balance;scroll-margin-top:130px}
+.phase>h2 span{font:600 var(--fs-xs)/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--c)}
+.intro{max-width:66ch;color:var(--ink-2);margin:10px 0 4px}
+h3.sub{margin:22px 0 0;font:650 var(--fs-xs)/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--c);display:flex;gap:10px;align-items:center}
+h3.sub::after{content:"";flex:1;height:1px;background:var(--rule)}
+.note{max-width:66ch;margin:10px 0 0;padding:10px 14px;background:var(--sheet);border:1px solid var(--rule);border-left:3px solid var(--c);border-radius:0 4px 4px 0;font-size:var(--fs-s);color:var(--ink-2)}
+.note b{color:var(--ink)}
+.note ol{margin:6px 0 0;padding-left:20px}
+ol.rules{list-style:none;margin:0;padding:0}
+.rule{display:grid;grid-template-columns:4.2rem 1fr;gap:0 14px;padding:14px 8px 14px 0;border-bottom:1px solid var(--rule);scroll-margin-top:140px}
+.rule:target,.rule.flash{background:linear-gradient(90deg,color-mix(in srgb,var(--c) 13%,transparent),transparent 80%)}
+.num{align-self:start;font:700 1.65rem/1 var(--mono);color:var(--c);text-decoration:none;font-variant-numeric:tabular-nums;letter-spacing:-.04em;padding-top:2px}
+.num:hover{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:4px}
+.num i{font-style:normal;font-size:.95rem;opacity:.6;margin-right:1px}
+.rule h4{margin:0;font-size:var(--fs-l);line-height:1.3;font-weight:640;text-wrap:balance;max-width:52ch}
+.rule p{margin:5px 0 0;max-width:66ch;color:var(--ink-2)}
+.rule.key h4::before{content:"Key rule";display:inline-block;vertical-align:.18em;margin-right:8px;font:600 .66rem/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--sheet);background:var(--c);padding:3px 5px;border-radius:2px}
+.tags{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:7px}
+.tags button{all:unset;cursor:pointer;font:500 .74rem/1.2 var(--mono);color:var(--ink-3)}
+.tags button::before{content:"# "}
+.tags button:hover{color:var(--ink);text-decoration:underline}
+.tags button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
+[hidden]{display:none!important}
+.empty{padding:40px 0;text-align:left;color:var(--ink-2)}
+.empty button{all:unset;cursor:pointer;text-decoration:underline;color:var(--ink)}
+@media (max-width:560px){
+  .rule{grid-template-columns:2.9rem 1fr;gap:0 10px}
+  .num{font-size:1.2rem}.num i{font-size:.75rem}
+  .rule h4{font-size:1.06rem}
+}
+footer{border-top:1px solid var(--rule);padding:18px 0 40px;font-size:var(--fs-xs);color:var(--ink-3);display:grid;gap:6px}
+footer p{margin:0;max-width:80ch}
+@media print{.bar,figure.curve{display:none}.rule{break-inside:avoid}}
+</style>
+</head>
+<body>
+<a class="skip" href="#list">Skip to the rules</a>
+<div class="wrap">
+<header>
+  <p class="eyebrow">Martin Zinkevich · Google · 43 rules in four phases</p>
+  <h1>Rules of Machine Learning</h1>
+  <p class="lede">Best practices for ML engineering, laid out as the curve they describe: launch with no ML, build one solid pipeline, grind out gains with features, then work out what to do once the gains flatten. Each rule's title is quoted as written; the notes under them are short paraphrases.</p>
+  <blockquote class="big">“Do machine learning like the great engineer you are, not like the great machine learning expert you aren’t.”<cite>The guide’s framing: most of the problems you will face are engineering problems.</cite></blockquote>
+</header>
+
+<figure class="curve" aria-labelledby="curve-title">
+  <div class="curve-head">
+    <h2 id="curve-title">Where each rule sits on the gain curve</h2>
+    <p>x: time and effort · y: product gain (schematic)</p>
+  </div>
+  <div class="plot" id="plot">
+    <svg id="svg" viewBox="0 0 1000 300" role="img" aria-label="A schematic S-shaped curve. Gains start near zero before machine learning, rise steeply in Phase I, keep rising in Phase II, and flatten in Phase III. Each of the 43 rules is a point on the curve."></svg>
+    <div class="tip" id="tip" role="presentation"></div>
+  </div>
+  <div class="phases" id="phases" role="group" aria-label="Filter by phase"></div>
+</figure>
+</div>
+
+<div class="bar" id="bar">
+  <div class="wrap">
+    <div class="row">
+      <div class="search">
+        <label for="q">Find</label>
+        <input id="q" type="search" placeholder="a word, or a rule number like 29" autocomplete="off" spellcheck="false">
+        <kbd aria-hidden="true">/</kbd>
+      </div>
+      <span class="count" id="count" aria-live="polite">43 of 43 rules</span>
+      <button class="reset" id="reset" type="button" hidden>Clear filters</button>
+    </div>
+    <div class="themes" id="themes" role="group" aria-label="Filter by theme"><span class="lab">Themes (my grouping):</span></div>
+  </div>
+</div>
+
+<div class="wrap">
+<main id="list" tabindex="-1"></main>
+<div class="empty" id="empty" hidden>No rule matches that. <button type="button" id="empty-reset">Clear the search and filters</button>.</div>
+<footer>
+  <p>Source: <a href="https://developers.google.com/machine-learning/guides/rules-of-ml" target="_blank" rel="noopener">Rules of Machine Learning: Best Practices for ML Engineering</a> by Martin Zinkevich, Google for Developers, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>; read 2026-11-04. Rule titles and section names are quoted from the guide; summaries, the theme grouping, and the curve are this page’s own adaptation.</p>
+  <p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html" target="_blank" rel="noopener">html</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+var THEMES={
+  launch:"Launch and iterate",metrics:"Metrics and objectives",monitor:"Monitoring and infrastructure",
+  skew:"Training–serving skew",features:"Features",simple:"Keep it simple",human:"Human judgment"
+};
+var PHASES=[
+  {p:0,name:"Before Machine Learning",short:"Before ML",x0:.02,x1:.12,
+   intro:"Machine learning is not the first move. Get a product out, measure it, and reach for a model when hand-written rules stop scaling."},
+  {p:1,name:"ML Phase I: Your First Pipeline",short:"Phase I · first pipeline",x0:.15,x1:.40,
+   intro:"The first model is mainly a test of the system around it. Most of the early gains come from getting data in, models out, and the whole loop working end to end."},
+  {p:2,name:"ML Phase II: Feature Engineering",short:"Phase II · features",x0:.43,x1:.80,
+   intro:"With a working pipeline, the job becomes adding signals, launching often, and watching for anything that makes training differ from serving. This is the longest phase and where the guide gives the most rules."},
+  {p:3,name:"ML Phase III: Slowed Growth, Optimization Refinement, and Complex Models",short:"Phase III · plateau",x0:.83,x1:.98,
+   intro:"Gains get smaller and objectives start to disagree with each other. This is the point where more complex models and genuinely new data sources start to pay off."}
+];
+var SUBS={
+  8:{t:"Monitoring"},
+  12:{t:"Your First Objective"},
+  23:{t:"Human Analysis of the System"},
+  29:{t:"Training-Serving Skew",note:'<b>Training–serving skew</b> is when a model performs differently in serving than in training. The guide gives three causes:<ol><li>the training and serving pipelines handle data differently;</li><li>the data changes between training time and serving time;</li><li>a feedback loop forms between the model and the system using it.</li></ol>'}
+};
+var KEY={1:1,4:1,29:1};
+// [num, phase, title (verbatim), summary (paraphrase), themes]
+var R=[
+[1,0,"Don't be afraid to launch a product without machine learning.","If a simple heuristic gets you most of the value, ship that. A model needs data, and you may not have it yet.","launch simple"],
+[2,0,"First, design and implement metrics.","Instrument the product before you build a system. History is easier to collect early, and metrics tell you what actually changes and what permissions you will need.","metrics"],
+[3,0,"Choose machine learning over a complex heuristic.","A simple heuristic is a fine start. Once it turns into a tangle of special cases, a learned model is easier to maintain and update.","launch simple"],
+[4,1,"Keep the first model simple and get the infrastructure right.","The first model mostly exists to prove the pipeline: getting data to the learner, deciding what counts as good, and putting the model into the product. Simple features keep those parts easy to check.","simple launch monitor"],
+[5,1,"Test the infrastructure independently from the machine learning.","Wrap the learner so data input and model export can be tested without it. Check input statistics by hand and compare offline and serving scores for the same model.","monitor"],
+[6,1,"Be careful about dropped data when copying pipelines.","A pipeline copied from another project can bring filters with it, such as dropping older or unshown examples, that are wrong for the new task.","monitor skew"],
+[7,1,"Turn heuristics into features, or handle them externally.","Existing rules hold domain knowledge. Use them to preprocess, add them as features, or apply them outside the model instead of throwing them away.","features"],
+[8,1,"Know the freshness requirements of your system.","Find out how much quality falls as a model gets a day, a week or a quarter old, and set your monitoring priorities to match.","monitor"],
+[9,1,"Detect problems before exporting models.","Sanity-check each model on held-out data before it reaches users, and stop the export automatically if quality drops.","monitor"],
+[10,1,"Watch for silent failures.","ML systems decay without errors: a table goes stale or a feature's coverage quietly drops. Track coverage and freshness over time.","monitor"],
+[11,1,"Give feature columns owners and documentation.","Every feature needs a named maintainer and a note on what it is, where it comes from and why it helps.","monitor features"],
+[12,1,"Don't overthink which objective you choose to directly optimize.","Early on, most metrics move up together. Pick a reasonable objective and put your effort into the pipeline.","metrics simple"],
+[13,1,"Choose a simple, observable and attributable metric for your first objective.","Train on something you can see and attribute to the model, such as a click or a download. Leave indirect effects like retention to A/B tests.","metrics"],
+[14,1,"Starting with an interpretable model makes debugging easier.","Linear and logistic models give scores you can read as probabilities and check against reality, which makes problems easier to find.","simple"],
+[15,1,"Separate Spam Filtering and Quality Ranking in a Policy Layer.","Quality ranking judges content in good faith. Handle adversarial content in a separate layer with its own rules so it can change quickly.","simple"],
+[16,2,"Plan to launch and iterate.","This model will not be your last. Make it cheap to add and remove features and to launch new versions regularly.","launch"],
+[17,2,"Start with directly observed and reported features as opposed to learned features.","Raw signals are easier to reason about than features produced by other models, which bring their own objectives and failure modes.","features simple"],
+[18,2,"Explore with features of content that generalize across contexts.","Signals from other surfaces, such as how popular an item is elsewhere, help where you have little local data.","features"],
+[19,2,"Use very specific features when you can.","With lots of data, many narrow features like specific IDs or queries can beat a few clever ones. Regularization prunes the rare ones.","features"],
+[20,2,"Combine and modify existing features to create new features in human-understandable ways.","Discretize continuous values and cross categorical ones, so the model gains expressiveness that people can still reason about.","features"],
+[21,2,"The number of feature weights you can learn in a linear model is roughly proportional to the amount of data you have.","Match model size to example count. Thousands of examples support a dozen features; billions support millions.","features simple"],
+[22,2,"Clean up features you are no longer using.","Unused features are debt that slows every change. Drop the ones that don't pay for their coverage and upkeep.","features"],
+[23,2,"You are not a typical end user.","The team is too close to the product to judge it. Use paid raters or live experiments instead of your own impressions.","human"],
+[24,2,"Measure the delta between models.","Before anyone looks at a new model, compute how much its results differ from production's. A model compared with itself should show almost no difference.","human metrics"],
+[25,2,"When choosing models, utilitarian performance trumps predictive power.","What counts is whether the model makes the product better, even if the loss improves less.","metrics human"],
+[26,2,"Look for patterns in the measured errors, and create new features.","Study the examples the model got wrong and turn what you find into features it can learn from.","human features"],
+[27,2,"Try to quantify observed undesirable behavior.","When people complain about something the system does, turn it into a measurement first, then optimize that measurement.","human metrics"],
+[28,2,"Be aware that identical short-term behavior does not imply identical long-term behavior.","Two systems that look the same in a short test can drift apart. One that only shows its own past picks may never learn about new items.","human"],
+[29,2,"The best way to make sure that you train like you serve is to save the set of features used at serving time, and then pipe those features to a log to use them at training time.","Logging exactly what the model saw at serving time, and training on that log, removes one of the biggest sources of skew.","skew"],
+[30,2,"Importance-weight sampled data, don't arbitrarily drop it!","If you sample examples, record each one's sampling probability and weight it by the inverse, so the training data is not biased.","skew"],
+[31,2,"Beware that if you join data from a table at training and serving time, the data in the table may change.","A lookup table can change between training and serving. Logging the joined features at serving time avoids the mismatch.","skew"],
+[32,2,"Re-use code between your training pipeline and your serving pipeline whenever possible.","Compute features with one shared piece of code. Two implementations, especially in two languages, will drift apart.","skew"],
+[33,2,"If you produce a model based on the data until January 5th, test the model on the data from January 6th and after.","Evaluate on data from after the training window. That is how the model will be used, so it gives an honest preview.","skew metrics"],
+[34,2,"In binary classification for filtering (such as spam detection or determining interesting emails), make small short-term sacrifices in performance for very clean data.","A filter hides the very examples you need labels for. Let a small held-out slice through unfiltered so you keep getting unbiased training data.","skew"],
+[35,2,"Beware of the inherent skew in ranking problems.","Users only interact with what you ranked, so the training data leans toward your past choices. Plan for the bias rather than ignoring it.","skew"],
+[36,2,"Avoid feedback loops with positional features.","Position strongly drives clicks. Train with it so the model can separate it out, but keep it apart from serving so the model does not just learn its own ranking.","skew"],
+[37,2,"Measure Training/Serving Skew.","Track each gap separately: training vs. holdout, holdout vs. next-day data, and next-day vs. live. Each one points to a different cause.","skew monitor"],
+[38,3,"Don't waste time on new features if unaligned objectives have become the issue.","When offline metrics improve but launches stall, the objective no longer matches what you want. Fix the objective; more features will not help.","metrics"],
+[39,3,"Launch decisions are a proxy for long-term product goals.","Launches weigh many metrics and human judgment, not just the number you trained on. Keep the long-term health of the product in view.","metrics launch"],
+[40,3,"Keep ensembles simple.","Have base models take raw features and a combining model take only their outputs, with constraints that keep each piece understandable.","simple"],
+[41,3,"When performance plateaus, look for qualitatively new sources of information to add rather than refining existing signals.","Past the plateau, tuning existing signals gives little. New kinds of data, or new kinds of models, are where the next gains come from.","features"],
+[42,3,"Don't expect diversity, personalization, or relevance to be as correlated with popularity as you think they are.","Popularity-driven metrics won't automatically reward variety or personal fit. If you want those, build them in through post-processing or the objective.","metrics"],
+[43,3,"Your friends tend to be the same across different products. Your interests tend not to be.","Who someone is connected to transfers well between products. What they like in one product often doesn't predict what they like in another.","features"]
+];
+
+var $=function(id){return document.getElementById(id)};
+var state={q:"",phase:null,theme:null};
+var list=$("list"),svgEl=$("svg"),tip=$("tip");
+var SVGNS="http://www.w3.org/2000/svg";
+
+function esc(s){return s.replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+/* ---- build list ---- */
+var html="";
+PHASES.forEach(function(ph){
+  html+='<section class="phase" data-p="'+ph.p+'" aria-labelledby="ph-'+ph.p+'"><h2 id="ph-'+ph.p+'"><span>'+(ph.p===0?"Phase 0":"Phase "+["","I","II","III"][ph.p])+'</span>'+esc(ph.name)+'</h2><p class="intro">'+ph.intro+'</p>';
+  var open=false;
+  R.forEach(function(r){
+    if(r[1]!==ph.p)return;
+    if(SUBS[r[0]]){
+      if(open)html+='</ol></div>';
+      html+='<div class="grp"><h3 class="sub">'+esc(SUBS[r[0]].t)+'</h3>'+(SUBS[r[0]].note?'<div class="note">'+SUBS[r[0]].note+'</div>':'')+'<ol class="rules">';open=true;
+    }else if(!open){html+='<div class="grp"><ol class="rules">';open=true}
+    var tags=r[4].split(" ").map(function(t){return '<button type="button" data-t="'+t+'" aria-label="Filter by theme: '+THEMES[t]+'">'+THEMES[t]+'</button>'}).join("");
+    html+='<li class="rule'+(KEY[r[0]]?' key':'')+'" id="rule-'+r[0]+'"><a class="num" href="#rule-'+r[0]+'" aria-label="Link to rule '+r[0]+'"><i>#</i>'+(r[0]<10?"0":"")+r[0]+'</a><div><h4>Rule #'+r[0]+': <span class="t">'+esc(r[2])+'</span></h4><p class="s">'+esc(r[3])+'</p><div class="tags">'+tags+'</div></div></li>';
+  });
+  if(open)html+='</ol></div>';
+  html+='</section>';
+});
+list.innerHTML=html;
+var items=R.map(function(r){
+  var el=$("rule-"+r[0]);
+  return{r:r,el:el,t:el.querySelector(".t"),s:el.querySelector(".s"),hay:(r[2]+" "+r[3]+" "+r[4].split(" ").map(function(t){return THEMES[t]}).join(" ")).toLowerCase()};
+});
+
+/* ---- phases buttons ---- */
+var phWrap=$("phases");
+PHASES.forEach(function(ph){
+  var n=R.filter(function(r){return r[1]===ph.p}).length;
+  var b=document.createElement("button");
+  b.type="button";b.dataset.p=ph.p;b.setAttribute("aria-pressed","false");
+  b.style.setProperty("--c","var(--p"+ph.p+")");
+  b.innerHTML=esc(ph.short)+'<small>#'+R.filter(function(r){return r[1]===ph.p})[0][0]+'–'+R.filter(function(r){return r[1]===ph.p})[n-1][0]+'</small>';
+  phWrap.appendChild(b);
+});
+phWrap.addEventListener("click",function(e){
+  var b=e.target.closest("button");if(!b)return;
+  var p=+b.dataset.p;state.phase=state.phase===p?null:p;apply();
+});
+
+/* ---- theme chips ---- */
+var thWrap=$("themes");
+Object.keys(THEMES).forEach(function(k){
+  var b=document.createElement("button");b.type="button";b.className="chip";b.dataset.t=k;b.setAttribute("aria-pressed","false");
+  var n=R.filter(function(r){return r[4].split(" ").indexOf(k)>-1}).length;
+  b.textContent=THEMES[k]+" "+n;thWrap.appendChild(b);
+});
+function setTheme(k){state.theme=state.theme===k?null:k;apply()}
+thWrap.addEventListener("click",function(e){var b=e.target.closest(".chip");if(b)setTheme(b.dataset.t)});
+list.addEventListener("click",function(e){
+  var b=e.target.closest(".tags button");if(!b)return;
+  setTheme(b.dataset.t);
+  if(state.theme)$("bar").scrollIntoView({block:"start"});
+});
+
+/* ---- curve ---- */
+var W=1000,H=300,L=46,Rr=12,T=16,B=36;
+function fx(x){return L+x*(W-L-Rr)}
+function gy(x){var v=1/(1+Math.exp(-9.5*(x-.36)));return .04+.9*v}
+function fy(v){return T+(1-v)*(H-T-B)}
+function mk(tag,attrs,parent){var e=document.createElementNS(SVGNS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);(parent||svgEl).appendChild(e);return e}
+for(var i=0;i<=4;i++){mk("line",{class:"gridline",x1:L,x2:W-Rr,y1:fy(i/4),y2:fy(i/4)})}
+var bounds=[0,.135,.415,.815,1];
+PHASES.forEach(function(ph,i){
+  mk("rect",{class:"band",x:fx(bounds[i]),y:T,width:fx(bounds[i+1])-fx(bounds[i]),height:H-T-B,fill:"var(--p"+ph.p+")"});
+});
+mk("line",{class:"axis",x1:L,x2:W-Rr,y1:H-B,y2:H-B});
+mk("line",{class:"axis",x1:L,x2:L,y1:T,y2:H-B});
+var t1=mk("text",{class:"axl",x:L,y:H-B+18});t1.textContent="launch";
+var t2=mk("text",{class:"axl",x:W-Rr,y:H-B+18,"text-anchor":"end"});t2.textContent="time and effort →";
+var t3=mk("text",{class:"axl",x:L-8,y:T+8,"text-anchor":"end"});t3.textContent="gain";
+var t4=mk("text",{class:"axl",x:fx(.9),y:fy(gy(.9))-14,"text-anchor":"middle"});t4.textContent="plateau";
+PHASES.forEach(function(ph,i){
+  var d="";for(var s=0;s<=40;s++){var x=bounds[i]+(bounds[i+1]-bounds[i])*s/40;d+=(s?"L":"M")+fx(x).toFixed(1)+","+fy(gy(x)).toFixed(1)}
+  mk("path",{class:"seg",d:d,stroke:"var(--p"+ph.p+")"});
+});
+var dots={};
+PHASES.forEach(function(ph){
+  var rs=R.filter(function(r){return r[1]===ph.p});
+  rs.forEach(function(r,j){
+    var x=ph.x0+(ph.x1-ph.x0)*(rs.length===1?.5:j/(rs.length-1));
+    var a=mk("a",{href:"#rule-"+r[0],tabindex:"-1","aria-label":"Rule "+r[0]});
+    var c=mk("circle",{class:"dot",cx:fx(x).toFixed(1),cy:fy(gy(x)).toFixed(1),r:KEY[r[0]]?6.5:4.5,fill:"var(--p"+ph.p+")"},a);
+    c.dataset.n=r[0];dots[r[0]]=c;
+  });
+});
+function showTip(c){
+  var n=+c.dataset.n,r=R[n-1],box=svgEl.getBoundingClientRect(),pb=$("plot").getBoundingClientRect();
+  var sx=box.width/W;
+  var x=(+c.getAttribute("cx"))*sx+(box.left-pb.left),y=(+c.getAttribute("cy"))*sx+(box.top-pb.top);
+  x=Math.max(130,Math.min(pb.width-130,x));
+  tip.textContent="#"+n+" · "+r[2];tip.style.left=x+"px";tip.style.top=y+"px";tip.classList.add("on");
+}
+svgEl.addEventListener("mouseover",function(e){if(e.target.classList.contains("dot"))showTip(e.target)});
+svgEl.addEventListener("mouseout",function(e){if(e.target.classList.contains("dot"))tip.classList.remove("on")});
+svgEl.addEventListener("click",function(e){
+  var c=e.target.closest("a");if(!c)return;e.preventDefault();
+  go(+c.querySelector("circle").dataset.n,true);
+});
+
+/* ---- filtering ---- */
+function hl(node,text,q){
+  if(!q){node.textContent=text;return}
+  var lo=text.toLowerCase(),out="",i=0,k;
+  while((k=lo.indexOf(q,i))>-1){out+=esc(text.slice(i,k))+"<mark>"+esc(text.slice(k,k+q.length))+"</mark>";i=k+q.length}
+  node.innerHTML=out+esc(text.slice(i));
+}
+function apply(){
+  var raw=state.q.trim().toLowerCase(),num=null,m=raw.match(/^(?:rule\s*)?#?\s*(\d{1,2})$/);
+  if(m)num=+m[1];
+  var shown=0;
+  items.forEach(function(it){
+    var r=it.r,ok=true;
+    if(state.phase!==null&&r[1]!==state.phase)ok=false;
+    if(state.theme&&r[4].split(" ").indexOf(state.theme)<0)ok=false;
+    if(ok&&raw){ok=num!==null?r[0]===num:it.hay.indexOf(raw)>-1}
+    it.el.hidden=!ok;if(ok)shown++;
+    var q=num===null?raw:"";
+    hl(it.t,r[2],q);hl(it.s,r[3],q);
+    dots[r[0]].classList.toggle("off",!ok);
+  });
+  list.querySelectorAll(".grp").forEach(function(g){g.hidden=!g.querySelector(".rule:not([hidden])")});
+  list.querySelectorAll(".phase").forEach(function(s){s.hidden=!s.querySelector(".rule:not([hidden])")});
+  $("count").textContent=shown+" of 43 rules";
+  $("empty").hidden=shown>0;
+  var any=!!(raw||state.phase!==null||state.theme);
+  $("reset").hidden=!any;
+  phWrap.querySelectorAll("button").forEach(function(b){b.setAttribute("aria-pressed",String(+b.dataset.p===state.phase))});
+  thWrap.querySelectorAll(".chip").forEach(function(b){b.setAttribute("aria-pressed",String(b.dataset.t===state.theme))});
+}
+function clearAll(){state.q="";state.phase=null;state.theme=null;$("q").value="";apply()}
+var qt;
+$("q").addEventListener("input",function(e){clearTimeout(qt);qt=setTimeout(function(){state.q=e.target.value;apply()},80)});
+$("q").addEventListener("keydown",function(e){
+  if(e.key==="Escape"){if(this.value){this.value="";state.q="";apply()}else this.blur()}
+  if(e.key==="Enter"){var f=list.querySelector(".rule:not([hidden]) .num");if(f){e.preventDefault();go(+f.closest(".rule").id.slice(5),true)}}
+});
+$("reset").addEventListener("click",clearAll);
+$("empty-reset").addEventListener("click",function(){clearAll();$("q").focus()});
+document.addEventListener("keydown",function(e){
+  if(e.key==="/"&&!/input|textarea/i.test((document.activeElement||{}).tagName||"")&&!e.metaKey&&!e.ctrlKey){e.preventDefault();$("q").focus()}
+});
+
+/* ---- deep links ---- */
+function go(n,push){
+  var el=$("rule-"+n);if(!el)return;
+  if(el.hidden)clearAll();
+  if(push){try{history.replaceState(null,"","#rule-"+n)}catch(_){}}
+  el.scrollIntoView({block:"start",behavior:push&&!matchMedia("(prefers-reduced-motion: reduce)").matches?"smooth":"instant"});
+  items.forEach(function(it){it.el.classList.remove("flash")});
+  el.classList.add("flash");
+  var a=el.querySelector(".num");try{a.focus({preventScroll:true})}catch(_){a.focus()}
+}
+list.addEventListener("click",function(e){
+  var a=e.target.closest("a.num");if(!a)return;e.preventDefault();go(+a.closest(".rule").id.slice(5),true);
+});
+function fromHash(){var m=(location.hash||"").match(/^#rule-(\d{1,2})$/);if(m)go(+m[1],false)}
+window.addEventListener("hashchange",fromHash);
+apply();
+if(location.hash)setTimeout(fromHash,30);
+})();
+</script>
+</body>
+</html>

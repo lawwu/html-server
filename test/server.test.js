@@ -485,7 +485,7 @@ test('/gallery: the bundled example pages, filterable and searchable', async () 
   const [s, page] = await req('GET', '/gallery');
   assert.equal(s, 200);
   assert.match(page, /<title>Gallery · HTML Server<\/title>/);
-  assert.equal(page.match(/<article class="card[^"]*"/g).length, 29);
+  assert.equal(page.match(/<article class="card[^"]*"/g).length, 34);
   assert.match(page, /Machine learning <span>2<\/span>/);
   assert.match(page, /href="\/gallery\/kmeans-step-through.html"/);
   assert.match(page, /data-base="\/gallery"/);
@@ -806,7 +806,7 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match(page, /<div class="cards" data-count="2 pages · 1 featured">/); // what live search shows when the box is cleared
   assert.match((await req('GET', '/?q=one'))[1], /<p id="count"[^>]*>1 match<\/p>/);
   assert.match(page, new RegExp(`<a class="gh" href="https://github.com/lawwu/html-server/releases/tag/v${pkg.version}" target="_top"[^>]*><svg[^]*?</svg><span>v${pkg.version.replace(/\./g, '\\.')}</span></a>`));
-  assert.match((await req('GET', '/gallery'))[1], /<p id="count" class="meta">29 example pages<\/p>/);
+  assert.match((await req('GET', '/gallery'))[1], /<p id="count" class="meta">34 example pages<\/p>/);
 });
 
 test('skills: the sidebar lists effective-html\'s skills with their examples, which open in the frame', async () => {
@@ -815,7 +815,7 @@ test('skills: the sidebar lists effective-html\'s skills with their examples, wh
   for (const s of SKILLS) {
     assert.match(stats, new RegExp(`<summary title="${s.use}"><svg[^]*?</svg><span>${s.name}</span></summary>`), s.name);
     assert.ok(stats.includes(`<a class="ext" href="${SKILLS_REPO}/tree/main/skills/${s.name}" target="_blank" rel="noopener">The skill ↗</a>`), s.name);
-    assert.equal(s.examples.length, 2, s.name); // one on data or ML, one on Claude Code
+    assert.ok(s.examples.length >= 2, s.name); // at least one on data or ML, one on Claude Code
     for (const [file, label] of s.examples) {
       assert.ok(stats.includes(`<a href="/gallery/${file}" target="_top">${esc(label)}</a>`), file);
       assert.equal(examples().find((e) => e.slug === file)?.category, 'effective-html', file); // shipped, in the gallery's group
@@ -823,8 +823,8 @@ test('skills: the sidebar lists effective-html\'s skills with their examples, wh
   }
   assert.match(stats, /<a href="\/gallery\?category=effective-html" target="_top">all examples<\/a>/);
   const [, group] = await req('GET', '/gallery?category=effective-html');
-  assert.equal(group.match(/<article class="card/g).length, 16);
-  assert.match(group, /Effective HTML <span>16<\/span>/);
+  assert.equal(group.match(/<article class="card/g).length, 18);
+  assert.match(group, /Effective HTML <span>18<\/span>/);
 
   // An example in a browser tab gets the frame, its skill's folder open; the frame's iframe gets it sized to fit.
   const get = async (path, dest) => {

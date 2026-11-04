@@ -81,7 +81,7 @@ test('the Docs page is the server\'s, from the code: CLI usage, MCP tools, every
 test('the gallery: every example, its card, and the copy the card previews', () => {
   const gallery = read('gallery/index.html');
   const all = examples();
-  assert.equal(all.length, 29);
+  assert.equal(all.length, 34);
   assert.equal(gallery.match(/<article class="card/g).length, all.length);
   assert.match(gallery, /<span class="tag">Featured<\/span>/); // a label: there's no filtered page to link to
   for (const e of all) {

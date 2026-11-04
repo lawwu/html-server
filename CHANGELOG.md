@@ -34,6 +34,12 @@ change that couldn't be migrated would be a major version.
   two examples in the gallery, one on data, data science or machine learning and one on
   Claude Code (drawn from its docs), and a link to the skill. The gallery groups them as
   Effective HTML, and each example's title bar names the skill it shows, linked to it.
+- **Two showcases and three maps in the gallery.** With the `html` skill: Google's
+  [Rules of Machine Learning](https://developers.google.com/machine-learning/guides/rules-of-ml)
+  (CC BY 4.0) as a field reference you can search and filter, and a tour of the
+  [Agentic ML plugin](https://github.com/lawwu/agentic-ml-plugin). Maps of content for machine
+  learning, Claude Code and effective-html link the related gallery pages, in their own
+  Maps of content group.
 - **Gallery examples open in the site's frame,** like your own pages: the sidebar, a title
   bar, ⌘K, and links that move the tab. `?raw=1` is the example alone.
 

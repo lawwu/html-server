@@ -6,13 +6,13 @@ import { extractText, metaContent, scriptText } from './text.js';
 
 export const EXAMPLE_FILE_RE = /^[A-Za-z0-9][\w.-]*\.html$/;
 
-// The skills in plannotator/effective-html (MIT), what each is for, and the gallery's two examples
-// of each: one on data, data science or machine learning, one on Claude Code (built from its
-// docs). The sidebar lists them under Skills; the examples' category is effective-html.
+// The skills in plannotator/effective-html (MIT), what each is for, and the gallery's examples
+// of each: at least one on data, data science or machine learning, one on Claude Code (built
+// from its docs). The sidebar lists them under Skills; the examples' category is effective-html.
 export const SKILLS_REPO = 'https://github.com/plannotator/effective-html';
 export const SKILLS = [
   { name: 'html', use: 'Reports, explainers, data stories and small tools',
-    examples: [['ab-test-readout.html', 'A/B test readout'], ['claude-code-settings-precedence.html', 'Claude Code settings precedence']] },
+    examples: [['ab-test-readout.html', 'A/B test readout'], ['claude-code-settings-precedence.html', 'Claude Code settings precedence'], ['rules-of-ml.html', 'Rules of ML'], ['agentic-ml-plugin.html', 'Agentic ML plugin']] },
   { name: 'big-pics-little-words', use: 'Explain a subject with big pictures and few words',
     examples: [['precision-recall-threshold.html', 'Precision and recall'], ['claude-code-context-window.html', "Claude Code's context window"]] },
   { name: 'one-pager', use: 'One page that shares an idea early, or recaps work',

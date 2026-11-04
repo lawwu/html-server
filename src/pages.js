@@ -20,6 +20,7 @@ const CATEGORY_LABELS = {
   editor: 'Editors',
   prototype: 'Prototypes',
   'effective-html': 'Effective HTML',
+  moc: 'Maps of content',
 };
 export const categoryLabel = (c) => CATEGORY_LABELS[c] || c.replace(/-/g, ' ').replace(/^./, (x) => x.toUpperCase());
 

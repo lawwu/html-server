@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machine learning — a map of the gallery</title>
+<meta name="description" content="Every page in this gallery about machine learning, in the order you meet the work. Links to 16 related pages in the gallery.">
+<meta name="category" content="moc">
+<style>
+:root{--bg:#fbfaf7;--ink:#17181c;--ink2:#4c5060;--ink3:#6c7080;--rule:#e2e0da;--hover:#f1efe9;--accent:#1f6f5c;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;--sans:system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#141519;--ink:#ecebe6;--ink2:#b7b8c0;--ink3:#8d909c;--rule:#2b2d35;--hover:#1d1f25;--accent:#6fd3b6}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+a{color:inherit}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+.wrap{max-width:68rem;margin:0 auto;padding:3rem 1.5rem 2.5rem;display:grid;grid-template-columns:13rem minmax(0,1fr);gap:0 3rem}
+.top{grid-column:1/-1;margin-bottom:2.2rem;border-bottom:1px solid var(--rule);padding-bottom:1.6rem}
+.kicker{font:600 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:0 0 .9rem}
+h1{font:600 clamp(2rem,4.5vw,3.1rem)/1.08 var(--serif);margin:0 0 .8rem;letter-spacing:-.01em}
+.lede{font:1.15rem/1.5 var(--serif);color:var(--ink2);max-width:44rem;margin:0}
+nav.toc{position:sticky;top:1.5rem;align-self:start;font-size:14px}
+nav.toc h2{font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 .7rem}
+nav.toc ol{list-style:none;margin:0 0 1.6rem;padding:0;border-left:2px solid var(--rule)}
+nav.toc li a{display:block;padding:.28rem 0 .28rem .8rem;margin-left:-2px;border-left:2px solid transparent;color:var(--ink2);text-decoration:none}
+nav.toc li a:hover{color:var(--ink);border-left-color:var(--accent)}
+section{margin:0 0 2.2rem}
+.sec{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem 1rem;margin-bottom:.4rem}
+.sec h2{font:600 1.35rem/1.2 var(--serif);margin:0}
+.sec h2 code{font:600 1.05rem/1.2 var(--mono);color:var(--accent)}
+.sec p{margin:0;color:var(--ink3);font-size:14px}
+.entries{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}
+.entries a{display:grid;grid-template-columns:2.4rem minmax(0,1fr) auto;gap:.15rem .8rem;padding:.75rem .5rem;border-bottom:1px solid var(--rule);text-decoration:none}
+.entries a:hover{background:var(--hover)}
+.n{grid-row:1/3;font:500 13px/1.6 var(--mono);color:var(--ink3)}
+.t{font-weight:600;text-decoration:underline;text-decoration-color:var(--rule);text-underline-offset:3px}
+.entries a:hover .t{text-decoration-color:var(--accent)}
+.d{grid-column:2;color:var(--ink2);font-size:14.5px}
+.k{grid-column:3;grid-row:1;font:500 11.5px/1.6 var(--mono);color:var(--ink3);white-space:nowrap}
+footer{grid-column:2;border-top:1px solid var(--rule);padding-top:1rem;color:var(--ink3);font-size:13px}
+footer p{margin:.3rem 0}
+@media (max-width:760px){.wrap{grid-template-columns:minmax(0,1fr);padding:2rem 1rem}nav.toc{position:static}nav.toc ol{display:flex;flex-wrap:wrap;gap:.2rem .9rem;border:0}nav.toc li a{padding:.2rem 0;border:0;margin:0}footer{grid-column:1}
+  .entries a{grid-template-columns:2rem minmax(0,1fr)}.k{grid-column:2;grid-row:auto}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top"><p class="kicker">Map of content · Machine learning · 16 pages</p><h1>Machine learning</h1><p class="lede">Every page in this gallery about machine learning, in the order you meet the work: the principles, how models learn, the data underneath, judging a model, then shipping and running one.</p></header>
+<nav class="toc" aria-label="Sections"><h2>Sections</h2><ol><li><a href="#s1">Principles first</a></li><li><a href="#s2">How models learn</a></li><li><a href="#s3">The data underneath</a></li><li><a href="#s4">Judging a model</a></li><li><a href="#s5">Shipping and running models</a></li><li><a href="#s6">Agents that do ML work</a></li></ol><h2>Other maps</h2><ol><li><a href="moc-claude-code.html">Claude Code</a></li><li><a href="moc-effective-html.html">Effective HTML</a></li></ol></nav>
+<main>
+<section aria-labelledby="s1">
+<header class="sec"><h2 id="s1">Principles first</h2><p>Read this before building anything.</p></header>
+<ol class="entries"><li><a href="rules-of-ml.html"><span class="n">01</span><span class="t">Rules of Machine Learning — field reference</span><span class="d">Google’s 43 rules for ML engineering, by phase: launch without ML first, keep the first model simple, then watch for training–serving skew.</span><span class="k">html</span></a></li></ol>
+</section>
+<section aria-labelledby="s2">
+<header class="sec"><h2 id="s2">How models learn</h2><p>Optimizers and clustering you can step through.</p></header>
+<ol class="entries"><li><a href="gradient-descent-loss-surface.html"><span class="n">02</span><span class="t">Gradient descent, momentum and Adam on a loss surface</span><span class="d">Plain gradient descent, momentum and Adam racing across three loss surfaces, with the learning rate yours to tune.</span></a></li>
+<li><a href="kmeans-step-through.html"><span class="n">03</span><span class="t">k-means, one step at a time</span><span class="d">Lloyd’s algorithm one step at a time: assign, update, and watch the inertia fall.</span></a></li></ol>
+</section>
+<section aria-labelledby="s3">
+<header class="sec"><h2 id="s3">The data underneath</h2><p>Statistics that decide whether a model can be trusted.</p></header>
+<ol class="entries"><li><a href="anscombes-quartet-notebook.html"><span class="n">04</span><span class="t">Anscombe's quartet — an exploratory notebook</span><span class="d">Four datasets with the same summary statistics and very different shapes: plot before you model.</span></a></li>
+<li><a href="simpsons-paradox-berkeley-1973.html"><span class="n">05</span><span class="t">Simpson's paradox in the 1973 Berkeley admissions data</span><span class="d">An overall gender gap in admissions that reverses within departments.</span></a></li>
+<li><a href="central-limit-theorem-sampler.html"><span class="n">06</span><span class="t">Central limit theorem sampler</span><span class="d">Why sample means turn normal, whatever the population looks like.</span></a></li>
+<li><a href="birthday-paradox-explainer.html"><span class="n">07</span><span class="t">The birthday paradox, in one chart</span><span class="d">Why a shared birthday turns likely so fast: pairs grow faster than people.</span></a></li></ol>
+</section>
+<section aria-labelledby="s4">
+<header class="sec"><h2 id="s4">Judging a model</h2><p>Choosing a threshold, reading an experiment.</p></header>
+<ol class="entries"><li><a href="precision-recall-threshold.html"><span class="n">08</span><span class="t">Precision and recall, in pictures</span><span class="d">Drag a spam filter’s threshold and see what it catches, what it wrongly flags, and why accuracy misleads.</span><span class="k">big-pics-little-words</span></a></li>
+<li><a href="ab-test-readout.html"><span class="n">09</span><span class="t">Experiment readout — onboarding checklist</span><span class="d">A launch decision from an A/B test: the lift, its interval, guardrails and segments.</span><span class="k">html</span></a></li></ol>
+</section>
+<section aria-labelledby="s5">
+<header class="sec"><h2 id="s5">Shipping and running models</h2><p>From a model card to a rollout and the screens that watch it.</p></header>
+<ol class="entries"><li><a href="model-card-birdsong-classifier.html"><span class="n">10</span><span class="t">Model card — Songbird call classifier</span><span class="d">A model card: intended use, training data, per-species precision and recall, and limitations.</span><span class="k">design-artifact</span></a></li>
+<li><a href="churn-model-v3-recap.html"><span class="n">11</span><span class="t">Churn model v3 — one-page recap</span><span class="d">One page on what a new model version changed for the people who use it.</span><span class="k">one-pager</span></a></li>
+<li><a href="realtime-fraud-scoring-rollout-plan.html"><span class="n">12</span><span class="t">Real-time fraud scoring — rollout plan</span><span class="d">Moving a fraud model from nightly batch to scoring at authorization time, in five phases.</span><span class="k">html-plan</span></a></li>
+<li><a href="model-monitoring-wireframes.html"><span class="n">13</span><span class="t">Model monitoring — three wireframe directions</span><span class="d">Three layouts for the screen on-call opens when a forecast model may be unhealthy.</span><span class="k">html-wireframe</span></a></li>
+<li><a href="review-labeling-prototype.html"><span class="n">14</span><span class="t">Labeling queue — a working prototype</span><span class="d">A keyboard-first labeling queue that checks a model’s suggestions, with undo and an agreement summary.</span><span class="k">html-prototype</span></a></li>
+<li><a href="rag-pipeline-diagram.html"><span class="n">15</span><span class="t">RAG pipeline — from documents to cited answers</span><span class="d">Retrieval-augmented generation end to end, with latency and failure points.</span><span class="k">html-diagram</span></a></li></ol>
+</section>
+<section aria-labelledby="s6">
+<header class="sec"><h2 id="s6">Agents that do ML work</h2><p>Handing the workflow to Claude Code.</p></header>
+<ol class="entries"><li><a href="agentic-ml-plugin.html"><span class="n">16</span><span class="t">Agentic ML Plugin — the gated ML lifecycle</span><span class="d">A Claude Code plugin: seventeen skills along an eleven-gate ML lifecycle, with locked test sets and an evidence notebook.</span><span class="k">html</span></a></li></ol>
+</section>
+</main>
+<footer><p>A map of content in the HTML Server gallery: each link opens a page in the gallery.</p>
+<p>Other maps: <a href="moc-claude-code.html">Claude Code</a> · <a href="moc-effective-html.html">Effective HTML</a></p></footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic ML Plugin — the gated ML lifecycle</title>
+<meta name="description" content="A tour of Lawrence Wu's Agentic ML Plugin for Claude Code: seventeen skills laid along an eleven-gate ML lifecycle you can step through, how to install it, and the rules that make its numbers trustworthy: locked test sets, confidence intervals, provenance and a re-runnable evidence notebook.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  --ground:#eef2f2;--sheet:#fbfcfc;--ink:#122023;--ink-2:#3f5357;--ink-3:#5f7175;--rule:#cdd8d9;--grid:rgba(15,107,116,.07);
+  --acc:#0d6670;--acc-a:rgba(13,102,112,.1);--acc-b:rgba(13,102,112,.28);
+  --go:#246b2c;--cond:#8a5300;--nogo:#b0261b;--code:#e3eaea;
+  --slab:Rockwell,"Rockwell Nova","Roboto Slab","Bitter","Sitka Heading",Georgia,serif;
+  --sans:Seravek,"Gill Sans Nova",Ubuntu,Calibri,"DejaVu Sans",source-sans-pro,system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,"Cascadia Mono",Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0d1416;--sheet:#131c1f;--ink:#e2ebec;--ink-2:#a8b9bc;--ink-3:#8a9da0;--rule:#283639;--grid:rgba(92,195,204,.06);
+  --acc:#5cc3cc;--acc-a:rgba(92,195,204,.12);--acc-b:rgba(92,195,204,.32);
+  --go:#7fd08a;--cond:#f0b75a;--nogo:#ff8f80;--code:#0a1012;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --ground:#0d1416;--sheet:#131c1f;--ink:#e2ebec;--ink-2:#a8b9bc;--ink-3:#8a9da0;--rule:#283639;--grid:rgba(92,195,204,.06);
+  --acc:#5cc3cc;--acc-a:rgba(92,195,204,.12);--acc-b:rgba(92,195,204,.32);
+  --go:#7fd08a;--cond:#f0b75a;--nogo:#ff8f80;--code:#0a1012;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;color:var(--ink);font:400 1.0625rem/1.6 var(--sans);
+  background:var(--ground);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:24px 24px}
+h1,h2,h3,p,ul,ol,dl,dd,figure,pre{margin:0}
+h1,h2,h3{font-family:var(--slab);font-weight:700;line-height:1.08;text-wrap:balance}
+h1{font-size:clamp(2.2rem,1.4rem + 3.4vw,3.6rem);letter-spacing:-.01em;max-width:15ch}
+h2{font-size:clamp(1.6rem,1.3rem + 1.2vw,2.1rem)}
+h3{font-size:1.25rem}
+p{max-width:65ch}
+a{color:var(--acc);text-underline-offset:.15em}
+code,pre,kbd{font-family:var(--mono);font-size:.86em}
+:focus-visible{outline:2.5px solid var(--acc);outline-offset:2px}
+.wrap{max-width:74rem;margin:0 auto;padding:0 1rem}
+.eyebrow{font:600 .78rem/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.lede{font-size:1.2rem;color:var(--ink-2)}
+section{padding:3rem 0;display:grid;gap:1.25rem}
+section>header{display:grid;gap:.5rem}
+.chip{display:inline-block;font:700 .72rem/1 var(--mono);letter-spacing:.04em;padding:.3rem .45rem;border:1.5px solid currentColor;border-radius:3px;white-space:nowrap}
+.go{color:var(--go)}.cond{color:var(--cond)}.nogo{color:var(--nogo)}
+
+/* run strip */
+.strip{border-bottom:1px solid var(--rule);background:var(--sheet)}
+.strip .wrap{display:flex;flex-wrap:wrap;gap:.35rem 1.4rem;padding-top:.6rem;padding-bottom:.6rem;font:500 .8rem/1.4 var(--mono);color:var(--ink-3)}
+.strip b{color:var(--ink);font-weight:600}
+
+/* hero */
+.hero{display:grid;gap:2rem;padding:3rem 0 2.5rem;align-items:start}
+@media (min-width:900px){.hero{grid-template-columns:1.05fr 1fr;gap:3rem;padding-top:4rem}}
+.hero-copy{display:grid;gap:1.1rem}
+.nb{background:var(--code);border:1px solid var(--rule);border-radius:4px;overflow:hidden;min-width:0}
+.nb-h{display:flex;justify-content:space-between;align-items:center;gap:.5rem;padding:.55rem .8rem;border-bottom:1px solid var(--rule);font:600 .78rem/1.3 var(--mono);color:var(--ink-3)}
+.nb-b{padding:.9rem .8rem;display:grid;gap:.7rem}
+.nb pre{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:.8rem}
+.nb .note{font:600 .95rem/1.3 var(--slab)}
+.nb .cmd{color:var(--ink-2)}
+.nb .cmd::before{content:"$ ";color:var(--acc)}
+.nb .out{border-left:3px solid var(--acc-b);padding-left:.6rem;color:var(--ink)}
+.nb .verdict{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;font-size:.9rem;color:var(--ink-2)}
+.caption{font-size:.85rem;color:var(--ink-3)}
+
+/* install */
+.tabs{display:flex;flex-wrap:wrap;gap:.25rem;border-bottom:1px solid var(--rule)}
+.tab{font:600 .85rem/1.2 var(--mono);color:var(--ink-2);background:none;border:0;border-bottom:3px solid transparent;padding:.6rem .7rem;cursor:pointer;margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--acc)}
+.tab:hover{color:var(--ink)}
+.sh{display:flex;gap:.5rem;align-items:flex-start;background:var(--code);border:1px solid var(--rule);border-radius:4px;padding:.7rem .8rem}
+.sh pre{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:.84rem;line-height:1.55}
+.copy{flex:none;font:600 .75rem/1 var(--mono);color:var(--acc);background:var(--sheet);border:1px solid var(--acc-b);border-radius:3px;padding:.4rem .5rem;cursor:pointer}
+.copy:hover{background:var(--acc-a)}
+.install{display:grid;gap:.8rem}
+.install [role="tabpanel"]{display:grid;gap:.6rem}
+.status{font-size:.85rem;color:var(--ink-3);min-height:1.3em}
+
+/* gate map */
+.map{display:grid;gap:1.25rem;align-items:start}
+@media (min-width:900px){.map{grid-template-columns:minmax(0,26rem) minmax(0,1fr);gap:2rem}}
+.rail{position:relative;display:grid;gap:2px;padding:.25rem 0}
+.rail::before{content:"";position:absolute;left:calc(3.8rem);top:3.4rem;bottom:4.2rem;width:2px;background:var(--rule)}
+.ph{position:relative;padding:.9rem 0 .2rem 4.4rem;font:600 .7rem/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.row{position:relative;display:grid;grid-template-columns:2.2rem 1.5rem minmax(0,1fr);gap:.55rem;align-items:center;width:100%;text-align:left;font:inherit;color:var(--ink);background:none;border:1px solid transparent;border-radius:3px;padding:.38rem .5rem .38rem .3rem;cursor:pointer}
+.row:hover{background:var(--acc-a)}
+.row[aria-selected="true"]{background:var(--sheet);border-color:var(--acc-b);box-shadow:inset 3px 0 0 var(--acc)}
+.num{font:700 .8rem/1 var(--mono);color:var(--ink-3);text-align:right}
+.post{justify-self:center;width:1.15rem;height:1.15rem;border:2px solid var(--acc);background:var(--sheet);position:relative;z-index:1}
+.row[aria-selected="true"] .post{background:var(--acc)}
+.nm{font:600 .92rem/1.25 var(--mono);overflow-wrap:anywhere}
+.nm small{display:block;font:400 .8rem/1.3 var(--sans);color:var(--ink-3)}
+.row.br .post{width:.75rem;height:.75rem;border-radius:50%;justify-self:end;margin-right:-.15rem}
+.row.br .post::before{content:"";position:absolute;right:100%;top:50%;width:.7rem;border-top:2px dotted var(--acc-b)}
+.row.br{padding-left:2rem;grid-template-columns:1.1rem 1.5rem minmax(0,1fr)}
+.row.br .num{font-size:.72rem}
+.row.end .post{border-radius:0;transform:rotate(45deg);width:.95rem;height:.95rem}
+.row.meta{margin-top:.9rem;border:1px dashed var(--rule)}
+.row.meta .post,.row.orch .post{border-style:double;border-width:4px}
+.panel{background:var(--sheet);border:1px solid var(--rule);border-radius:4px;padding:1.25rem;display:grid;gap:1rem;min-width:0}
+@media (min-width:900px){.panel{position:sticky;top:1rem}}
+.panel h3{font-family:var(--mono);font-size:1.3rem;overflow-wrap:anywhere}
+.panel dl{display:grid;gap:.9rem}
+.panel dt{font:600 .72rem/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:.25rem}
+.panel dd ul{padding-left:1.1rem;display:grid;gap:.2rem}
+.panel .hint{background:var(--code);border-radius:3px;padding:.55rem .65rem;font:.78rem/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink-2)}
+.files{display:flex;flex-wrap:wrap;gap:.35rem}
+.files code{background:var(--code);border:1px solid var(--rule);border-radius:3px;padding:.15rem .4rem;font-size:.78rem;overflow-wrap:anywhere}
+.files .none{color:var(--ink-3);font-size:.9rem}
+.keys{font-size:.85rem;color:var(--ink-3)}
+kbd{border:1px solid var(--rule);border-bottom-width:2px;border-radius:3px;padding:0 .3rem;background:var(--sheet)}
+
+/* trust rules */
+.rules{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media (min-width:700px){.rules{grid-template-columns:1fr 1fr}}
+@media (min-width:1050px){.rules{grid-template-columns:repeat(4,1fr)}}
+.rules>div{background:var(--sheet);padding:1rem;display:grid;gap:.35rem;align-content:start}
+.rules h3{font-size:1.02rem}
+.rules p{font-size:.93rem;color:var(--ink-2)}
+
+/* levels */
+.lv{display:grid;gap:1rem}
+.seg{display:inline-flex;border:1.5px solid var(--acc);border-radius:4px;overflow:hidden;width:max-content;max-width:100%}
+.seg label{position:relative}
+.seg input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.seg span{display:block;padding:.5rem 1rem;font:600 .9rem/1 var(--mono);color:var(--acc)}
+.seg input:checked+span{background:var(--acc);color:var(--sheet)}
+.seg input:focus-visible+span{outline:2.5px solid var(--ink);outline-offset:-4px}
+.lvtab{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.lvtab>div{display:grid;gap:.25rem;background:var(--sheet);padding:.7rem .9rem}
+@media (min-width:700px){.lvtab>div{grid-template-columns:11rem 1fr;gap:1rem}}
+.lvtab b{font:600 .78rem/1.5 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3)}
+.fixed{border:1.5px solid var(--ink);padding:.8rem 1rem;font-weight:600;max-width:none;background:var(--sheet)}
+
+/* scenarios */
+.sc{display:grid;gap:1rem}
+.sc-meta{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;font:.82rem/1.4 var(--mono);color:var(--ink-2)}
+.sc-meta b{color:var(--ink-3);font-weight:500}
+.pits{display:grid;gap:.5rem;padding:0;list-style:none}
+@media (min-width:800px){.pits{grid-template-columns:1fr 1fr}}
+.pits li{border-left:3px solid var(--nogo);background:var(--sheet);padding:.5rem .75rem;font-size:.93rem}
+.pits li b{display:block;font-family:var(--mono);font-size:.82rem}
+.mx{overflow-x:auto;border:1px solid var(--rule);background:var(--sheet)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;font-variant-numeric:tabular-nums}
+th,td{padding:.45rem .7rem;border-bottom:1px solid var(--rule);text-align:left}
+th{font:600 .75rem/1.3 var(--mono);color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
+td.c{text-align:center;font-family:var(--mono);font-weight:700}
+tr.tot td{font-weight:700;border-bottom:0}
+.y{color:var(--go)}.n{color:var(--nogo)}
+
+/* sr */.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+footer{border-top:1px solid var(--rule);background:var(--sheet);padding:1.5rem 0 2rem;font-size:.88rem;color:var(--ink-2)}
+footer .wrap{display:grid;gap:.4rem}
+@media (prefers-reduced-motion:no-preference){.row,.tab,.copy{transition:background-color .15s,border-color .15s}}
+</style>
+</head>
+<body>
+<div class="strip"><div class="wrap">
+  <span>plugin <b>agentic-ml</b></span><span>version <b>0.4.0</b></span><span>skills <b>17</b></span><span>gates <b>0–10</b></span><span>author <b>Lawrence Wu</b></span>
+</div></div>
+
+<main class="wrap">
+<div class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Claude Code plugin · Agent Skills format</p>
+    <h1>An ML lifecycle where every number shows its command</h1>
+    <p class="lede">Agentic ML is a set of agent skills that walk a model from <em>“do we even need ML?”</em> to a signed-off promotion decision through eleven gates. Each gate returns <span class="chip go">GO</span> <span class="chip cond">CONDITIONAL</span> or <span class="chip nogo">NO-GO</span>, writes a JSON artifact, and records the commands behind its headline numbers so anyone can re-run them.</p>
+    <div class="install" id="install">
+      <div class="tabs" role="tablist" aria-label="Install for">
+        <button class="tab" role="tab" id="t-cc" aria-controls="p-cc" aria-selected="true">Claude Code</button>
+        <button class="tab" role="tab" id="t-ot" aria-controls="p-ot" aria-selected="false" tabindex="-1">Other agents</button>
+        <button class="tab" role="tab" id="t-dev" aria-controls="p-dev" aria-selected="false" tabindex="-1">Local dev</button>
+      </div>
+      <div role="tabpanel" id="p-cc" aria-labelledby="t-cc">
+        <div class="sh"><pre>claude plugin marketplace add lawwu/agentic-ml-plugin
+claude plugin install agentic-ml@agentic-ml</pre><button class="copy" type="button">Copy</button></div>
+        <p class="caption">Restart Claude Code afterwards; skills activate when relevant. Update with <code>claude plugin marketplace update</code> then <code>claude plugin update agentic-ml@agentic-ml</code>, or run <code>/plugin</code>.</p>
+      </div>
+      <div role="tabpanel" id="p-ot" aria-labelledby="t-ot" hidden>
+        <div class="sh"><pre>npx skills add lawwu/agentic-ml-plugin</pre><button class="copy" type="button">Copy</button></div>
+        <p class="caption">For Cursor, Cline, GitHub Copilot and other agents in the <a href="https://skills.sh" target="_blank" rel="noopener">skills.sh</a> ecosystem.</p>
+      </div>
+      <div role="tabpanel" id="p-dev" aria-labelledby="t-dev" hidden>
+        <div class="sh"><pre>git clone git@github.com:lawwu/agentic-ml-plugin.git ~/agentic-ml-plugin
+claude --plugin-dir ~/agentic-ml-plugin/plugins/agentic-ml</pre><button class="copy" type="button">Copy</button></div>
+        <p class="caption">Then generate a demo dataset and run the whole lifecycle: <code>uv run demo/scenarios/medium/generate_data.py</code>, then <code>/orchestrate-e2e on the medium dataset in demo/</code>.</p>
+      </div>
+      <p class="status" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <figure class="nb" aria-label="Excerpt from an evidence notebook">
+    <div class="nb-h"><span>evidence.md · readmission run</span><span>showboat</span></div>
+    <div class="nb-b">
+      <p class="note">## Gate 7 — check-eval (val)</p>
+      <pre class="cmd">uv run --quiet --no-project …/check-eval/scripts/eval_report.py --pred predictions/model_val.csv --metric auprc --baseline-pred predictions/baseline_prior-admissions_val.csv --n-boot 1000 --split-manifest splits/split-manifest.json --expect-split val</pre>
+      <pre class="out">auprc = 0.1416 [0.1019, 0.2124]  (95% CI, binary, n=600, 68 positives, 1000 resamples)
+baseline 0.1243 [0.0952, 0.1610]; delta 0.0173 [-0.0188, 0.0811] -> better, not significant, P(not better) = 0.1660
+split check (val): OK</pre>
+      <p class="verdict"><span class="chip cond">CONDITIONAL</span> The model edges the baseline, but the delta’s interval includes zero.</p>
+      <pre class="cmd">uvx showboat --workdir &lt;out-dir&gt; verify &lt;out-dir&gt;/evidence.md</pre>
+    </div>
+    <figcaption class="caption" style="padding:0 .8rem .8rem">The repo’s own example. Its full notebook re-verifies in about 12 seconds; changing 5 of 600 test predictions makes verify fail on the gate 10 block.</figcaption>
+  </figure>
+</div>
+
+<section aria-labelledby="h-map">
+  <header>
+    <p class="eyebrow">The skills, gate by gate</p>
+    <h2 id="h-map">Seventeen skills on one gate line</h2>
+    <p>Squares are gates, run in order by <code>orchestrate-e2e</code>; a NO-GO halts the run. Dots branch off a gate: optional, supporting, or informational steps. Pick any of them to see what it does, when to reach for it, and what it ships with.</p>
+    <p class="keys">Keyboard: <kbd>↑</kbd> <kbd>↓</kbd> move through the line, <kbd>Home</kbd> / <kbd>End</kbd> jump to either end.</p>
+  </header>
+  <div class="map">
+    <div class="rail" id="rail" role="tablist" aria-orientation="vertical" aria-label="Lifecycle gates and skills"></div>
+    <div class="panel" id="panel" role="tabpanel" tabindex="0" aria-live="polite"></div>
+  </div>
+</section>
+
+<section aria-labelledby="h-trust">
+  <header>
+    <p class="eyebrow">Evaluation protocol</p>
+    <h2 id="h-trust">What makes the numbers trustworthy</h2>
+    <p>Rules every skill follows, at every level. A skill that computes a metric must use the locked split and report an interval; one that reads data or runs code must record provenance.</p>
+  </header>
+  <div class="rules">
+    <div><h3>Right kind of ML first</h3><p><code>select-approach</code> asks whether ML is needed at all, then picks the cheapest of rules, supervised, forecasting, unsupervised, embeddings, LLM prompting/RAG, fine-tuning, RLHF/RLVR or agents.</p></div>
+    <div><h3>A locked test set</h3><p>The split is made once in <code>review-target</code>. Test rows are read once, at promotion, after a <code>test_keys_sha256</code> hash check. A second read is a <code>high</code> finding.</p></div>
+    <div><h3>Uncertainty on every metric</h3><p>95% bootstrap intervals with <i>n</i>, a paired comparison against the baseline, slices, calibration and an explicit operating point. “Beats the baseline” means the delta’s interval excludes zero.</p></div>
+    <div><h3>Provenance</h3><p>Git SHA, package versions, lockfile hashes, data hashes and seeds go into every artifact that touches data or code.</p></div>
+    <div><h3>Pre-flight before compute</h3><p>Loss at init, overfit one batch, save/resume, and a too-good-to-be-true check run before training spends budget.</p></div>
+    <div><h3>Deployment readiness</h3><p>Training/serving parity in a fresh process, latency and memory budgets, a data contract and drift baseline, plus monitoring and rollback plans.</p></div>
+    <div><h3>ML Test Score</h3><p>Each run is scored against Google’s 28-test production-readiness rubric. The final score is the lowest of its four sections.</p></div>
+    <div><h3>One shared vocabulary</h3><p>Decisions are <code>GO / NO-GO / CONDITIONAL</code>; severities are <code>blocker / high / medium / low</code>. Every skill writes <code>&lt;skill&gt;.json</code> on a common base schema.</p></div>
+  </div>
+</section>
+
+<section aria-labelledby="h-lv">
+  <header>
+    <p class="eyebrow">How it adapts to you</p>
+    <h2 id="h-lv">Three levels, one quality bar</h2>
+    <p>Pass <code>--level</code> or save it once in <code>.claude/agentic-ml.local.md</code>. Level changes how much the agent explains and how often it stops for you.</p>
+  </header>
+  <div class="lv">
+    <div class="seg" role="radiogroup" aria-label="Level">
+      <label><input type="radio" name="lv" value="junior"><span>junior</span></label>
+      <label><input type="radio" name="lv" value="senior" checked><span>senior</span></label>
+      <label><input type="radio" name="lv" value="staff"><span>staff</span></label>
+    </div>
+    <div class="lvtab" id="lvtab" aria-live="polite"></div>
+    <p class="fixed">Never changes with level: the checks, the thresholds, the locked test set, or what needs your approval. Promotion always requires human sign-off.</p>
+  </div>
+</section>
+
+<section aria-labelledby="h-sc">
+  <header>
+    <p class="eyebrow">Demo scenarios and <code>benchmark-e2e</code></p>
+    <h2 id="h-sc">Datasets built to hide the usual mistakes</h2>
+    <p>The repo ships generators, not data. <strong>easy</strong> (premium upgrade, 1,200 rows, clean, no leakage) and <strong>medium</strong> (telecom churn with a vague goal and a subtle temporal leak) are for trying the plugin. The three hard ones are what <code>benchmark-e2e</code> runs no-plugin, plugin and AutoGluon AutoML against.</p>
+  </header>
+  <div class="sc">
+    <div class="tabs" role="tablist" aria-label="Benchmark scenario" id="sctabs"></div>
+    <div role="tabpanel" id="scpanel" tabindex="0"></div>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap">
+  <p>Source: <a href="https://github.com/lawwu/agentic-ml-plugin" target="_blank" rel="noopener">github.com/lawwu/agentic-ml-plugin</a> (public repo by Lawrence Wu), read 2026-11-04 at commit <code>14e9859</code> (v0.4.0). Skill descriptions, commands, scenarios and the sample results are taken from the repo’s README, CHANGELOG, skill files and references.</p>
+  <p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html" target="_blank" rel="noopener">html</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</div></footer>
+
+<script>
+(function(){
+"use strict";
+var $=function(s,r){return (r||document).querySelector(s)};
+var esc=function(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
+var L="--level junior|senior|staff";
+
+/* ---------- skills, in gate order ---------- */
+var S=[
+{k:"orch",n:"orchestrate-e2e",g:"all",ph:"Orchestration",t:"orch",
+ d:"Coordinates the full lifecycle, gates 0–10, with review pauses set by level and autonomy, a final test evaluation inside a signed-off promotion decision, and an ML Test Score. Verifies the evidence notebook before promotion.",
+ w:["You want the whole lifecycle run with explicit gates and a Go/No-Go backed by artifacts","Invoked explicitly as a slash command; it is not auto-triggered"],
+ h:"/orchestrate-e2e <objective> [--data SOURCE] [--label-col COLUMN] [--metric METRIC] [--business-context TEXT] [--approach APPROACH] [--autonomy review-every-gate|review-key-gates|autonomous] [--out-dir DIR] [--budget-hours N] [--max-retries N] "+L,
+ sc:["generate_report.py","viewer.html"],rf:["artifact-contract.md","lifecycle-gates.md","ml-test-score.md"],a:["run-summary.json","decision.md","report.html"]},
+{ph:"Problem framing"},
+{k:"g0",n:"select-approach",g:"0",ph:"Problem framing",t:"gate",
+ d:"Decides what kind of ML or AI fits before any modelling: no ML, supervised, forecasting, unsupervised, embeddings, LLM prompting/RAG, fine-tuning, RLHF/DPO/RLVR or agents. Recommends the cheapest approach likely to meet the bar and maps which lifecycle skills apply.",
+ w:["“Should we use an LLM for this?”","“Do we need to fine-tune?”","“Is this a job for RAG, embeddings, or an agent?”","“Do we even need ML?”"],
+ p:"Decision, output and supervision are known; approach chosen; lifecycle map written.",
+ h:"/select-approach <problem description> [--data SOURCE] [--constraints TEXT] [--out-dir DIR] "+L,
+ sc:[],rf:["approach-guide.md"],a:["select-approach.json"]},
+{k:"g1",n:"review-target",g:"1",ph:"Problem framing",t:"gate",
+ d:"Validates the label against the business outcome: leakage risk, metric alignment, acceptance criteria and split strategy. Creates the split once and locks the test set.",
+ w:["Someone states a business outcome, KPI, or what they want to predict","Before any data is loaded or features are engineered on a new project"],
+ p:"Label and business outcome explicit; metric and threshold defined; split created and test set locked.",
+ h:"/review-target <business-outcome> [--data SOURCE] [--label-col COLUMN] [--entity-col COLUMN] [--timestamp-col COLUMN] [--horizon DURATION] [--task classification|regression|ranking|forecasting] "+L,
+ sc:["make_splits.py"],rf:["metric-playbook.md","target-spec-template.md"],a:["review-target.json","splits/split-manifest.json"]},
+{ph:"Pre-training"},
+{k:"g2",n:"check-dataset-quality",g:"2",ph:"Pre-training",t:"gate",
+ d:"Profiles CSV, Parquet, JSONL, Hugging Face datasets, image directories or database tables for missing values, duplicates, imbalance, split leakage, outliers, schema drift and personal data. Saves a data contract and drift baseline from the training split.",
+ w:["Asked to check, audit, validate or profile a dataset or table","Before anything is computed on the data"],
+ p:"No blocker-level leakage, schema, label or privacy issues; data contract saved.",
+ h:"/check-dataset-quality <path-or-hf-dataset-or-table> [--db-url DSN] [--label-col COLUMN] [--id-col COLUMN] [--task …] [--format csv|parquet|jsonl|hf|image-dir|db] "+L,
+ sc:["profile-dataset.py","data_contract.py"],rf:["audit-checks.md","format-loading.md"],a:["check-dataset-quality.json","data-contract.json","training-profile.json"]},
+{k:"g3",n:"build-baseline",g:"3",ph:"Pre-training",t:"gate",
+ d:"Builds non-ML baselines (majority class, mean predictor, simple rules, naive forecasting) to set the floor ML must beat. For forecasting it adds statistical models and a zero-shot time-series foundation model: Chronos, TimesFM or Moirai.",
+ w:["“Build a baseline” or “establish a heuristic baseline”","After the dataset audit, before plan-experiment, so success criteria rest on a real score"],
+ p:"At least one baseline fit on train and scored on val with an interval; predictions saved.",
+ h:"/build-baseline <objective> --data SOURCE --label-col COL --metric METRIC [--split validation|test] "+L,
+ sc:[],rf:[],a:["build-baseline.json","predictions/baseline_*_val.csv"]},
+{k:"g4",n:"plan-experiment",g:"4",ph:"Pre-training",t:"gate",
+ d:"Designs the experiment: hypothesis, model candidates, hyperparameter search space, compute budget and execution order, with success criteria set relative to the baseline.",
+ w:["“Let’s train a model”","“I want to try a few models”","“What should I run first?”"],
+ p:"At least one simple candidate; budget fits; success criteria relative to the gate 3 baseline; tuning on val or CV only.",
+ h:"/plan-experiment [--task …] [--data PATH|DATASET] [--metric METRIC] [--budget GPU_HOURS] [--max-candidates N] [--horizon DURATION] "+L,
+ sc:[],rf:["compute-estimation-guide.md","hp-search-strategies.md"],a:["plan-experiment.json"]},
+{k:"g4b",n:"feature-engineer",g:"4b",ph:"Pre-training",t:"br",tag:"optional · raw data",
+ d:"Explores files or database tables and designs leakage-safe, point-in-time-correct feature sets tied to the label and the business outcome. Runs between gates 4 and 5 when the data is raw; otherwise recorded as SKIPPED.",
+ w:["Raw tables or columns and a model to build or improve","No established feature contract yet"],
+ p:"Point-in-time correct features; blocked features recorded.",
+ h:"/feature-engineer [--data PATH|DATASET] [--db-url DSN] [--tables T1,T2,...] [--label-col COLUMN] [--entity-col COLUMN] [--timestamp-col COLUMN] [--outcome TEXT] "+L,
+ sc:[],rf:["db-feature-playbook.md","feature-patterns.md"],a:["feature-engineer.json"]},
+{k:"g5",n:"check-data-pipeline",g:"5",ph:"Pre-training",t:"gate",
+ d:"Dry-runs preprocessing on a small sample to catch shape, dtype, padding, special-token, label-encoding and collation issues. Its tabular track catches preprocessing fit outside train, target-encoding and resampling leakage, unseen categories and training/serving column mismatches.",
+ w:["About to start a training run","Dataset or model just changed","Tokenization, padding, shape or collation problems"],
+ p:"All required pipeline checks pass on a representative sample, including tabular leakage checks.",
+ h:"/check-data-pipeline [pipeline-script | notebook | --framework hf|torch|tf|jax|sklearn|lightgbm|xgboost|catboost|pandas] [--model NAME] [--sample N] [--task …] "+L,
+ sc:[],rf:["framework-patterns.md","pipeline-checks.md","tabular-pipeline-checks.md"],a:["check-data-pipeline.json"]},
+{ph:"Training"},
+{k:"g6",n:"train-model",g:"6",ph:"Training",t:"gate",
+ d:"Launches training after pre-flight checks, with native early stopping, Optuna sweeps tuned on validation only, experiment tracking, provenance and checkpoints. Includes a leakage-safe tabular training scaffold. The only gate that may retry, within budget and --max-retries.",
+ w:["“Train a model”, “start a training run”, “fine-tune”","There is no training script yet (tabular scaffold)"],
+ p:"Pre-flight checks pass; no unresolved critical anomalies; provenance recorded; checkpoint progression observed.",
+ h:"/train-model [<train-cmd>] [--hp KEY=VALUE ...] [--sweep] [--seed N] [--early-stop-metric METRIC] [--early-stop-patience N] [--max-epochs N] "+L,
+ sc:["train_tabular.py"],rf:["preflight-checks.md"],a:["train-model.json","provenance-train.json"]},
+{k:"g6b",n:"babysit-training",g:"6b",ph:"Training",t:"br",tag:"monitors gate 6",
+ d:"Watches a training run until it completes or hits a critical issue: local logs, SSH targets, process names, or Vertex AI pipeline and custom jobs. Polls with exponential backoff and escalates anomalies without being asked.",
+ w:["Whenever a training job starts or is handed off","Standalone, when training is already running"],
+ h:"/babysit-training [log-file | user@host:path | --pid PID | --proc NAME | --vertex-pipeline JOB | --vertex-training JOB] [--interval SECONDS] "+L,
+ sc:["check-process.sh","tail-remote.sh"],rf:["common-issues.md","log-formats.md","vertex-ai.md"],a:["babysit-training.json"]},
+{k:"g6c",n:"check-failed-run",g:"6c",ph:"Training",t:"br",tag:"on failure",
+ d:"Diagnoses a failed or unstable run from logs, artifact directories, processes, W&B or MLflow runs, or Vertex AI pipelines. Classifies the failure mode, finds the root cause and writes a prioritised recovery plan.",
+ w:["A job exits with an error","Metrics look suspicious","A run is handed off for post-mortem"],
+ h:"/check-failed-run [log-file | artifact-dir | --traceback | --pid PID | --wandb RUN | --mlflow RUN | --vertex-pipeline JOB] [--framework …] [--last N] "+L,
+ sc:["fetch-remote-log.sh"],rf:["failure-taxonomy.md","root-cause-patterns.md"],a:["check-failed-run.json"]},
+{ph:"Post-training"},
+{k:"g7",n:"check-eval",g:"7",ph:"Post-training",t:"gate",
+ d:"Evaluates tabular models, prediction files, Hugging Face checkpoints, lm-evaluation-harness tasks or custom eval scripts with bootstrap intervals, a paired comparison to the baseline, slices, calibration and the operating point. With --final it runs the one-time test evaluation.",
+ w:["Training has completed or a checkpoint was saved","At promotion, for the single final test read (--final)"],
+ p:"Primary metric meets threshold; paired delta vs. baseline excludes zero; no critical slices flagged; operating point chosen.",
+ h:"/check-eval [checkpoint-path | hf-model | model.joblib] [--predictions CSV] [--metric METRIC] [--slice-cols C1,C2] [--final] [--baseline …] [--split validation|test] "+L,
+ sc:["eval_report.py","compare-results.sh"],rf:["harness-reference.md","hf-eval-patterns.md"],a:["check-eval.json","eval-metrics-val.json"]},
+{k:"g8",n:"explain-model",g:"8",ph:"Post-eval",t:"gate",
+ d:"Produces feature importance (SHAP, permutation or built-in), a bias audit over protected attributes and a model card before promotion.",
+ w:["Right after evaluation, even when someone says “looks good, let’s ship it”","Questions about feature contributions, fairness, or documenting a model"],
+ p:"No NO-GO blockers from the bias or leakage audit; model card produced.",
+ h:"/explain-model [checkpoint-path | model-path | hf-model] [--data PATH] [--label-col COLUMN] [--protected-attrs A1,A2] [--method shap|permutation|builtin|auto] "+L,
+ sc:["feature_importance.py"],rf:["interpretability-methods.md","model-card-template.md"],a:["explain-model.json","MODEL_CARD.md"]},
+{ph:"Pre-deployment"},
+{k:"g9",n:"check-deployment-readiness",g:"9",ph:"Pre-deployment",t:"gate",
+ d:"Packages the model with a signature, reloads it in a fresh process to compare predictions with training time, measures latency, throughput and memory against budgets, validates inputs against the data contract, and writes monitoring, rollout and rollback plans.",
+ w:["“Is this ready for production?”","“How do we monitor this model?”","“What’s the rollout plan?”"],
+ p:"Parity passes; budgets met; contract clean; monitoring and rollback plans written.",
+ h:"/check-deployment-readiness <model-path> [--data PATH] [--ref-pred PRED.csv] [--contract data-contract.json] [--latency-budget-ms N] [--memory-budget-mb N] [--serving batch|online] "+L,
+ sc:["serving_check.py"],rf:[],a:["check-deployment-readiness.json","serving-check.json","monitoring-plan.md"]},
+{k:"dv",n:"demonstrate-value",g:"·",ph:"Post-eval (informational)",t:"br",tag:"optional · with --business-context",
+ d:"Builds a stakeholder presentation of business value, computed from the chosen operating point with labelled assumptions. Every figure is recorded in the run’s evidence notebook so it can be re-run.",
+ w:["“Show the business value”","“Make a model presentation” or “a stakeholder report”"],
+ h:"/demonstrate-value [--model PATH] [--eval-results PATH] [--explain-results PATH] [--baseline PATH] [--business-context TEXT] "+L,
+ sc:[],rf:[],a:["demonstrate-value.json","evidence.md section"]},
+{k:"rn",n:"recommend-new-approaches",g:"·",ph:"Post-eval (informational)",t:"br",tag:"always, before promotion",
+ d:"Recommends research directions, modelling ideas and loss-function changes sorted by expected impact. For ideas that fit, it prepares an autoresearch program.md and surfaces the launch as needs-approval.",
+ w:["“What should I try next?”","“How can I improve this model?”","At the end of every orchestrated run"],
+ h:"/recommend-new-approaches [--model PATH] [--eval-results PATH] [--train-results PATH] [--explain-results PATH] [--task-description TEXT] [--autoresearch] "+L,
+ sc:[],rf:[],a:["recommend-new-approaches.json","program.md (optional)"]},
+{ph:"Promotion"},
+{k:"g10",n:"Promotion decision",g:"10",ph:"Promotion",t:"end",
+ d:"Not a separate skill: orchestrate-e2e closes the run. The evidence notebook is verified, check-eval --final reads the test set once after a hash check, and a person signs off. A changed evidence block blocks an unqualified GO.",
+ w:["Gates 8 and 9 have completed without NO-GO","The user has accepted the model and threshold"],
+ p:"Evidence notebook verified; final test evaluation run once with a matching test hash; criteria met; user signed off.",
+ h:"uvx showboat --workdir <out-dir> verify <out-dir>/evidence.md\n/check-eval … --final",
+ sc:[],rf:["evaluation-protocol.md","evidence-notebook.md"],a:["check-eval.json (final)","evidence-verify.txt","decision.md","run-summary.json"]},
+{k:"bm",n:"benchmark-e2e",g:"meta",ph:"Meta",t:"meta",
+ d:"Compares no-plugin, plugin and AutoGluon AutoML runs of the same nine lifecycle stages on one detected scenario (hard-fraud, hard-readmission or xhard-churn), scoring quality, reliability, efficiency, ops readiness and pitfall detection. A NO-GO does not halt the benchmark.",
+ w:["Comparing end-to-end workflows","Measuring agent reliability, cost or speed","Invoked explicitly; not auto-triggered"],
+ h:"/benchmark-e2e [--modes no-plugin,plugin,automl|autogluon] [--scenario auto|hard-fraud|hard-readmission|xhard-churn] [--dataset PATH] [--metric METRIC] [--runs N] [--out-dir DIR]",
+ sc:["generate_benchmark_report.py","init-report.sh"],rf:["datasets.md","harnesses.md","modes.md","scenarios.md","skill-matrix.md"],a:["benchmark-report.json","README.md"]}
+];
+
+var rail=$("#rail"),panel=$("#panel"),tabs=[];
+S.forEach(function(s){
+  if(!s.k){var p=document.createElement("div");p.className="ph";p.setAttribute("role","presentation");p.textContent=s.ph;rail.appendChild(p);return}
+  var b=document.createElement("button");
+  b.type="button";b.className="row"+(s.t==="br"?" br":s.t==="end"?" end":s.t==="meta"?" meta":s.t==="orch"?" orch":"");
+  b.setAttribute("role","tab");b.id="r-"+s.k;b.setAttribute("aria-controls","panel");b.dataset.k=s.k;
+  var label=s.t==="orch"?"runs gates 0–10":s.t==="meta"?"compares workflows":s.tag||s.ph;
+  b.innerHTML='<span class="num">'+(s.g==="all"?"0–10":s.g==="meta"?"—":esc(s.g))+'</span><span class="post" aria-hidden="true"></span><span class="nm">'+esc(s.n)+'<small>'+esc(label)+'</small></span>';
+  rail.appendChild(b);tabs.push(b);
+});
+function list(a){return a.length?'<div class="files">'+a.map(function(x){return"<code>"+esc(x)+"</code>"}).join("")+"</div>":'<p class="files"><span class="none">None bundled</span></p>'}
+function show(k,focus){
+  var s=S.filter(function(x){return x.k===k})[0];if(!s)return;
+  tabs.forEach(function(t){var on=t.dataset.k===k;t.setAttribute("aria-selected",on);t.tabIndex=on?0:-1;if(on&&focus)t.focus()});
+  panel.setAttribute("aria-labelledby","r-"+k);
+  var head=s.t==="orch"?"Orchestration · gates 0–10":s.t==="meta"?"Meta · outside the run":s.t==="br"?"Branch "+(s.g==="·"?"after gate 9":s.g)+" · "+s.ph:"Gate "+s.g+" · "+s.ph;
+  panel.innerHTML='<p class="eyebrow">'+esc(head)+'</p><h3>'+esc(s.n)+'</h3><p>'+esc(s.d)+'</p><dl>'+
+    '<div><dt>Reach for it when</dt><dd><ul>'+s.w.map(function(x){return"<li>"+esc(x)+"</li>"}).join("")+'</ul></dd></div>'+
+    (s.p?'<div><dt>Gate passes when</dt><dd>'+esc(s.p)+'</dd></div>':"")+
+    '<div><dt>'+(s.t==="end"?"Commands":"Invoke")+'</dt><dd><div class="hint">'+esc(s.h)+'</div></dd></div>'+
+    '<div><dt>Writes</dt><dd>'+list(s.a)+'</dd></div>'+
+    '<div><dt>Bundled scripts</dt><dd>'+list(s.sc)+'</dd></div>'+
+    '<div><dt>References</dt><dd>'+list(s.rf)+'</dd></div></dl>';
+  try{localStorage.setItem("aml-skill",k)}catch(e){}
+}
+rail.addEventListener("click",function(e){var b=e.target.closest(".row");if(!b)return;show(b.dataset.k);
+  if(window.matchMedia("(max-width: 899px)").matches)panel.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"})});
+rail.addEventListener("keydown",function(e){
+  var i=tabs.indexOf(document.activeElement);if(i<0)return;var j=-1;
+  if(e.key==="ArrowDown"||e.key==="ArrowRight")j=(i+1)%tabs.length;
+  else if(e.key==="ArrowUp"||e.key==="ArrowLeft")j=(i-1+tabs.length)%tabs.length;
+  else if(e.key==="Home")j=0;else if(e.key==="End")j=tabs.length-1;
+  if(j>=0){e.preventDefault();show(tabs[j].dataset.k,true)}
+});
+var start="g0";try{var v=localStorage.getItem("aml-skill");if(v&&S.some(function(x){return x.k===v}))start=v}catch(e){}
+show(start);
+
+/* ---------- generic horizontal tabs ---------- */
+function wire(list,onSel){
+  var ts=[].slice.call(list.querySelectorAll('[role="tab"]'));
+  function sel(t,f){ts.forEach(function(x){var on=x===t;x.setAttribute("aria-selected",on);x.tabIndex=on?0:-1;var p=document.getElementById(x.getAttribute("aria-controls"));if(p&&!onSel)p.hidden=!on});if(onSel)onSel(t);if(f)t.focus()}
+  list.addEventListener("click",function(e){var t=e.target.closest('[role="tab"]');if(t)sel(t)});
+  list.addEventListener("keydown",function(e){var i=ts.indexOf(document.activeElement),j=-1;if(i<0)return;
+    if(e.key==="ArrowRight")j=(i+1)%ts.length;else if(e.key==="ArrowLeft")j=(i-1+ts.length)%ts.length;else if(e.key==="Home")j=0;else if(e.key==="End")j=ts.length-1;
+    if(j>=0){e.preventDefault();sel(ts[j],true)}});
+  return sel;
+}
+wire($("#install .tabs"));
+
+/* ---------- copy ---------- */
+var st=$("#install .status");
+document.querySelectorAll(".copy").forEach(function(b){b.addEventListener("click",function(){
+  var pre=b.parentNode.querySelector("pre"),txt=pre.textContent;
+  function fallback(){try{var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r)}catch(e){}st.textContent="Selected. Press Ctrl+C or ⌘C to copy."}
+  try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(function(){st.textContent="Copied to clipboard."},fallback)}else fallback()}catch(e){fallback()}
+})});
+
+/* ---------- levels ---------- */
+var LV={
+ junior:[["Explanations","Each finding gets one sentence on why it matters and names the pitfall (“this is target leakage”), with a link to the reference."],["Pauses for review","Every gate (review-every-gate)."],["Code","Writes readable, commented scaffolds into your project and explains each step before running it."],["Choices","Recommends one default and says why."],["Report emphasis","A “check this yourself” list of 3–5 things a reviewer should look at."]],
+ senior:[["Explanations","Finding, evidence, fix. No tutorials."],["Pauses for review","After the target contract and split lock, before training spend, and at promotion (review-key-gates)."],["Code","Works with your code; proposes diffs."],["Choices","Top 2–3 options with trade-offs and a recommendation."],["Report emphasis","Evidence and re-run commands."]],
+ staff:[["Explanations","Summary lists only blocker and high findings; everything else stays in the artifact."],["Pauses for review","Only on NO-GO, needs-approval actions, and promotion (autonomous)."],["Code","Reviews existing code, notebooks or PRs as an auditor; proposes minimal diffs."],["Choices","Framed as decisions: cost, risk, owner, and what would change the call."],["Report emphasis","Decision record: risks accepted, owners, cost, rollout and monitoring."]]
+};
+var lvtab=$("#lvtab");
+function lv(v){lvtab.innerHTML=LV[v].map(function(r){return"<div><b>"+esc(r[0])+"</b><span>"+esc(r[1])+"</span></div>"}).join("")}
+document.querySelectorAll('input[name="lv"]').forEach(function(r){r.addEventListener("change",function(){lv(r.value)})});
+lv("senior");
+
+/* ---------- scenarios ---------- */
+var SC=[
+ {k:"hard-fraud",t:"E-commerce fraud detection with compounding pitfalls.",m:[["rows","20,000"],["label","is_fraud"],["metric","auprc"],["split","time, by transaction_timestamp"]],
+  p:[["Target echo","chargeback_initiated_days_ago is only non-null for fraud."],["Selection bias","Only ~6% of transactions were reviewed; the label means “confirmed fraud”."],["Feedback loop","previous_model_risk_score is the prior model’s output."],["Extreme imbalance","0.3% fraud: AUROC is meaningless, use AUPRC or precision@k."],["Near-perfect leak","device_fingerprint_age_hours under 2h is almost always fraud."],["Geographic proxy","ip_country reflects collection bias, not causal signal."]],mx:true},
+ {k:"hard-readmission",t:"Hospital 30-day readmission with post-outcome leakage, censoring and protected-attribute proxies.",m:[["rows","4,000"],["label","readmitted_30d"],["metric","auprc (~11% positive)"],["split","stratified"]],
+  p:[["Target echo","days_until_readmission is non-null only for readmitted patients."],["Proxy leakage","discharge_notes_readmission_risk is the clinician’s own judgment of the outcome."],["Censoring","Patients who died within 30 days are labelled False but could not be readmitted."],["Prediction-time ambiguity","discharge_to is only known at discharge."],["Label ambiguity","Planned and unplanned readmissions share one label."],["Protected proxy","insurance_type is generated conditional on race."]]},
+ {k:"xhard-churn",t:"B2B SaaS churn with composite, multi-step pitfalls and no single-column leak.",m:[["rows","~6,400"],["label","churned"],["metric","f1_macro"],["split","group + time, company_id × snapshot_date"]],
+  p:[["Composite leak","support_tickets_open with days_since_last_login predicts churn only as an interaction."],["Entity-level leakage","The same company_id appears across quarterly snapshots."],["Label definition drift","“churned” changes meaning from snapshot_quarter 4."],["Future-peeking feature","next_quarter_pipeline_value is only known after the window closes."],["Simpson’s paradox","discount_pct flips sign within company_size segments."],["Feature staleness","nps_score updates only annually."]],
+  note:"The repo flags a known gap: at the default seed the composite leak is weak and the Simpson’s-paradox reversal does not hold for large companies, so treat those two as aspirational."}
+];
+var MX=[["Target echo (chargeback)",0,1,0],["Near-perfect leak (dfp_age)",0,1,0],["Wrong metric (AUC vs AUPRC)",0,1,0],["Selection bias (5.96% reviewed)",0,1,0],["Geographic proxy bias (ip_country)",0,1,0],["Split boundary tie",0,1,0]];
+var sct=$("#sctabs"),scp=$("#scpanel");
+SC.forEach(function(s,i){var b=document.createElement("button");b.className="tab";b.type="button";b.setAttribute("role","tab");b.id="st-"+s.k;b.setAttribute("aria-controls","scpanel");b.setAttribute("aria-selected",i===0);b.tabIndex=i===0?0:-1;b.textContent=s.k;b.dataset.i=i;sct.appendChild(b)});
+function scen(t){var s=SC[+t.dataset.i];scp.setAttribute("aria-labelledby",t.id);
+  var h='<div class="sc" style="gap:.9rem"><p>'+esc(s.t)+'</p><p class="sc-meta">'+s.m.map(function(m){return"<span><b>"+m[0]+"</b> "+esc(m[1])+"</span>"}).join("")+'</p><ul class="pits">'+s.p.map(function(p){return"<li><b>"+esc(p[0])+"</b>"+esc(p[1])+"</li>"}).join("")+"</ul>";
+  if(s.note)h+='<p class="caption">'+esc(s.note)+"</p>";
+  if(s.mx){var c=function(v){return v?'<td class="c y">✓<span class="sr">caught</span></td>':'<td class="c n">✗<span class="sr">missed</span></td>'};
+    h+='<h3 style="margin-top:.6rem">Sample <code>/benchmark-e2e</code> report, hard-fraud</h3><div class="mx"><table><caption class="caption" style="caption-side:bottom;text-align:left;padding:.5rem .7rem">One run per cell, Claude Code with claude-sonnet-4-6, recorded with the earlier stage order (experiment plan and baseline before the dataset check). Token counts were not captured.</caption><thead><tr><th scope="col">Pitfall</th><th scope="col">no-plugin</th><th scope="col">plugin</th><th scope="col">automl</th></tr></thead><tbody>'+
+    MX.map(function(r){return"<tr><th scope=\"row\" style=\"font:inherit;text-transform:none;letter-spacing:0;color:var(--ink)\">"+esc(r[0])+"</th>"+c(r[1])+c(r[2])+c(r[3])+"</tr>"}).join("")+
+    '<tr class="tot"><td>Total score (of 100)</td><td class="c">40</td><td class="c">67</td><td class="c">35</td></tr></tbody></table></div>';}
+  scp.innerHTML=h+"</div>";}
+var selS=wire(sct,scen);scen(sct.querySelector('[role="tab"]'));
+})();
+</script>
+</body>
+</html>
