@@ -26,8 +26,9 @@ change that couldn't be migrated would be a major version.
   Links to a place on the page, new-tab links and ⌘-clicks work as before.
 - **Hide the sidebar.** A button at the sidebar's top left hides it and brings it back from
   the same place, and the choice is kept like light/dark (sandboxed notes get it by
-  cookie). With the sidebar hidden, an HTML page in the frame takes the whole width; notes
-  keep their reading width. On a phone the sidebar stays above the page.
+  cookie). On a phone the sidebar stays above the page.
+- **HTML pages in the frame use the whole width** beside the sidebar (all of it with the
+  sidebar hidden), instead of the 750px that notes keep for reading.
 - **Skills in the sidebar, with 16 new gallery examples.** A Skills section lists the eight
   skills of [effective-html](https://github.com/plannotator/effective-html) (MIT), each with
   two examples in the gallery, one on data, data science or machine learning and one on

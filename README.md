@@ -331,8 +331,8 @@ the SIL Open Font License, licences in `public/fonts`) and its three-column layo
 - **Left sidebar** on every page: the title, the running version (linking to its
   release), search, a light/dark switch, the site's sections (Pages, Random, Graph, Stats,
   Gallery, Docs), an **explorer** of folders and pages, and **Skills**. The button at its
-  top left hides it and brings it back, and the choice is kept like light/dark; with it
-  hidden, an HTML page in the frame takes the whole width. On a phone it collapses above
+  top left hides it and brings it back, and the choice is kept like light/dark. An HTML page
+  in the frame takes the whole width beside it (all of it when it's hidden). On a phone it collapses above
   the page.
 - **Skills:** the eight skills of [effective-html](https://github.com/plannotator/effective-html)
   (agent skills for HTML artifacts), each with two examples in the gallery, one on data

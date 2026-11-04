@@ -70,8 +70,7 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .icon-btn .sun { display: none; } :root:not([data-theme="light"]) .icon-btn .moon { display: block; } }
 :root[data-theme="dark"] .icon-btn .sun { display: none; } :root[data-theme="dark"] .icon-btn .moon { display: block; }
 /* Hiding the sidebar (its choice kept like light/dark): the page takes its column, leaving room
-   for the button, which stays in the same place either way, and an HTML page in the frame gets the
-   whole width (notes keep their reading width). On a phone the sidebar is above the page, so it
+   for the button, which stays in the same place either way. On a phone the sidebar is above the page, so it
    always shows. */
 .sidebar-toggle { position: fixed; top: 1.25rem; left: 1.25rem; z-index: 5; border-radius: 7px; background: var(--bg); color: var(--mute); }
 .sidebar-toggle:hover, .sidebar-toggle:focus-visible { color: var(--fg); background: var(--accent-soft); }
@@ -79,7 +78,6 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
   :root[data-sidebar="hidden"] { --left: 0px; }
   :root[data-sidebar="hidden"] .page { padding-left: 3.5rem; }
   :root[data-sidebar="hidden"] .page > .sidebar.left { display: none; }
-  :root[data-sidebar="hidden"] .page > main.framed { max-width: none; }
 }
 @media (max-width: 800px) { .sidebar-toggle { display: none; } }
 .side-row { display: flex; align-items: center; gap: .5rem; }
