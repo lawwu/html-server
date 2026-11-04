@@ -807,6 +807,9 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match((await req('GET', '/?q=one'))[1], /<p id="count"[^>]*>1 match<\/p>/);
   assert.match(page, new RegExp(`<a class="gh" href="https://github.com/lawwu/html-server/releases/tag/v${pkg.version}" target="_top"[^>]*><svg[^]*?</svg><span>v${pkg.version.replace(/\./g, '\\.')}</span></a>`));
   assert.match((await req('GET', '/gallery'))[1], /<p id="count" class="meta">34 example pages<\/p>/);
+  // The featured essay, then the three maps of content, lead the gallery and its filters.
+  assert.deepEqual(examples().slice(0, 4).map((e) => e.category), ['featured', 'moc', 'moc', 'moc']);
+  assert.match((await req('GET', '/gallery'))[1], /Featured <span>1<\/span>[^]*?Maps of content <span>3<\/span>[^]*?Architecture/);
 });
 
 test('skills: the sidebar lists effective-html\'s skills with their examples, which open in the frame', async () => {

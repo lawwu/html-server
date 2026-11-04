@@ -29,6 +29,9 @@ export const SKILLS = [
     examples: [['rag-pipeline-diagram.html', 'RAG pipeline'], ['claude-code-hooks-lifecycle.html', 'Claude Code hooks']] },
 ];
 
+// Featured first, then the maps of content (each links a topic's examples), then the rest.
+const rank = (category) => ['featured', 'moc'].indexOf(category) >>> 0;
+
 let cache = null;
 
 /** [{ slug, url, title, description, category, size, updated_at, body }], newest first; read once. */
@@ -49,7 +52,7 @@ export function examples() {
       example: true,
       text: `${title} ${f.replace(/\.html$/, '').replace(/[-_.]+/g, ' ')} ${metaContent(html, 'description')} ${body} ${scriptText(html)}`.toLowerCase(),
     };
-  }).sort((a, b) => (b.category === 'featured') - (a.category === 'featured') || a.title.localeCompare(b.title));
+  }).sort((a, b) => rank(a.category) - rank(b.category) || a.title.localeCompare(b.title));
   return cache;
 }
 
@@ -69,6 +72,6 @@ export function exampleCategories() {
   const counts = new Map();
   for (const e of examples()) if (e.category) counts.set(e.category, (counts.get(e.category) || 0) + 1);
   return [...counts].map(([category, count]) => ({ category, count }))
-    .sort((a, b) => (b.category === 'featured') - (a.category === 'featured') || a.category.localeCompare(b.category));
+    .sort((a, b) => rank(a.category) - rank(b.category) || a.category.localeCompare(b.category));
 }
 
