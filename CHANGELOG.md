@@ -24,6 +24,17 @@ change that couldn't be migrated would be a major version.
   goes there, as it would without the frame. The frame follows a link only just after a
   click or key press in the page, so a page still can't send the tab anywhere by itself.
   Links to a place on the page, new-tab links and ⌘-clicks work as before.
+- **Hide the sidebar.** A button at the sidebar's top left hides it and brings it back from
+  the same place, and the choice is kept like light/dark (sandboxed notes get it by
+  cookie). With the sidebar hidden, an HTML page in the frame takes the whole width; notes
+  keep their reading width. On a phone the sidebar stays above the page.
+- **Skills in the sidebar, with 16 new gallery examples.** A Skills section lists the eight
+  skills of [effective-html](https://github.com/plannotator/effective-html) (MIT), each with
+  two examples in the gallery, one on data, data science or machine learning and one on
+  Claude Code (drawn from its docs), and a link to the skill. The gallery groups them as
+  Effective HTML.
+- **Gallery examples open in the site's frame,** like your own pages: the sidebar, a title
+  bar, ⌘K, and links that move the tab. `?raw=1` is the example alone.
 
 ## 0.10.1 (2026-10-30)
 

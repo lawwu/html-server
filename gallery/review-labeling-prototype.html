@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Labeling queue — a working prototype</title>
+<meta name="description" content="A working prototype of a keyboard-first data-labeling queue: tag a dozen fictional product reviews for sentiment and aspects against a model's suggestions, with low-confidence flags, override reasons, skip, undo and an end-of-batch agreement summary.">
+<meta name="category" content="effective-html">
+<meta name="toc" content="off">
+<style>
+:root{
+  --ground:#e8ecf0;--sheet:#fcfdfe;--sunk:#f1f4f7;--ink:#152131;--ink-2:#465569;--rule:#d2d9e1;--rule-2:#9ba8b6;
+  --machine:#2a53c9;--m-tint:#e4eafb;--on-ink:#fcfdfe;--focus:#152131;
+  --low:#875200;--low-bg:#fbeed4;--low-line:#cf8f22;--bad:#b3261e;--bad-bg:#fcebe9;--good:#1c7340;--good-bg:#e1f2e8;
+  --ui:Seravek,"Gill Sans Nova",Ubuntu,Calibri,"DejaVu Sans",source-sans-pro,sans-serif;
+  --read:Charter,"Bitstream Charter","Sitka Text",Cambria,Georgia,serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0e1319;--sheet:#161d26;--sunk:#121921;--ink:#e5eaf0;--ink-2:#a7b3c1;--rule:#2a3541;--rule-2:#506073;
+  --machine:#93b2ff;--m-tint:#1c2845;--on-ink:#0e1319;--focus:#e5eaf0;
+  --low:#f1bd5d;--low-bg:#2d2310;--low-line:#b0812b;--bad:#ff9d90;--bad-bg:#381b18;--good:#7ad6a1;--good-bg:#12301f;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --ground:#0e1319;--sheet:#161d26;--sunk:#121921;--ink:#e5eaf0;--ink-2:#a7b3c1;--rule:#2a3541;--rule-2:#506073;
+  --machine:#93b2ff;--m-tint:#1c2845;--on-ink:#0e1319;--focus:#e5eaf0;
+  --low:#f1bd5d;--low-bg:#2d2310;--low-line:#b0812b;--bad:#ff9d90;--bad-bg:#381b18;--good:#7ad6a1;--good-bg:#12301f;color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font:400 1rem/1.5 var(--ui)}
+.shell{max-width:73rem;margin:0 auto;padding:1rem 1rem 1.25rem}
+@media (min-width:40rem){.shell{padding:1.5rem}}
+h1,h2,h3{text-wrap:balance}
+kbd{display:inline-grid;place-items:center;flex:none;min-width:1.5rem;height:1.5rem;padding:0 .3rem;border:1px solid var(--rule-2);border-bottom-width:2px;border-radius:4px;background:var(--sheet);color:var(--ink-2);font:600 .75rem/1 var(--mono)}
+.sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.eyebrow{margin:0;font:600 .75rem/1.3 var(--ui);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2)}
+.muted{color:var(--ink-2)}
+.small{font-size:.8125rem}
+.card{background:var(--sheet);border:1px solid var(--rule);border-radius:6px}
+
+/* app bar */
+.appbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem 1rem}
+.brand{display:flex;align-items:center;gap:.7rem;min-width:0}
+.logo{flex:none}
+.lg-m{fill:var(--sheet);stroke:var(--machine);stroke-width:1.5;stroke-dasharray:3 2.2}
+.lg-i{fill:var(--ink)}
+.lg-c{fill:none;stroke:var(--on-ink);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+h1{margin:0;font-size:1.375rem;line-height:1.15;font-weight:700}
+.proj{margin:.1rem 0 0;font-size:.875rem;color:var(--ink-2)}
+.tools{display:flex;align-items:center;gap:.75rem}
+.keys{display:inline-flex;align-items:center;gap:.4rem;font:.75rem/1.2 var(--mono);color:var(--ink-2)}
+.keys::before{content:"";width:.5rem;height:.5rem;border-radius:50%;background:var(--rule-2)}
+.keys[data-on="true"]::before{background:var(--good)}
+.intro{margin:.75rem 0 1rem;max-width:68ch;color:var(--ink-2);font-size:.9375rem}
+
+/* buttons and focus */
+.btn{display:inline-flex;align-items:center;gap:.5rem;min-height:2.75rem;padding:.45rem .9rem;border:1.5px solid var(--rule-2);border-radius:6px;background:var(--sheet);color:var(--ink);font:600 .9375rem/1.2 var(--ui);text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.btn:hover{border-color:var(--ink-2)}
+.btn.sm{min-height:2.25rem;padding:.3rem .7rem;font-size:.875rem}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:var(--on-ink)}
+.btn.primary kbd{background:transparent;color:inherit;border-color:currentColor}
+.btn.accept{border-style:dashed;border-color:var(--machine)}
+.btn[aria-disabled="true"]{opacity:.55;cursor:not-allowed;border-style:solid;border-color:var(--rule-2)}
+.btn:focus-visible,a:focus-visible,.twrap:focus-visible,.opt:has(input:focus-visible),.txt:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.spec:focus,.help:focus,h2:focus{outline:none}
+.spec:focus-visible,.help:focus-visible{outline:2px solid var(--rule-2);outline-offset:4px;border-radius:4px}
+h2[tabindex]:focus-visible{text-decoration:underline 2px var(--rule-2);text-underline-offset:.3em}
+
+/* layout */
+.desk{display:grid;gap:1rem;grid-template-columns:minmax(0,1fr);grid-template-areas:"prog" "work" "recent"}
+.progress{grid-area:prog}.work{grid-area:work;min-width:0}.recent{grid-area:recent}
+@media (min-width:62rem){.desk{grid-template-columns:minmax(0,1fr) 18rem;grid-template-rows:auto 1fr;grid-template-areas:"work prog" "work recent";align-items:start;gap:1rem 1.25rem}}
+.desk[data-mode="summary"],.desk[data-mode="empty"]{grid-template-columns:minmax(0,1fr);grid-template-rows:auto;grid-template-areas:"work"}
+.desk[data-mode="summary"] .rail,.desk[data-mode="empty"] .rail{display:none}
+.rail{padding:.9rem 1rem 1rem}
+
+/* the review */
+.item{padding:1rem 1rem 1.1rem}
+@media (min-width:40rem){.item{padding:1.25rem 1.5rem 1.4rem}}
+.meta{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .9rem;font:.8125rem/1.4 var(--mono);color:var(--ink-2)}
+.meta .rid{color:var(--ink);font-weight:700}
+.backtag{display:inline-flex;align-items:center;gap:.3rem;padding:.1rem .45rem;border:1.5px dashed var(--ink-2);border-radius:4px;color:var(--ink);font:600 .75rem/1.4 var(--ui)}
+.review{margin:.7rem 0 0;max-width:60ch;font:400 1.25rem/1.55 var(--read);text-wrap:pretty;overflow-wrap:break-word}
+@media (min-width:40rem){.review{font-size:1.4375rem}}
+@keyframes rise{from{opacity:.15;transform:translateY(6px)}to{opacity:1;transform:none}}
+.spec.enter .review{animation:rise .22s ease-out}
+
+/* the model's suggestion */
+.model{margin-top:1rem;padding:.7rem .9rem .8rem;display:grid;gap:.45rem;border:1.5px dashed var(--machine);border-radius:6px;background:var(--sunk)}
+.model[data-zone="low"]{border-color:var(--low-line)}
+.m-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.2rem 1rem}
+.m-ver{font:.75rem/1.3 var(--mono);color:var(--ink-2)}
+.m-main{display:grid;grid-template-columns:minmax(0,1fr);gap:.3rem 1rem;align-items:center}
+@media (min-width:34rem){.m-main{grid-template-columns:auto minmax(0,1fr)}}
+.m-call{margin:0;font-size:1.0625rem;font-weight:700;white-space:nowrap}
+.m-call .pc{margin-left:.3rem;font-weight:400;color:var(--ink-2)}
+.gwrap{position:relative;padding:.35rem 0 1rem}
+.gauge{position:relative;height:.5rem;border-radius:99px;background:var(--m-tint)}
+.gfill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:var(--machine);transition:width .25s}
+.model[data-zone="low"] .gauge{background:var(--low-bg)}
+.model[data-zone="low"] .gfill{background:var(--low-line)}
+.gtick{position:absolute;top:-.3rem;width:2px;height:1.1rem;margin-left:-1px;background:var(--ink-2)}
+.gnum{position:absolute;top:1.05rem;transform:translateX(-50%);font:.6875rem/1 var(--mono);color:var(--ink-2)}
+.m-asp{margin:0;font-size:.9375rem}
+.m-asp .lab{margin-right:.5rem;color:var(--ink-2)}
+.flag{margin:0;display:flex;align-items:flex-start;gap:.45rem;font-size:.9375rem;color:var(--ink-2)}
+.flag svg{flex:none;margin-top:.2rem}
+.flag.f-low,.flag.f-bad{padding:.4rem .6rem;border-radius:4px;font-weight:600;color:var(--low);background:var(--low-bg)}
+.flag.f-bad{color:var(--bad);background:var(--bad-bg)}
+
+/* your label */
+.lform{margin-top:1.1rem;display:grid;gap:1.1rem;transition:opacity .15s}
+.lform[inert]{opacity:.45}
+fieldset{margin:0;padding:0;border:0;min-width:0}
+legend{padding:0;margin:0 0 .6rem;font-weight:700}
+legend .hint{margin-left:.45rem;font-weight:400;font-size:.8125rem;color:var(--ink-2)}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.9rem .5rem}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.9rem .5rem}
+@media (max-width:36rem){.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:30rem){.grid3{grid-template-columns:minmax(0,1fr)}}
+.opt{position:relative;display:flex;align-items:center;gap:.55rem;min-height:3rem;padding:.5rem .7rem;border:1.5px solid var(--rule-2);border-radius:6px;background:var(--sheet);color:var(--ink);font-weight:600;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;transition:background-color .12s,color .12s,border-color .12s}
+.opt:hover{border-color:var(--ink-2)}
+.opt input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+.opt .t{flex:1;min-width:0;overflow-wrap:anywhere;line-height:1.25}
+.opt.is-model{border-style:dashed;border-color:var(--machine)}
+.opt.is-on{background:var(--ink);border-color:var(--ink);color:var(--on-ink)}
+.opt.is-on.is-model{border-color:var(--machine)}
+.opt.is-pre{background:var(--m-tint);color:var(--ink)}
+.opt.is-on kbd{background:transparent;color:inherit;border-color:currentColor}
+.ck{flex:none;width:.45rem;height:.8rem;margin:-.2rem .25rem 0 0;border:solid currentColor;border-width:0 2px 2px 0;transform:rotate(45deg);opacity:0}
+.opt.is-on .ck{opacity:1}
+.mtag{position:absolute;top:-.62rem;right:.45rem;padding:.14rem .35rem;border-radius:4px;background:var(--m-tint);color:var(--machine);font:600 .6875rem/1 var(--mono);white-space:nowrap;pointer-events:none}
+.opt.is-pre .mtag{background:var(--sheet)}
+.lform[data-zone="low"] .mtag{background:var(--low-bg);color:var(--low)}
+.err{margin:.5rem 0 0;font-size:.9375rem;font-weight:600;color:var(--bad)}
+.keyline{margin:-.2rem 0 0;display:flex;flex-wrap:wrap;gap:.3rem 1.1rem;font-size:.8125rem;color:var(--ink-2)}
+.sw{display:inline-block;width:1.3rem;height:.85rem;margin-right:.4rem;vertical-align:-.12rem;border-radius:3px}
+.sw.d{border:1.5px dashed var(--machine);background:var(--m-tint)}
+.sw.s{background:var(--ink)}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem}
+.actions .grow{flex:1}
+@media (max-width:30rem){.actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.actions .grow{display:none}}
+.accnote{margin:.55rem 0 0;font-size:.8125rem;font-weight:600;color:var(--low)}
+.status{min-height:1.5rem;margin:.7rem 0 0;font-size:.9375rem;color:var(--ink-2)}
+
+/* quick reason */
+.reason{margin-top:1.1rem;padding:1rem;border:2px solid var(--ink);border-radius:6px;background:var(--sunk)}
+.reason h2{margin:0;font-size:1.125rem}
+.reason .q{margin:.3rem 0 .85rem;max-width:62ch}
+.rgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}
+@media (max-width:30rem){.rgrid,.reason .actions{grid-template-columns:minmax(0,1fr)}}
+.note-l{display:block;margin:.9rem 0 .35rem;font-weight:600;font-size:.9375rem}
+.note-l span{font-weight:400;color:var(--ink-2)}
+.txt{width:100%;min-height:2.75rem;padding:.5rem .7rem;border:1.5px solid var(--rule-2);border-radius:6px;background:var(--sheet);color:var(--ink);font:1rem/1.4 var(--ui)}
+
+/* rail */
+.pcount{margin:.35rem 0 0;color:var(--ink-2)}
+.pcount b{margin-right:.2rem;font-size:1.75rem;line-height:1;font-weight:600;color:var(--ink)}
+.tape{list-style:none;margin:.7rem 0 0;padding:0;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:3px}
+.tape li,.c{height:1.6rem;display:grid;place-items:center;border:1.5px solid var(--rule-2);border-radius:3px;font:700 .75rem/1 var(--mono);color:var(--ink-2)}
+.tape li.done,.c.done{background:var(--ink);border-color:var(--ink)}
+.tape li.cur,.c.cur{border:2px solid var(--ink);background:var(--m-tint)}
+.tape li.cur::after,.c.cur::after{content:"";width:.4rem;height:.4rem;border-radius:50%;background:var(--ink)}
+.tape li.back,.c.back{border-style:dashed;border-color:var(--ink-2)}
+.tape li.back::after,.c.back::after{content:"S"}
+.tape li.aside,.c.aside{background:var(--sunk);border-color:var(--rule-2)}
+.tape li.aside::after,.c.aside::after{content:"×"}
+.legend{list-style:none;margin:.55rem 0 0;padding:0;display:flex;flex-wrap:wrap;gap:.25rem .8rem;font-size:.75rem;color:var(--ink-2)}
+.legend li{display:flex;align-items:center;gap:.3rem}
+.c{width:.95rem;height:.95rem;font-size:.625rem}
+.c.cur::after{width:.25rem;height:.25rem}
+.pmeta{margin:.5rem 0 0;font-size:.875rem;color:var(--ink-2)}
+.rlist{list-style:none;margin:.4rem 0 0;padding:0}
+.rlist li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:.05rem .6rem;padding:.5rem 0;border-top:1px solid var(--rule);font-size:.875rem}
+.rlist li:first-child{border-top:0}
+.rlist .rid{font:700 .8125rem/1.5 var(--mono)}
+.rlist .tm{font:.8125rem/1.5 var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.rlist .sub{grid-column:2/4;font-size:.8125rem;color:var(--ink-2)}
+.recent p{margin:.5rem 0 0}
+
+/* help */
+.help{margin:0 0 1rem;padding:1rem 1.1rem 1.1rem;scroll-margin-top:.75rem}
+.help-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.5rem 1rem;margin-bottom:.8rem}
+.help h2{margin:0;font-size:1.125rem}
+.help h3{margin:0 0 .4rem;font-size:.9375rem}
+.hgrid{display:grid;gap:1rem 2.5rem}
+@media (min-width:48rem){.hgrid{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}}
+.klist{margin:0;display:grid;gap:.5rem}
+.klist div{display:grid;grid-template-columns:7rem minmax(0,1fr);gap:.75rem;align-items:start}
+.klist dt{display:flex;flex-wrap:wrap;gap:.25rem}
+.klist dd{margin:0;font-size:.9375rem}
+.help ul{margin:0 0 .9rem;padding-left:1.1rem;font-size:.9375rem}
+.help li+li{margin-top:.3rem}
+.help p{margin:0}
+
+/* summary */
+.summary{padding:1.25rem 1.1rem}
+@media (min-width:40rem){.summary{padding:1.5rem 1.75rem}}
+.summary h2{margin:.25rem 0 0;font-size:1.75rem;line-height:1.15}
+.summary h3{margin:0 0 .6rem;font-size:1rem}
+.sumsub{margin:.4rem 0 0;color:var(--ink-2)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,8.5rem),1fr));gap:.75rem;margin-top:1.25rem}
+.tile{padding:.8rem .9rem;border:1px solid var(--rule);border-radius:6px;background:var(--sunk)}
+.tile p{margin:0}
+.tl,.ts{font-size:.8125rem;color:var(--ink-2)}
+.tile .tv{margin:.15rem 0 0;font-size:2rem;line-height:1.1;font-weight:600}
+.tile .ts{margin-top:.2rem}
+.sumsec{margin-top:1.6rem}
+.cal{display:grid;gap:.6rem;max-width:52rem}
+.crow{display:grid;grid-template-columns:minmax(0,15rem) minmax(0,1fr) 10rem;gap:.3rem 1rem;align-items:center;font-size:.9375rem}
+.crow .n{text-align:right;color:var(--ink-2)}
+@media (max-width:40rem){.crow{grid-template-columns:minmax(0,1fr) auto}.crow .meter{grid-column:1/-1;grid-row:2}}
+.meter{height:.5rem;border-radius:99px;background:var(--m-tint);overflow:hidden}
+.meter i{display:block;height:100%;border-radius:0 4px 4px 0;background:var(--machine)}
+.ovl{margin:0;padding-left:1.1rem;display:grid;gap:.45rem;max-width:72ch;font-size:.9375rem}
+.twrap{overflow-x:auto;border:1px solid var(--rule);border-radius:6px}
+table{width:100%;border-collapse:collapse;font-size:.875rem;font-variant-numeric:tabular-nums}
+th,td{padding:.5rem .75rem;text-align:left;vertical-align:top;white-space:nowrap;border-bottom:1px solid var(--rule)}
+th{background:var(--sunk);color:var(--ink-2);font-size:.8125rem;font-weight:600}
+tr:last-child td{border-bottom:0}
+th.r,td.r{text-align:right}
+td .rid{display:block;font:700 .8125rem/1.4 var(--mono)}
+td .pr{display:block;font-size:.8125rem;color:var(--ink-2)}
+.tb{display:inline-flex;align-items:center;gap:.5rem}
+.trk{width:4rem;height:6px}
+.trk i{display:block;height:100%;border-radius:0 4px 4px 0;background:var(--machine)}
+.badge{display:inline-block;padding:.1rem .45rem;border-radius:4px;font-size:.8125rem;font-weight:600}
+.badge.ok{background:var(--good-bg);color:var(--good)}
+.badge.no{background:var(--bad-bg);color:var(--bad)}
+.badge.na{background:var(--sunk);color:var(--ink-2)}
+.boundary{margin:.7rem 0 0;max-width:72ch;font-size:.8125rem;color:var(--ink-2)}
+
+/* empty queue */
+.empty{max-width:46rem;padding:1.75rem 1.25rem;display:grid;gap:.6rem;justify-items:start}
+@media (min-width:40rem){.empty{padding:2.25rem 2rem}}
+.empty h2{margin:.25rem 0 0;font-size:1.5rem}
+.empty p{margin:0;max-width:60ch}
+.empty .actions{margin-top:.5rem}
+.tr-a{fill:var(--sunk);stroke:var(--rule-2);stroke-width:2;stroke-linejoin:round}
+.tr-b{fill:none;stroke:var(--rule-2);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tr-m{fill:none;stroke:var(--machine);stroke-width:1.5;stroke-dasharray:4 3}
+.spin{display:inline-block;width:1em;height:1em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(1turn)}}
+
+.foot{margin-top:2rem;padding-top:.75rem;border-top:1px solid var(--rule);font-size:.8125rem;color:var(--ink-2)}
+.foot a{color:inherit;text-underline-offset:2px}
+@media (pointer:coarse){.opt kbd,.btn kbd,.keys,.kh{display:none}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.spin{border-right-color:currentColor;opacity:.5}}
+</style>
+</head>
+<body>
+<div class="shell">
+<header class="appbar">
+  <div class="brand">
+    <svg class="logo" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect class="lg-m" x="9.5" y="2.75" width="17.5" height="12" rx="2"/><rect class="lg-m" x="5.75" y="8.25" width="17.5" height="12" rx="2"/><rect class="lg-i" x="2" y="14" width="17.5" height="13" rx="2"/><path class="lg-c" d="M6.3 20.6l2.6 2.5 5-5.4"/></svg>
+    <div><h1>Labeling queue</h1><p class="proj">Product reviews · sentiment &amp; aspects · batch 0417</p></div>
+  </div>
+  <div class="tools"><span class="keys" id="keys" aria-hidden="true"></span><button type="button" class="btn sm" id="helpBtn" aria-expanded="false" aria-controls="help" aria-keyshortcuts="?"><kbd>?</kbd> Help</button></div>
+</header>
+<p class="intro">A working prototype of the annotator’s screen. Label twelve fictional product reviews with the keyboard or the mouse; labels stay in this page and are gone when it reloads.</p>
+
+<section class="card help" id="help" tabindex="-1" aria-labelledby="helpTitle" hidden>
+  <div class="help-head"><h2 id="helpTitle">Shortcuts and rules</h2><button type="button" class="btn sm" id="helpClose">Close <kbd>Esc</kbd></button></div>
+  <div class="hgrid">
+    <dl class="klist">
+      <div><dt><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></dt><dd>Positive, neutral, negative</dd></div>
+      <div><dt><kbd>4</kbd><kbd>5</kbd><kbd>6</kbd><kbd>7</kbd></dt><dd>Toggle price, quality, shipping, support</dd></div>
+      <div><dt><kbd>Enter</kbd></dt><dd>Submit your label</dd></div>
+      <div><dt><kbd>A</kbd></dt><dd>Accept the model’s suggestion as it stands</dd></div>
+      <div><dt><kbd>S</kbd></dt><dd>Skip. The review comes back at the end of the batch; skipping it again sets it aside.</dd></div>
+      <div><dt><kbd>U</kbd></dt><dd>Undo the last label or skip, as far back as you like (from the summary too)</dd></div>
+      <div><dt><kbd>?</kbd></dt><dd>Show or hide this panel</dd></div>
+      <div><dt><kbd>Esc</kbd></dt><dd>Close this panel, or back out of a reason</dd></div>
+    </dl>
+    <div>
+      <h3>Confidence changes the flow</h3>
+      <ul>
+        <li><b>Under 60%:</b> flagged low. Nothing is pre-filled and Accept is off, so you label it yourself.</li>
+        <li><b>60–79%:</b> the suggestion is pre-filled. Change anything freely.</li>
+        <li><b>80% or more:</b> pre-filled. Overriding the sentiment asks for a one-key reason, which goes to the model team.</li>
+      </ul>
+      <h3>Guidelines v2.3, short version</h3>
+      <ul>
+        <li>Label the reviewer’s overall verdict. A mixed review takes the sentiment of its conclusion; no verdict is neutral.</li>
+        <li>Tag an aspect only when the review says something about it.</li>
+        <li>Star ratings are hidden, and agreement with the model shows only at the end of the batch, so neither can steer you.</li>
+      </ul>
+      <p class="muted small">Shortcuts pause while you type in a text field. Dashed outlines are the model’s suggestion; solid fills are your label.</p>
+    </div>
+  </div>
+</section>
+
+<main class="desk" id="desk" data-mode="label">
+  <section class="card rail progress" aria-labelledby="progTitle">
+    <h2 class="eyebrow" id="progTitle">Batch progress</h2>
+    <p class="pcount"><b id="pdone">0</b> of 12 done</p>
+    <ol class="tape" id="tape" aria-label="Reviews in batch order"></ol>
+    <ul class="legend" aria-hidden="true"><li><i class="c done"></i>done</li><li><i class="c cur"></i>now</li><li><i class="c back"></i>skipped</li><li><i class="c aside"></i>set aside</li></ul>
+    <p class="pmeta" id="pmeta"></p>
+    <p class="pmeta" id="pace"></p>
+  </section>
+
+  <div class="work">
+    <section class="card item" id="itemView" aria-label="Current review">
+      <div class="spec" id="spec" tabindex="-1">
+        <p class="meta"><span class="rid" id="rid"></span><span id="rprod"></span><span id="rwhy"></span><span class="backtag" id="backTag" hidden><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 1.5 1.5 4 4 6.5M1.5 4H7a3.25 3.25 0 0 1 0 6.5H5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Back from your skip</span></p>
+        <blockquote class="review" id="rtext"></blockquote>
+      </div>
+      <div class="model" id="model">
+        <div class="m-top"><span class="eyebrow">Model suggestion</span><span class="m-ver">review-tagger v3.2 · scored 2 Nov</span></div>
+        <div class="m-main">
+          <p class="m-call"><span id="msent"></span><span class="pc" id="mconf"></span></p>
+          <div class="gwrap"><div class="gauge" id="gauge" role="img"><span class="gfill" id="gfill"></span><span class="gtick" style="left:60%"></span><span class="gtick" style="left:80%"></span></div><span class="gnum" style="left:60%" aria-hidden="true">60</span><span class="gnum" style="left:80%" aria-hidden="true">80</span></div>
+        </div>
+        <p class="m-asp"><span class="lab">Aspects</span><span id="masp"></span></p>
+        <p class="flag" id="mflag"></p>
+      </div>
+      <form class="lform" id="lform" novalidate>
+        <fieldset aria-describedby="sentErr">
+          <legend>Sentiment <span class="hint" id="shint"></span></legend>
+          <div class="grid3">
+            <label class="opt" id="s-pos"><input type="radio" name="sent" value="pos" aria-keyshortcuts="1"><kbd aria-hidden="true">1</kbd><span class="t">Positive</span><span class="ck"></span><span class="mtag"></span></label>
+            <label class="opt" id="s-neu"><input type="radio" name="sent" value="neu" aria-keyshortcuts="2"><kbd aria-hidden="true">2</kbd><span class="t">Neutral</span><span class="ck"></span><span class="mtag"></span></label>
+            <label class="opt" id="s-neg"><input type="radio" name="sent" value="neg" aria-keyshortcuts="3"><kbd aria-hidden="true">3</kbd><span class="t">Negative</span><span class="ck"></span><span class="mtag"></span></label>
+          </div>
+          <p class="err" id="sentErr" role="alert" hidden></p>
+        </fieldset>
+        <fieldset>
+          <legend>Aspects mentioned <span class="hint" id="ahint"></span></legend>
+          <div class="grid4">
+            <label class="opt" id="a-price"><input type="checkbox" name="asp" value="price" aria-keyshortcuts="4"><kbd aria-hidden="true">4</kbd><span class="t">Price</span><span class="ck"></span><span class="mtag"></span></label>
+            <label class="opt" id="a-quality"><input type="checkbox" name="asp" value="quality" aria-keyshortcuts="5"><kbd aria-hidden="true">5</kbd><span class="t">Quality</span><span class="ck"></span><span class="mtag"></span></label>
+            <label class="opt" id="a-shipping"><input type="checkbox" name="asp" value="shipping" aria-keyshortcuts="6"><kbd aria-hidden="true">6</kbd><span class="t">Shipping</span><span class="ck"></span><span class="mtag"></span></label>
+            <label class="opt" id="a-support"><input type="checkbox" name="asp" value="support" aria-keyshortcuts="7"><kbd aria-hidden="true">7</kbd><span class="t">Support</span><span class="ck"></span><span class="mtag"></span></label>
+          </div>
+        </fieldset>
+        <p class="keyline" aria-hidden="true"><span><i class="sw d"></i>dashed: the model’s suggestion</span><span><i class="sw s"></i>solid: your label</span></p>
+      </form>
+      <div class="actions" id="actions">
+        <button type="button" class="btn primary" id="btnSubmit" aria-keyshortcuts="Enter"><kbd>↵</kbd> Submit label</button>
+        <button type="button" class="btn accept" id="btnAccept" aria-keyshortcuts="A"><kbd>A</kbd> Accept suggestion</button>
+        <span class="grow"></span>
+        <button type="button" class="btn" id="btnSkip" aria-keyshortcuts="S"><kbd>S</kbd> <span id="skiplbl">Skip</span></button>
+        <button type="button" class="btn" id="btnUndo" aria-keyshortcuts="U"><kbd>U</kbd> Undo</button>
+      </div>
+      <p class="accnote" id="accnote" hidden>Accept is off under 60% confidence: choose the labels yourself.</p>
+      <form class="reason" id="rform" novalidate hidden aria-labelledby="rtitle">
+        <h2 id="rtitle">Quick reason</h2>
+        <p class="q" id="rq"></p>
+        <fieldset aria-describedby="rerr">
+          <legend class="sr">What the model missed</legend>
+          <div class="rgrid">
+            <label class="opt"><input type="radio" name="why" value="sarcasm" aria-keyshortcuts="1"><kbd aria-hidden="true">1</kbd><span class="t">Sarcasm or irony</span><span class="ck"></span></label>
+            <label class="opt"><input type="radio" name="why" value="mixed" aria-keyshortcuts="2"><kbd aria-hidden="true">2</kbd><span class="t">Mixed — the verdict is elsewhere</span><span class="ck"></span></label>
+            <label class="opt"><input type="radio" name="why" value="negation" aria-keyshortcuts="3"><kbd aria-hidden="true">3</kbd><span class="t">Negation or hedging</span><span class="ck"></span></label>
+            <label class="opt"><input type="radio" name="why" value="other" aria-keyshortcuts="4"><kbd aria-hidden="true">4</kbd><span class="t">Something else</span><span class="ck"></span></label>
+          </div>
+        </fieldset>
+        <label class="note-l" for="rnote">Note for the model team <span id="rreq">(optional)</span></label>
+        <input class="txt" id="rnote" type="text" maxlength="140" autocomplete="off" aria-describedby="rerr">
+        <p class="err" id="rerr" role="alert" hidden></p>
+        <div class="actions">
+          <button type="button" class="btn primary" id="rsave" aria-keyshortcuts="Enter"><kbd>↵</kbd> Save label and reason</button>
+          <button type="button" class="btn" id="rback"><kbd>Esc</kbd> Back to labels</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card summary" id="summary" aria-labelledby="sumTitle" hidden>
+      <p class="eyebrow">End of batch 0417</p>
+      <h2 id="sumTitle" tabindex="-1"></h2>
+      <p class="sumsub">Look it over, then submit.<span class="kh"> <kbd>U</kbd> still takes you back to the last review.</span></p>
+      <div class="tiles">
+        <div class="tile"><p class="tl">Agreed with the model on sentiment</p><p class="tv" id="k1"></p><p class="ts" id="k1s"></p></div>
+        <div class="tile"><p class="tl">Matched the model’s aspects exactly</p><p class="tv" id="k2"></p><p class="ts" id="k2s"></p></div>
+        <div class="tile"><p class="tl">Median time per review</p><p class="tv" id="k3"></p><p class="ts" id="k3s"></p></div>
+        <div class="tile"><p class="tl">Skipped</p><p class="tv" id="k4"></p><p class="ts" id="k4s"></p></div>
+      </div>
+      <div class="sumsec"><h3>Agreement by model confidence</h3><div class="cal" id="cal"></div></div>
+      <div class="sumsec"><h3>Sentiment overrides, for the model team</h3><ul class="ovl" id="ovl"></ul></div>
+      <div class="sumsec"><h3>Every review in the batch</h3>
+        <div class="twrap" tabindex="0" role="region" aria-label="Every review in the batch"><table><thead><tr><th scope="col">Review</th><th scope="col">Your label</th><th scope="col">Model</th><th scope="col">Match</th><th scope="col" class="r">Time</th></tr></thead><tbody id="tbody"></tbody></table></div>
+        <p class="boundary">Time runs from when a review appears until you label or skip it, capped at two minutes a visit so a break doesn’t skew the batch.</p>
+      </div>
+      <div class="actions"><button type="button" class="btn primary" id="btnBatch">Submit batch</button><button type="button" class="btn" id="btnLast" aria-keyshortcuts="U"><kbd>U</kbd> Back to the last review</button></div>
+      <p class="boundary">Submit is where the real tool would save to the labeling service. Here it only clears the queue in memory.</p>
+    </section>
+
+    <section class="card empty" id="empty" aria-labelledby="emptyTitle" hidden>
+      <svg width="76" height="58" viewBox="0 0 76 58" aria-hidden="true"><rect class="tr-m" x="24" y="2" width="28" height="18" rx="2"/><path class="tr-a" d="M7 32 16 12h44l9 20v18a4 4 0 0 1-4 4H11a4 4 0 0 1-4-4z"/><path class="tr-b" d="M7 32h17l3 6h22l3-6h17"/></svg>
+      <h2 id="emptyTitle" tabindex="-1">Your queue is empty</h2>
+      <p id="emptyMsg"></p>
+      <p class="muted">Nothing else is assigned to you in Product reviews · sentiment &amp; aspects. New reviews arrive after the next scoring run.</p>
+      <div class="actions"><button type="button" class="btn" id="btnCheck">Check for new reviews</button><button type="button" class="btn" id="btnReplay">Replay the demo batch</button></div>
+    </section>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+  </div>
+
+  <section class="card rail recent" aria-labelledby="recTitle">
+    <h2 class="eyebrow" id="recTitle">Your last few</h2>
+    <ol class="rlist" id="rlist"></ol>
+    <p class="muted small" id="rempty">Labels and skips land here as you go.</p>
+    <p class="muted small kh" id="rundo" hidden><kbd>U</kbd> undoes the top line.</p>
+  </section>
+</main>
+
+<footer class="foot">Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html-prototype" target="_blank" rel="noopener">html-prototype</a> skill from effective-html (MIT) · HTML Server gallery</footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+function $(id){return document.getElementById(id);}
+var SENT={pos:"Positive",neu:"Neutral",neg:"Negative"},SK=["pos","neu","neg"];
+var ASP={price:"Price",quality:"Quality",shipping:"Shipping",support:"Support"},AK=["price","quality","shipping","support"];
+var WHY={sarcasm:"Sarcasm or irony",mixed:"Mixed — the verdict is elsewhere",negation:"Negation or hedging",other:"Something else"},WK=["sarcasm","mixed","negation","other"];
+var LOW=0.6,CONF=0.8,CAP=120000,BATCH="0417";
+var TOUCH=!!(window.matchMedia&&matchMedia("(pointer:coarse)").matches);
+function keyHint(t){return TOUCH?"":t;}
+var ICON={low:'<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 14.5V2.5h8.5l-2 3 2 3H3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>',
+  bad:'<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6h11M2.5 10h11M11 2.5 5 13.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'};
+
+/* Fictional batch: id, category, product, review, model sentiment, model confidence, aspect scores at or above 0.5 */
+var RAW=[
+["R-2041","Kitchen","Gooseneck kettle","Boils fast and the temperature hold actually works — I set it to 93° for pour-over and it stays there. The lid is a little stiff, but for the price it’s a steal.","pos",.94,{quality:.91,price:.83}],
+["R-2042","Audio","Wireless earbuds","Oh great, another pair that drops the connection every time I turn my head. Really loving the 40 minutes of battery. Five stars for the box, though.","pos",.86,{quality:.78}],
+["R-2043","Outdoors","30 L daypack","Arrived a week after the estimate and the box was crushed, but the pack itself is fine. The straps stay comfortable on longer hikes.","neu",.52,{shipping:.88,quality:.57}],
+["R-2044","Home office","Standing desk frame","The motor started grinding after three weeks. Support answered within an hour and sent a replacement gearbox the same day — honestly the best service I’ve had anywhere.","neg",.71,{quality:.84,support:.8}],
+["R-2045","Kitchen","Air fryer, 5 qt","It’s fine. Does what it says. The basket coating hasn’t peeled yet.","neu",.81,{quality:.62}],
+["R-2046","Footwear","Trail running shoes","Not bad at all for the price. I expected them to fall apart and they haven’t after 200 miles.","neg",.83,{quality:.88,price:.77}],
+["R-2047","Phone accessories","Slim phone case","Ordered black, got clear. The return label took four emails to get. The case itself is okay, I guess.","neg",.88,{support:.74,shipping:.69}],
+["R-2048","Lighting","LED desk lamp","Bright, even light with no flicker on video calls. Wish the cable were a foot longer.","pos",.92,{quality:.86}],
+["R-2049","Baby","Video baby monitor","Picture is clear and night mode is great. The app logs me out every few days, though, and support just told me to reinstall it.","pos",.58,{quality:.81,support:.66}],
+["R-2050","Kitchen","Blender, 1200 W","Paid extra for the “quiet” model. It is not quiet. It is a jet engine.","neu",.47,{price:.71,quality:.55}],
+["R-2051","Fitness","Yoga mat, 6 mm","Grippy, thick, and it didn’t smell like a tire fire out of the box. Shipping was quick too.","pos",.96,{quality:.93,shipping:.9}],
+["R-2052","Home office","Mesh office chair","Bought it as a birthday gift for my dad. He says it’s comfortable. That’s all I can tell you.","pos",.64,{quality:.52}]
+];
+var ITEMS=RAW.map(function(r){
+  var ap=r[6],mk=AK.filter(function(k){return ap[k]>=0.5;});
+  return {id:r[0],cat:r[1],prod:r[2],text:r[3],ms:r[4],mp:r[5],ap:ap,mk:mk,ma:mk.slice().sort(function(a,b){return ap[b]-ap[a];})};
+});
+var BY={};ITEMS.forEach(function(it){BY[it.id]=it;});
+var N=ITEMS.length,S,busy=false,reasonFrom=null,helpFrom=null,desk=$("desk"),statusEl=$("status");
+
+function zone(it){return it.mp<LOW?"low":it.mp<CONF?"mid":"hi";}
+function cur(){return BY[S.queue[0]];}
+function pct(p){return Math.round(p*100)+"%";}
+function copy(o){return JSON.parse(JSON.stringify(o));}
+function picked(d){return AK.filter(function(k){return d.a[k];});}
+function names(a){return a.length?a.map(function(k){return ASP[k];}).join(", "):"no aspects";}
+function labelText(s,a){return SENT[s]+" · "+names(a);}
+function secs(ms){return (ms/1000).toFixed(1)+" s";}
+function dur(ms){var s=Math.round(ms/1000);return s<60?s+" s":Math.floor(s/60)+" min "+(s%60)+" s";}
+function median(a){a=a.slice().sort(function(x,y){return x-y;});var m=a.length>>1;return a.length%2?a[m]:(a[m-1]+a[m])/2;}
+function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function visible(el){return !!(el&&el!==document.body&&document.contains(el)&&el.getClientRects().length&&!el.closest("[inert],[hidden]"));}
+function say(msg){statusEl.textContent=statusEl.textContent===msg?msg+" ":msg;}
+function prefill(it){var d={s:null,a:{},ts:false,ta:false};if(zone(it)!=="low"){d.s=it.ms;it.mk.forEach(function(k){d.a[k]=true;});}return d;}
+function fresh(){
+  S={queue:ITEMS.map(function(i){return i.id;}),res:{},skips:{},aside:[],spent:{},undo:[],recent:[],why:{},mode:"label",draft:null,shownAt:Date.now(),sent:null};
+  S.draft=prefill(cur());
+}
+function snap(){return {queue:S.queue.slice(),res:copy(S.res),skips:copy(S.skips),aside:S.aside.slice(),spent:copy(S.spent),recent:copy(S.recent),draft:copy(S.draft),el:Date.now()-S.shownAt};}
+function addTime(id){S.spent[id]=(S.spent[id]||0)+Math.min(Date.now()-S.shownAt,CAP);}
+function log(id,main,sub){S.recent.unshift({id:id,main:main,sub:sub||"",t:S.spent[id]});S.recent=S.recent.slice(0,5);}
+
+/* ---- actions ---- */
+function setSent(v){S.draft.s=v;S.draft.ts=true;$("sentErr").hidden=true;render();}
+function setAsp(k,on){S.draft.a[k]=on;S.draft.ta=true;render();}
+function accept(){
+  var it=cur();
+  if(zone(it)==="low"){say(TOUCH?"Accept is off under 60% confidence. Choose the labels yourself, then submit.":"Accept is off under 60% confidence. Pick a sentiment with 1–3, tag aspects with 4–7, then press Enter.");return;}
+  S.draft=prefill(it);commit(null,"",true);
+}
+function submit(){
+  var it=cur(),d=S.draft;
+  if(!d.s){var e=$("sentErr");e.textContent="Pick a sentiment first"+keyHint(": 1, 2 or 3")+".";e.hidden=false;statusEl.textContent="";return;}
+  if(zone(it)==="hi"&&d.s!==it.ms){openReason();return;}
+  commit(null,"",false);
+}
+function commit(why,note,viaA){
+  var it=cur(),d=S.draft,a=picked(d),acc=viaA||(!d.ts&&!d.ta&&zone(it)!=="low");
+  S.undo.push(snap());addTime(it.id);
+  S.res[it.id]={s:d.s,a:a,why:why,note:note,acc:acc};
+  S.queue.shift();
+  var txt=labelText(d.s,a);
+  log(it.id,txt,why?"Overrode "+SENT[it.ms]+" "+pct(it.mp)+" · "+WHY[why]:acc?"Accepted the suggestion":"");
+  advance("Labeled "+it.id+": "+txt+".");
+}
+function skip(){
+  var it=cur(),n=(S.skips[it.id]||0)+1;
+  S.undo.push(snap());addTime(it.id);S.skips[it.id]=n;S.queue.shift();
+  if(n===1){S.queue.push(it.id);log(it.id,"Skipped","Comes back at the end of the batch");advance("Skipped "+it.id+"; it comes back at the end.");}
+  else{S.aside.push(it.id);log(it.id,"Set aside","Back to the shared pool, unlabeled");advance("Set "+it.id+" aside; it goes back to the shared pool unlabeled.");}
+}
+function advance(msg){
+  if(!S.queue.length){S.mode="summary";render();say(msg+" That was the last one.");$("sumTitle").focus();return;}
+  S.draft=prefill(cur());S.shownAt=Date.now();S.mode="label";render(true);
+  var it=cur();say(msg+" Now "+it.id+(S.skips[it.id]?", back from your skip":"")+".");
+}
+function undo(){
+  if(busy)return;
+  if(!S.undo.length){say("Nothing to undo yet.");return;}
+  var u=S.undo.pop(),from=S.mode;
+  S.queue=u.queue;S.res=u.res;S.skips=u.skips;S.aside=u.aside;S.spent=u.spent;S.recent=u.recent;S.draft=u.draft;S.shownAt=Date.now()-u.el;S.mode="label";
+  $("sentErr").hidden=true;render(true);
+  say("Undone. Back on "+S.queue[0]+" with the choices you had.");
+  if(from!=="label"||!visible(document.activeElement)&&document.activeElement!==document.body)$("spec").focus();
+}
+
+/* ---- quick reason for overriding a confident suggestion ---- */
+function rIn(k){return $("rform").querySelector('input[value="'+k+'"]');}
+function rVal(){var c=$("rform").querySelector("input[name=why]:checked");return c?c.value:"";}
+function bold(t){var e=document.createElement("b");e.textContent=t;return e;}
+function openReason(){
+  var it=cur(),w=S.why[it.id]||{why:"",note:""},q=$("rq");
+  reasonFrom=document.activeElement;S.mode="reason";
+  q.textContent="";q.append("The model was "+pct(it.mp)+" sure this is ",bold(SENT[it.ms]),". You chose ",bold(SENT[S.draft.s]),". What did it miss?");
+  WK.forEach(function(k){rIn(k).checked=w.why===k;});
+  $("rnote").value=w.note||"";$("rerr").hidden=true;
+  render();syncReason();
+  ($("rform").querySelector("input[name=why]:checked")||rIn("sarcasm")).focus();
+  say(TOUCH?"Overriding a confident suggestion. Pick a reason, then save.":"Overriding a confident suggestion. Pick a reason with 1–4, then press Enter; Esc goes back.");
+}
+function syncReason(){
+  var v=rVal();
+  WK.forEach(function(k){rIn(k).parentNode.classList.toggle("is-on",v===k);});
+  $("rreq").textContent=v==="other"?"(needed for “Something else”)":"(optional)";
+  if(S.mode==="reason")S.why[cur().id]={why:v,note:$("rnote").value};
+}
+function pickReason(k){var r=rIn(k);r.checked=true;$("rerr").hidden=true;syncReason();(k==="other"?$("rnote"):r).focus();}
+function rErr(msg,el){var e=$("rerr");e.textContent=msg;e.hidden=false;statusEl.textContent="";el.focus();}
+function saveReason(){
+  var v=rVal(),note=$("rnote").value.trim();
+  if(!v){rErr("Pick a reason"+keyHint(", 1–4")+". It goes to the model team with your label.",rIn("sarcasm"));return;}
+  if(v==="other"&&!note){rErr("Add a few words for “Something else”.",$("rnote"));return;}
+  var back=reasonFrom;reasonFrom=null;S.mode="label";
+  commit(v,note,false);
+  if(S.mode==="label")restore(back);
+}
+function cancelReason(){
+  syncReason();var back=reasonFrom;reasonFrom=null;S.mode="label";render();restore(back);
+  say("Back to your labels. Nothing saved yet.");
+}
+function restore(el){if(visible(el))el.focus();else $("spec").focus();}
+
+/* ---- help, batch submit, empty queue ---- */
+/* The page may sit in a frame that grows to its height, so the help's own scroll position matters:
+   open with its top in view, and on close go back to what had focus (or was last clicked). */
+var lastPoint=null;
+document.addEventListener("pointerdown",function(e){lastPoint=e.target;},true);
+function toggleHelp(open){
+  var h=$("help");if(open===undefined)open=h.hidden;if(open===!h.hidden)return;
+  if(open){
+    var a=document.activeElement;helpFrom=a&&a!==document.body?a:lastPoint;
+    h.hidden=false;$("helpBtn").setAttribute("aria-expanded","true");h.focus({preventScroll:true});h.scrollIntoView({block:"start"});return;
+  }
+  var inside=h.contains(document.activeElement),f=helpFrom;helpFrom=null;
+  h.hidden=true;$("helpBtn").setAttribute("aria-expanded","false");
+  if(!inside)return;
+  if(visible(f)&&f.matches("button,a,input,[tabindex]"))f.focus();
+  else{document.activeElement.blur();if(visible(f))f.scrollIntoView({block:"center"});}
+}
+function spinLabel(b,t){b.textContent="";var s=document.createElement("span");s.className="spin";s.setAttribute("aria-hidden","true");b.append(s," "+t);}
+function submitBatch(){
+  if(busy)return;busy=true;
+  var b=$("btnBatch"),n=Object.keys(S.res).length;
+  b.setAttribute("aria-disabled","true");spinLabel(b,"Submitting "+n+" label"+(n===1?"":"s")+"…");$("btnLast").hidden=true;
+  say("Submitting batch "+BATCH+"…");
+  setTimeout(function(){
+    busy=false;b.removeAttribute("aria-disabled");b.textContent="Submit batch";$("btnLast").hidden=false;
+    S.sent={n:n,aside:S.aside.length};S.undo=[];S.mode="empty";render();
+    say("Batch "+BATCH+" submitted.");$("emptyTitle").focus();
+  },900);
+}
+function checkAgain(){
+  if(busy)return;busy=true;var b=$("btnCheck");
+  b.setAttribute("aria-disabled","true");spinLabel(b,"Checking…");say("Checking for new reviews…");
+  setTimeout(function(){
+    busy=false;b.removeAttribute("aria-disabled");b.textContent="Check for new reviews";
+    say("Checked at "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+". Still nothing assigned to you.");
+  },800);
+}
+function replay(){if(busy)return;fresh();render(true);$("spec").focus();say("Demo batch reloaded: "+N+" reviews, nothing labeled yet.");}
+
+/* ---- rendering ---- */
+function render(enter){
+  var m=S.mode,item=m==="label"||m==="reason";
+  desk.setAttribute("data-mode",m);
+  $("itemView").hidden=!item;$("summary").hidden=m!=="summary";$("empty").hidden=m!=="empty";
+  if(item)renderItem(enter);
+  if(m==="summary")renderSummary();
+  if(m==="empty")renderEmpty();
+  renderProgress();renderRecent();
+}
+function renderItem(enter){
+  var it=cur(),d=S.draft,z=zone(it),back=S.skips[it.id]===1,rs=S.mode==="reason",word=z==="low"?"guess ":"model ";
+  $("rid").textContent=it.id;$("rprod").textContent=it.cat+" › "+it.prod;
+  $("rwhy").textContent=z==="low"?"via uncertainty sampling":"via random audit";
+  $("backTag").hidden=!back;$("rtext").textContent=it.text;
+  if(enter){var sp=$("spec");sp.classList.remove("enter");void sp.offsetWidth;sp.classList.add("enter");}
+  $("model").setAttribute("data-zone",z);$("lform").setAttribute("data-zone",z);
+  $("msent").textContent=SENT[it.ms];$("mconf").textContent=pct(it.mp);
+  $("gfill").style.width=(it.mp*100)+"%";
+  $("gauge").setAttribute("aria-label","Model confidence "+pct(it.mp)+(z==="low"?", under the 60% line":z==="mid"?", between the 60% and 80% lines":", over the 80% line"));
+  $("masp").textContent=it.ma.length?it.ma.map(function(k){return ASP[k]+" "+pct(it.ap[k]);}).join(" · "):"none above 50%";
+  var clash=z==="hi"&&d.s&&d.s!==it.ms,f=$("mflag");
+  f.className="flag "+(clash?"f-bad":"f-"+z);
+  f.innerHTML=(clash?ICON.bad:z==="low"?ICON.low:"")+"<span></span>";
+  f.lastChild.textContent=clash?(rs?"You chose "+SENT[d.s]+" over a confident "+SENT[it.ms]+".":"You chose "+SENT[d.s]+". Submitting will ask what the model missed."):
+    z==="low"?"Low confidence: nothing is pre-filled. Label this one yourself.":
+    z==="mid"?"Pre-filled from the suggestion. Change anything freely.":"Confident, so it’s pre-filled. Overriding the sentiment asks for a quick reason.";
+  SK.forEach(function(k){
+    var el=$("s-"+k),on=d.s===k,mine=it.ms===k,tg=el.querySelector(".mtag");
+    el.classList.toggle("is-model",mine);el.classList.toggle("is-on",on);el.classList.toggle("is-pre",on&&!d.ts);
+    el.querySelector("input").checked=on;tg.hidden=!mine;tg.textContent=mine?word+pct(it.mp):"";
+  });
+  AK.forEach(function(k){
+    var el=$("a-"+k),on=!!d.a[k],mine=it.mk.indexOf(k)>=0,tg=el.querySelector(".mtag");
+    el.classList.toggle("is-model",mine);el.classList.toggle("is-on",on);el.classList.toggle("is-pre",on&&!d.ta);
+    el.querySelector("input").checked=on;tg.hidden=!mine;tg.textContent=mine?word+pct(it.ap[k]):"";
+  });
+  $("shint").textContent=d.ts?"your choice":z==="low"?"nothing pre-filled, your call":"pre-filled from the model";
+  $("ahint").textContent=d.ta?"your choice":z==="low"?"tag what the review mentions, or none":"pre-filled from the model";
+  $("btnAccept").setAttribute("aria-disabled",String(z==="low"));
+  $("skiplbl").textContent=back?"Skip again: set aside":"Skip";
+  $("btnUndo").setAttribute("aria-disabled",String(!S.undo.length));
+  $("lform").inert=rs;$("actions").hidden=rs;$("accnote").hidden=rs||z!=="low";$("rform").hidden=!rs;
+}
+var STL={done:"labeled",cur:"current",back:"skipped, coming back",aside:"set aside",todo:"to do"};
+function renderProgress(){
+  var tape=$("tape"),item=S.mode==="label"||S.mode==="reason";
+  if(!tape.children.length)ITEMS.forEach(function(){var li=document.createElement("li");li.innerHTML='<span class="sr"></span>';tape.appendChild(li);});
+  ITEMS.forEach(function(it,i){
+    var st=S.res[it.id]?"done":S.aside.indexOf(it.id)>=0?"aside":item&&S.queue[0]===it.id?"cur":S.skips[it.id]?"back":"todo",li=tape.children[i];
+    li.className=st;li.title=it.id+" · "+STL[st];li.firstChild.textContent=it.id+", "+STL[st];
+  });
+  var ids=Object.keys(S.res),backN=S.queue.filter(function(id,j){return S.skips[id]===1&&!(item&&j===0);}).length;
+  $("pdone").textContent=ids.length+S.aside.length;
+  $("pmeta").textContent=(S.queue.length?S.queue.length+" to go":"Nothing left in the queue")+(backN?" · "+backN+" skipped, coming back at the end":"");
+  $("pace").textContent=ids.length?"Median "+secs(median(ids.map(function(id){return S.spent[id];})))+" per review":"Your pace shows after the first label.";
+}
+function renderRecent(){
+  var ol=$("rlist");ol.textContent="";
+  S.recent.forEach(function(r){
+    var li=document.createElement("li");
+    li.innerHTML='<span class="rid">'+esc(r.id)+'</span><span>'+esc(r.main)+'</span><span class="tm">'+secs(r.t)+'</span>'+(r.sub?'<span class="sub">'+esc(r.sub)+'</span>':"");
+    ol.appendChild(li);
+  });
+  $("rempty").hidden=S.recent.length>0;$("rundo").hidden=!S.recent.length;
+}
+function renderSummary(){
+  var ids=ITEMS.filter(function(i){return S.res[i.id];}).map(function(i){return i.id;}),L=ids.length,ag=0,ex=0,ov=[],B={hi:[0,0],mid:[0,0],low:[0,0]};
+  ids.forEach(function(id){var it=BY[id],r=S.res[id],same=r.s===it.ms,z=zone(it);if(same)ag++;else ov.push(id);if(r.a.join()===it.mk.join())ex++;B[z][1]++;if(same)B[z][0]++;});
+  var skipped=Object.keys(S.skips).length,aside=S.aside.length,total=ITEMS.reduce(function(s,i){return s+(S.spent[i.id]||0);},0);
+  $("sumTitle").textContent=L+" labeled"+(aside?", "+aside+" set aside":"");
+  $("k1").textContent=L?Math.round(ag/L*100)+"%":"–";$("k1s").textContent=L?ag+" of "+L+" labels":"nothing labeled";
+  $("k2").textContent=L?Math.round(ex/L*100)+"%":"–";$("k2s").textContent=L?ex+" of "+L+" labels":"nothing labeled";
+  $("k3").textContent=L?secs(median(ids.map(function(id){return S.spent[id];}))):"–";$("k3s").textContent=dur(total)+" for the whole batch";
+  $("k4").textContent=skipped;$("k4s").textContent=skipped?(skipped-aside)+" labeled on return · "+aside+" set aside":"none this batch";
+  var cal=$("cal");cal.textContent="";
+  [["hi","Model 80% sure or more","agreed"],["mid","60–79% sure, pre-filled","agreed"],["low","Under 60%, labeled from scratch","matched its guess"]].forEach(function(c){
+    var b=B[c[0]],row=document.createElement("div");row.className="crow";
+    row.innerHTML='<span>'+c[1]+'</span><span class="meter" aria-hidden="true"><i style="width:'+(b[1]?b[0]/b[1]*100:0)+'%"></i></span><span class="n">'+(b[1]?b[0]+" of "+b[1]+" "+c[2]:"none in this batch")+'</span>';
+    cal.appendChild(row);
+  });
+  var ul=$("ovl");ul.textContent="";
+  if(!ov.length){var li0=document.createElement("li");li0.textContent=L?"None: you agreed with the model on every sentiment.":"Nothing was labeled.";ul.appendChild(li0);}
+  ov.forEach(function(id){
+    var it=BY[id],r=S.res[id],li=document.createElement("li");
+    li.append(bold(id)," · "+it.prod+": model "+SENT[it.ms]+" "+pct(it.mp)+", you "+SENT[r.s]+". "+(r.why?"Reason: "+WHY[r.why]+(r.note?" — “"+r.note+"”":"")+".":"No reason asked under 80%."));
+    ul.appendChild(li);
+  });
+  var tb=$("tbody"),mx=Math.max.apply(null,ITEMS.map(function(i){return S.spent[i.id]||0;}).concat([1]));tb.textContent="";
+  ITEMS.forEach(function(it){
+    var r=S.res[it.id],t=S.spent[it.id]||0,tr=document.createElement("tr"),bd;
+    if(!r)bd=["na","Not labeled"];
+    else{var s1=r.s===it.ms,a1=r.a.join()===it.mk.join();bd=s1&&a1?["ok","✓ Both match"]:s1?["no","≠ Aspects"]:a1?["no","≠ Sentiment"]:["no","≠ Both"];}
+    tr.innerHTML='<td><span class="rid">'+it.id+'</span><span class="pr">'+esc(it.prod)+'</span></td><td>'+esc(r?labelText(r.s,r.a):"Set aside after two skips")+'</td><td>'+esc(SENT[it.ms]+" "+pct(it.mp)+" · "+names(it.mk))+'</td><td><span class="badge '+bd[0]+'">'+bd[1]+'</span></td><td class="r"><span class="tb"><span class="trk" aria-hidden="true"><i style="width:'+(t/mx*100)+'%"></i></span>'+secs(t)+'</span></td>';
+    tb.appendChild(tr);
+  });
+}
+function renderEmpty(){
+  var s=S.sent||{n:0,aside:0};
+  $("emptyMsg").textContent="Batch "+BATCH+" submitted: "+s.n+" label"+(s.n===1?"":"s")+" saved"+(s.aside?", and "+s.aside+" review"+(s.aside===1?"":"s")+" went back to the shared pool unlabeled":"")+".";
+}
+
+/* ---- input ---- */
+function typing(t){
+  if(!t||!t.tagName)return false;
+  var n=t.tagName;if(n==="TEXTAREA"||n==="SELECT"||t.isContentEditable)return true;
+  return n==="INPUT"&&!/^(radio|checkbox|button|submit|reset|range|color|file|image)$/i.test(t.type);
+}
+document.addEventListener("keydown",function(e){
+  if(e.defaultPrevented||e.isComposing||e.ctrlKey||e.metaKey||e.altKey)return;
+  var k=e.key,t=e.target;
+  if(k==="Escape"){
+    if(!$("help").hidden){toggleHelp(false);e.preventDefault();}
+    else if(S.mode==="reason"){cancelReason();e.preventDefault();}
+    return;
+  }
+  if(typing(t)){if(k==="Enter"&&t.id==="rnote"&&S.mode==="reason"&&!e.repeat){saveReason();e.preventDefault();}return;}
+  if(busy||e.repeat){if(/^([1-7asu?]|Enter)$/i.test(k))e.preventDefault();return;}
+  if(k==="?"){toggleHelp();e.preventDefault();return;}
+  var lk=k.length===1?k.toLowerCase():k,ctl=t&&t.closest&&t.closest("button,a,summary,[role=region]");
+  if(S.mode==="label"){
+    if(/^[1-3]$/.test(k))setSent(SK[k-1]);
+    else if(/^[4-7]$/.test(k))setAsp(AK[k-4],!S.draft.a[AK[k-4]]);
+    else if(lk==="a")accept();
+    else if(lk==="s")skip();
+    else if(lk==="u")undo();
+    else if(k==="Enter"&&!ctl)submit();
+    else return;
+    e.preventDefault();
+  }else if(S.mode==="reason"){
+    if(/^[1-4]$/.test(k))pickReason(WK[k-1]);
+    else if(k==="Enter"&&!ctl)saveReason();
+    else return;
+    e.preventDefault();
+  }else if(S.mode==="summary"&&lk==="u"){undo();e.preventDefault();}
+});
+$("lform").addEventListener("change",function(e){var i=e.target;if(S.mode!=="label")return;if(i.name==="sent")setSent(i.value);else if(i.name==="asp")setAsp(i.value,i.checked);});
+$("lform").addEventListener("submit",function(e){e.preventDefault();});
+$("btnSubmit").addEventListener("click",function(){if(S.mode==="label")submit();});
+$("btnAccept").addEventListener("click",function(){if(S.mode==="label")accept();});
+$("btnSkip").addEventListener("click",function(){if(S.mode==="label")skip();});
+$("btnUndo").addEventListener("click",undo);
+$("rform").addEventListener("change",function(e){if(e.target.name!=="why")return;$("rerr").hidden=true;syncReason();if(e.target.value==="other")$("rnote").focus();});
+$("rnote").addEventListener("input",syncReason);
+$("rform").addEventListener("submit",function(e){e.preventDefault();});
+$("rsave").addEventListener("click",function(){if(S.mode==="reason")saveReason();});
+$("rback").addEventListener("click",cancelReason);
+$("btnBatch").addEventListener("click",submitBatch);
+$("btnLast").addEventListener("click",undo);
+$("btnCheck").addEventListener("click",checkAgain);
+$("btnReplay").addEventListener("click",replay);
+$("helpBtn").addEventListener("click",function(){toggleHelp();});
+$("helpClose").addEventListener("click",function(){toggleHelp(false);});
+function keys(){var on=document.hasFocus(),k=$("keys");k.setAttribute("data-on",String(on));k.textContent=on?"Keys on":"Click the page to use keys";}
+window.addEventListener("focus",keys);window.addEventListener("blur",keys);
+
+fresh();render();keys();
+})();
+</script>
+</body>
+</html>

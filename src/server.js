@@ -7,8 +7,8 @@ import {
   CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, countLabel, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
-import { exampleCategories, exampleHtml, findExamples } from './examples.js';
+import { VIEWS, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
+import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
 import { renderMarkdown, safeDecode } from './markdown.js';
 import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
 import { isNote, isNotebook, parseNotebook, renderNotebook } from './notebook.js';
@@ -41,7 +41,8 @@ export const ROUTES = [
   ['GET', '/api/graph', 'graphData', 'anyone*',
     'The graph as JSON: `nodes` (pages, with links in and out) and `edges` (`source` → `target` page ids); same `?page=` and `?depth=`'],
   ['GET', '/gallery/?', 'examples', 'anyone', 'The example pages that ship with HTML Server, with the same filters and search'],
-  ['GET', '/gallery/(?<file>[A-Za-z0-9][\\w.-]*\\.html)', 'example', 'anyone', 'One example page'],
+  ['GET', '/gallery/(?<file>[A-Za-z0-9][\\w.-]*\\.html)', 'example', 'anyone',
+    'One example page: in a browser tab, in the site\'s frame, as a page is; `?raw=1` for the example alone'],
   ['GET', '/docs/?', 'docs', 'anyone', 'This page: using HTML Server from the command line, MCP and HTTP'],
   ['GET', '/api/?', 'docs', 'anyone', 'The same page'],
   ['GET', '/docs\\.md', 'docsSource', 'anyone', 'This page as Markdown'],
@@ -276,6 +277,7 @@ class Ctx {
       copyLabel: nb ? 'Copy notebook' : 'Copy markdown',
       extra: nb ? [nb.kernel, `${nb.cells.filter((c) => c.type === 'code').length} code cells`].filter(Boolean).join(' · ') : '',
       theme: (this.req.headers.cookie || '').match(/(?:^|;\s*)theme=(dark|light)/)?.[1],
+      sidebar: (this.req.headers.cookie || '').match(/(?:^|;\s*)sidebar=(hidden)(?:;|$)/)?.[1],
       path: page.slug.includes('/') || this.store.one('SELECT 1 FROM moves WHERE artifact_id = ? LIMIT 1', page.id) ? page.slug : page.path, explorer: this.preview() ? [] : this.store.explorer(viewer),
       graph: this.preview() ? null : this.store.graph(viewer, { views: false }),
     }));
@@ -510,6 +512,9 @@ const handlers = {
   example(c, { file }) {
     const body = exampleHtml(file);
     if (!body) throw new ApiError(404, 'no such example');
+    // As with a page: a browser tab gets the site's frame, and the frame's iframe the example sized to fit.
+    if (c.wantsFrame()) return c.html(exampleFramePage(examples().find((e) => e.slug === file)));
+    if (c.query.get('embed') && !c.preview()) return c.page(withInFrame(withInPageLinks(withEmbedSizing(body))));
     c.page(c.preview() || c.query.get('toc') === '0' ? body : withToc(body));
   },
   docs(c) { c.html(markdownPage({ title: 'Docs', md: c.docs(), active: 'docs', sourceUrl: '/docs.md' })); },

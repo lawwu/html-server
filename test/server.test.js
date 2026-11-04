@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { ACTIVE, PURGED, TRASHED } from '../src/lifecycle.js';
 import { ROUTES, makeServer } from '../src/server.js';
+import { SKILLS, SKILLS_REPO, examples } from '../src/examples.js';
 import { Store, normalizeTag } from '../src/store.js';
 
 const BROWSER = 'Mozilla/5.0 test';
@@ -484,7 +485,7 @@ test('/gallery: the bundled example pages, filterable and searchable', async () 
   const [s, page] = await req('GET', '/gallery');
   assert.equal(s, 200);
   assert.match(page, /<title>Gallery · HTML Server<\/title>/);
-  assert.equal(page.match(/<article class="card[^"]*"/g).length, 13);
+  assert.equal(page.match(/<article class="card[^"]*"/g).length, 29);
   assert.match(page, /Machine learning <span>2<\/span>/);
   assert.match(page, /href="\/gallery\/kmeans-step-through.html"/);
   assert.match(page, /data-base="\/gallery"/);
@@ -805,7 +806,48 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match(page, /<div class="cards" data-count="2 pages · 1 featured">/); // what live search shows when the box is cleared
   assert.match((await req('GET', '/?q=one'))[1], /<p id="count"[^>]*>1 match<\/p>/);
   assert.match(page, new RegExp(`<a class="gh" href="https://github.com/lawwu/html-server/releases/tag/v${pkg.version}" target="_top"[^>]*><svg[^]*?</svg><span>v${pkg.version.replace(/\./g, '\\.')}</span></a>`));
-  assert.match((await req('GET', '/gallery'))[1], /<p id="count" class="meta">13 example pages<\/p>/);
+  assert.match((await req('GET', '/gallery'))[1], /<p id="count" class="meta">29 example pages<\/p>/);
+});
+
+test('skills: the sidebar lists effective-html\'s skills with their examples, which open in the frame', async () => {
+  const [, stats] = await req('GET', '/stats'); // on every page with a sidebar
+  const esc = (t) => t.replace(/'/g, '&#39;');
+  for (const s of SKILLS) {
+    assert.match(stats, new RegExp(`<summary title="${s.use}"><svg[^]*?</svg><span>${s.name}</span></summary>`), s.name);
+    assert.ok(stats.includes(`<a class="ext" href="${SKILLS_REPO}/tree/main/skills/${s.name}" target="_blank" rel="noopener">The skill ↗</a>`), s.name);
+    assert.equal(s.examples.length, 2, s.name); // one on data or ML, one on Claude Code
+    for (const [file, label] of s.examples) {
+      assert.ok(stats.includes(`<a href="/gallery/${file}" target="_top">${esc(label)}</a>`), file);
+      assert.equal(examples().find((e) => e.slug === file)?.category, 'effective-html', file); // shipped, in the gallery's group
+    }
+  }
+  assert.match(stats, /<a href="\/gallery\?category=effective-html" target="_top">all examples<\/a>/);
+  const [, group] = await req('GET', '/gallery?category=effective-html');
+  assert.equal(group.match(/<article class="card/g).length, 16);
+  assert.match(group, /Effective HTML <span>16<\/span>/);
+
+  // An example in a browser tab gets the frame, its skill's folder open; the frame's iframe gets it sized to fit.
+  const get = async (path, dest) => {
+    const r = await fetch(`${base}${path}`, { headers: { 'user-agent': BROWSER, 'sec-fetch-dest': dest } });
+    return [r.status, await r.text(), r.headers.get('content-security-policy')];
+  };
+  const [status, frame, frameCsp] = await get('/gallery/ab-test-readout.html', 'document');
+  assert.equal(status, 200);
+  assert.equal(frameCsp, null); // the server's own page; the example inside stays sandboxed
+  assert.match(frame, /<iframe class="page-frame auto" src="\/gallery\/ab-test-readout.html\?embed=1" title="[^"]+"><\/iframe>/);
+  assert.match(frame, /<nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="\/gallery" target="_top">Gallery<\/a>/);
+  assert.match(frame, /<details open>\n<summary title="Reports, explainers, data stories and small tools">/);
+  assert.match(frame, /<a href="\/gallery\/ab-test-readout.html" target="_top" class="on" aria-current="page">A\/B test readout<\/a>/);
+  assert.match(frame, /<a class="tag-link" href="\/gallery\?category=effective-html">Effective HTML<\/a>/);
+  const [, embedded, embedCsp] = await get('/gallery/ab-test-readout.html?embed=1', 'iframe');
+  assert.match(embedCsp, /sandbox/);
+  assert.match(embedded, /<script data-html-server-embed>[^]*<script data-html-server-links>[^]*<script data-html-server-in-frame>/);
+  for (const [path, dest] of [['/gallery/ab-test-readout.html?raw=1', 'document'], ['/gallery/ab-test-readout.html', 'iframe']]) {
+    const [, raw, csp] = await get(path, dest);
+    assert.match(csp, /sandbox/, path);
+    assert.doesNotMatch(raw, /page-frame|data-html-server-in-frame/, `${path} ${dest}`);
+  }
+  assert.equal((await get('/gallery/no-such-example.html', 'document'))[0], 404);
 });
 
 test('HEAD is answered like GET, without a body, and is not a page view', async () => {
@@ -939,7 +981,7 @@ test('an HTML page opened in a browser tab gets the frame; iframes, clients and 
   await get('/pages/framed', 'iframe');
   assert.equal(await views(), 1);
   assert.match(frame, /<iframe class="page-frame auto" src="\/pages\/framed.html\?embed=1" title="Framed"><\/iframe>/);
-  assert.match(frame, /<aside class="sidebar left">/);
+  assert.match(frame, /<aside class="sidebar left" id="left-sidebar">/);
   assert.match(frame, /<a class="tag-link" href="\/\?category=trips">trips<\/a>/);
   assert.match(frame, /data-src="\/api\/artifacts\/framed.html\/versions\/1">.*<span>Copy HTML<\/span>/);
   assert.match(frame, /<section class="backlinks"><h3>Backlinks<\/h3><ul><li><a href="\/pages\/Points.md"/);
@@ -1009,7 +1051,7 @@ test('notes are pages of the site: sidebars, footer and stylesheet; previews wit
   await put('raw.html', '<p>my own html</p>');
   const [, note] = await req('GET', '/pages/Note');
   assert.match(note, /<style>[^<]*\.sidebar \{[^<]*\.article-title/s); // the site's styles and the note's, inlined
-  assert.match(note, /<aside class="sidebar left">[^]*<h2 class="page-title"><a href="\/" target="_top">HTML Server<\/a>/);
+  assert.match(note, /<aside class="sidebar left" id="left-sidebar">[^]*<h2 class="page-title"><a href="\/" target="_top">HTML Server<\/a>/);
   assert.match(note, /<details class="explorer" open>[^]*<a href="\/pages\/Note.md" target="_top" class="on" aria-current="page">Note<\/a>/);
   assert.match(note, /<aside class="sidebar right">/);
   assert.match(note, /<footer class="site-foot">/);
@@ -1018,6 +1060,13 @@ test('notes are pages of the site: sidebars, footer and stylesheet; previews wit
   assert.equal(JSON.parse(note.match(/<script id="page-source" type="application\/json">([^<]*)<\/script>/)[1]), '# Note\n\nHello'); // what it copies
   const dark = await (await fetch(`${base}/pages/Note`, { headers: { cookie: 'theme=dark' } })).text();
   assert.match(dark, /<html lang="en" data-theme="dark">/); // the switch's choice reaches sandboxed notes by cookie
+  // So does a hidden sidebar; the button that hides it sits outside it, so it stays put.
+  const hidden = async (cookie) => (await (await fetch(`${base}/pages/Note`, { headers: { cookie } })).text()).match(/<html[^>]*>/)[0];
+  assert.equal(await hidden('theme=dark; sidebar=hidden'), '<html lang="en" data-theme="dark" data-sidebar="hidden">');
+  assert.equal(await hidden('sidebar=shown'), '<html lang="en">');
+  assert.equal(await hidden('sidebar=hiddenx'), '<html lang="en">');
+  assert.match(note, /<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"\s+aria-label="Hide the sidebar" title="Hide the sidebar"><svg[^]*<\/button><aside class="sidebar left" id="left-sidebar">/);
+  assert.match(note, /localStorage.getItem\('sidebar'\)==='hidden'\)r.dataset.sidebar='hidden'/); // pages that can read storage: read in <head>
   const [, preview] = await req('GET', '/pages/Note?preview=1');
   assert.doesNotMatch(preview, /class="sidebar|<footer class="site-foot"/);
   assert.match(preview, /<h1 class="article-title">Note<\/h1>/);

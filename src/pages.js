@@ -5,6 +5,7 @@ import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, heroTile, sparkline, stackedColumnChart } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
 import { renderMarkdown } from './markdown.js';
+import { SKILLS, SKILLS_REPO } from './examples.js';
 import { encodePath } from './paths.js';
 import { usage } from './usage.js';
 
@@ -18,6 +19,7 @@ const CATEGORY_LABELS = {
   'code-review': 'Code review',
   editor: 'Editors',
   prototype: 'Prototypes',
+  'effective-html': 'Effective HTML',
 };
 export const categoryLabel = (c) => CATEGORY_LABELS[c] || c.replace(/-/g, ' ').replace(/^./, (x) => x.toUpperCase());
 
@@ -32,15 +34,22 @@ export const setStaticSite = (on) => { STATIC_SITE = !!on; };
 export const footer = () => `<footer class="site-foot"><a href="${RELEASE_URL}">HTML Server v${esc(VERSION)}</a>
   · <a href="${REPO_URL}">Source on GitHub</a> · <a href="/docs">Docs</a></footer>`;
 
-// Light or dark: the viewer's choice if they made one, else the system's. The switch saves it
-// in this site's storage and in a cookie; notes are sandboxed and can't read storage, so the
-// server stamps the cookie's choice onto them (notePage's `theme`).
-// Runs in <head> so the page never flashes the wrong theme.
-export const THEME_HEAD = `<script>try{const t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch{}</script>`;
-const THEME_TOGGLE = `<script>document.querySelectorAll('[data-theme-toggle]').forEach((b)=>b.addEventListener('click',()=>{
+// The viewer's choices: light or dark (else the system's), and whether the sidebar is hidden.
+// Each switch saves its choice in this site's storage and in a cookie; notes are sandboxed and
+// can't read storage, so the server stamps the cookie's choice onto them (notePage's `theme`
+// and `sidebar`). Runs in <head> so the page never flashes the other way.
+export const PREFS_HEAD = `<script>try{const r=document.documentElement,t=localStorage.getItem('theme');if(t)r.dataset.theme=t;
+if(localStorage.getItem('sidebar')==='hidden')r.dataset.sidebar='hidden'}catch{}</script>`;
+// The switches, and on a phone the explorer starts closed. The sidebar's button says which way it goes.
+const SIDEBAR_SCRIPT = `<script>document.querySelectorAll('[data-theme-toggle]').forEach((b)=>b.addEventListener('click',()=>{
 const r=document.documentElement,dark=(r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))==='dark';
 r.dataset.theme=dark?'light':'dark';try{localStorage.setItem('theme',r.dataset.theme)}catch{}
 try{document.cookie='theme='+r.dataset.theme+'; path=/; max-age=31536000; samesite=lax'}catch{}}));
+document.querySelectorAll('[data-sidebar-toggle]').forEach((b)=>{const r=document.documentElement;
+const label=()=>{const hidden=r.dataset.sidebar==='hidden';b.setAttribute('aria-expanded',String(!hidden));b.title=hidden?'Show the sidebar':'Hide the sidebar';b.setAttribute('aria-label',b.title)};
+label();b.addEventListener('click',()=>{const hide=r.dataset.sidebar!=='hidden';if(hide)r.dataset.sidebar='hidden';else delete r.dataset.sidebar;label();
+try{localStorage.setItem('sidebar',hide?'hidden':'shown')}catch{}
+try{document.cookie='sidebar='+(hide?'hidden':'shown')+'; path=/; max-age=31536000; samesite=lax'}catch{}})});
 if(matchMedia('(max-width: 800px)').matches)document.querySelectorAll('details.explorer').forEach((d)=>d.removeAttribute('open'));</script>`;
 
 // Search (⌘K) and hover previews: inlined, since a sandboxed note may not load scripts.
@@ -62,8 +71,8 @@ const copyButton = (label = 'Copy markdown') => `<button type="button" class="co
  */
 const shell = (title, body, { scripts = [], bodyAttrs = '', frame = true } = {}) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title>${THEME_HEAD}<link rel="stylesheet" href="/_static/style.css"><link rel="stylesheet" href="/_static/note.css"></head>
-<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${THEME_TOGGLE}${frame && !STATIC_SITE ? inlined().search : ''}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
+<title>${esc(title)}</title>${PREFS_HEAD}<link rel="stylesheet" href="/_static/style.css"><link rel="stylesheet" href="/_static/note.css"></head>
+<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${SIDEBAR_SCRIPT}${frame && !STATIC_SITE ? inlined().search : ''}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
 
 const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('ch') ? 'es' : 's'}`;
@@ -77,6 +86,7 @@ const ICONS = {
   moon: '<svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>',
   chevron: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>',
   expand: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>',
+  sidebar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9.5 4.5v15"/></svg>',
 };
 
 /**
@@ -84,18 +94,34 @@ const ICONS = {
  * title, search and the light/dark switch, the site's sections, then (on notes and the
  * home page) the explorer. Links use target="_top" so they work from a framed note too.
  */
-export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE } = {}) {
+export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE, example = null } = {}) {
   const item = (href, label, key) => `<li><a href="${href}" target="_top"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a></li>`;
   const random = `/random${current ? `?not=${encodeURIComponent(current)}` : ''}`; // never the page you're on, unless it's the only one
   const live = STATIC_SITE ? '' : item('/', 'Pages', 'pages') + item(random, 'Random', 'random') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
   const toggle = `<button type="button" class="icon-btn" data-theme-toggle aria-label="Switch light or dark">${ICONS.sun}${ICONS.moon}</button>`;
-  return `<aside class="sidebar left">
+  const hide = `<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"
+  aria-label="Hide the sidebar" title="Hide the sidebar">${ICONS.sidebar}</button>`;
+  return `${hide}<aside class="sidebar left" id="left-sidebar">
 <div class="side-top"><h2 class="page-title"><a href="/" target="_top">HTML Server</a></h2>
 <a class="gh" href="${RELEASE_URL}" target="_top" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a>${search ? '' : toggle}</div>
 ${search ? `<div class="side-row"><form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>${toggle}</div>` : ''}
 <nav class="side-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}</ul></nav>
 ${explorer ? explorerNav(explorer, current) : ''}
+${skillsNav(example)}
 </aside>`;
+}
+
+/**
+ * The sidebar's Skills: plannotator/effective-html's skills, each a folder holding the gallery's
+ * examples of it and a link to the skill itself; the folder of the example being viewed is open.
+ */
+function skillsNav(current) {
+  const skills = SKILLS.map((s) => `<li class="folder"><details${s.examples.some(([f]) => f === current) ? ' open' : ''}>
+<summary title="${esc(s.use)}">${ICONS.chevron}<span>${esc(s.name)}</span></summary><ul>${s.examples.map(([f, label]) => `<li><a href="/gallery/${f}" target="_top"${
+    f === current ? ' class="on" aria-current="page"' : ''}>${esc(label)}</a></li>`).join('')}<li><a class="ext" href="${SKILLS_REPO}/tree/main/skills/${s.name}" target="_blank" rel="noopener">The skill ↗</a></li></ul></details></li>`).join('');
+  const all = STATIC_SITE ? '/gallery' : '/gallery?category=effective-html'; // the docs site's gallery has no filters
+  return `<details class="explorer skills" open><summary><span>Skills</span>${ICONS.chevron}</summary><ul class="tree">${skills}</ul>
+<p class="skills-from">From <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a> · <a href="${all}" target="_top">all examples</a></p></details>`;
 }
 
 /**
@@ -427,7 +453,7 @@ const noteCss = () => (NOTE_CSS ??= ['style.css', 'note.css']
  * that leave the note use target="_top", so they work inside the review page's frame too.
  */
 export function notePage({ slug, title, tags = [], html, backlinks = [], updated, version, latest, description, chrome = true,
-  explorer = [], path = '', graph = null, theme = null, previews = {}, source = null, copyLabel, extra = '' }) {
+  explorer = [], path = '', graph = null, theme = null, sidebar = null, previews = {}, source = null, copyLabel, extra = '' }) {
   const S = encodePath(slug);
   const day = updated ? new Date(updated * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
   const words = html.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
@@ -448,10 +474,10 @@ ${toc.length > 1 ? `<details class="toc" open><summary><h3>Table of Contents</h3
 ${backlinksSection(backlinks)}
 </aside>`;
   const main = `<main class="center note">${chrome ? head : `<h1 class="article-title">${esc(title)}</h1>`}<article class="content">${html}</article></main>`;
-  return `<!doctype html><html lang="en"${theme === 'dark' || theme === 'light' ? ` data-theme="${theme}"` : ''}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  return `<!doctype html><html lang="en"${theme === 'dark' || theme === 'light' ? ` data-theme="${theme}"` : ''}${sidebar === 'hidden' ? ' data-sidebar="hidden"' : ''}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · HTML Server</title>${description ? `<meta name="description" content="${esc(description)}">` : ''}
-${THEME_HEAD}<style>${noteCss()}</style></head>
-<body class="note-body">${chrome ? `<div class="page">${siteNav('pages', { explorer, current: slug })}${main}${right}${top(footer())}</div>${THEME_TOGGLE}
+${PREFS_HEAD}<style>${noteCss()}</style></head>
+<body class="note-body">${chrome ? `<div class="page">${siteNav('pages', { explorer, current: slug })}${main}${right}${top(footer())}</div>${SIDEBAR_SCRIPT}
 ${previewData(previews)}${source != null ? sourceData(source) + inlined().copy : ''}${STATIC_SITE ? '' : inlined().search}${inlined().popover}` : main}</body></html>`;
 }
 
@@ -485,6 +511,22 @@ export function htmlFramePage({ page, n, backlinks, explorer, graph, previews = 
 <iframe class="page-frame auto" src="${esc(embed)}" title="${esc(page.title)}"></iframe>
 <div class="frame-foot">${graph ? localGraph(graph, page.slug) : ''}${backlinksSection(backlinks)}</div>
 </main>${previewData(previews)}${inlined().popover}${inlined().copy}${FRAME_SCRIPT}`);
+}
+
+/**
+ * An example from the gallery in the site's frame, as a browser tab gets it at /gallery/<file>:
+ * the sidebar (its Skills folder open, if the example is one of a skill's), a title bar, then the
+ * example in an iframe. Examples have no versions, comments or links to show.
+ */
+export function exampleFramePage(e) {
+  return shell(`${e.title} · HTML Server`, `${siteNav('gallery', { example: e.slug })}<main class="center framed">
+<header class="frame-head"><div class="frame-title">
+<nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="/gallery" target="_top">Gallery</a><span class="sep" aria-hidden="true">❯</span><span aria-current="page">${esc(e.title)}</span></nav>
+<h1 class="article-title">${esc(e.title)}</h1>
+<p class="content-meta">${e.description ? `${esc(e.description)} · ` : ''}<a href="/gallery/${e.slug}?raw=1">full page ↗</a></p>
+</div>${e.category ? `<ul class="note-tags"><li><a class="tag-link" href="/gallery?category=${encodeURIComponent(e.category)}">${esc(categoryLabel(e.category))}</a></li></ul>` : ''}</header>
+<iframe class="page-frame auto" src="/gallery/${e.slug}?embed=1" title="${esc(e.title)}"></iframe>
+</main>${FRAME_SCRIPT}`);
 }
 
 // The frame's half of the page's scripts (public/embed-size.js, public/in-frame.js). Sizing:

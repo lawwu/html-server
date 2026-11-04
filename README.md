@@ -330,15 +330,20 @@ the SIL Open Font License, licences in `public/fonts`) and its three-column layo
 
 - **Left sidebar** on every page: the title, the running version (linking to its
   release), search, a light/dark switch, the site's sections (Pages, Random, Graph, Stats,
-  Gallery, Docs) and an **explorer** of folders and pages. On a phone it collapses
-  above the page.
+  Gallery, Docs), an **explorer** of folders and pages, and **Skills**. The button at its
+  top left hides it and brings it back, and the choice is kept like light/dark; with it
+  hidden, an HTML page in the frame takes the whole width. On a phone it collapses above
+  the page.
+- **Skills:** the eight skills of [effective-html](https://github.com/plannotator/effective-html)
+  (agent skills for HTML artifacts), each with two examples in the gallery, one on data
+  or machine learning and one on Claude Code, and a link to the skill itself.
 - **Random:** opens a random page you can see, never the one you're on (unless it's the
   only one). `/random?folder=research` or `/random?category=trips` picks one in a folder
   or with a tag.
 - **Search from anywhere:** ⌘K, Ctrl+K or `/` opens a search box with live results;
-  arrows move, Enter opens. Inside an HTML page in the frame, ⌘K and Ctrl+K do too. On the home page the same keys go to its own search box,
-  which filters the cards instead, keeping each card's live preview as it is rather than
-  loading it again. Search is typo-tolerant (including in the start of a longer word:
+  arrows move, Enter opens. Inside an HTML page in the frame, ⌘K and Ctrl+K do too. On
+  the home page the same keys go to its own search box, which filters the cards instead,
+  keeping each card's live preview as it is rather than loading it again. Search is typo-tolerant (including in the start of a longer word:
   "gardn" finds "gardening"), finds other forms of a word ("studies" finds "study"), ranks
   title matches first and marks the matched words. It also covers text a page writes
   with JavaScript, tags and aliases. From the terminal: `html-server search WORDS`
@@ -406,8 +411,11 @@ that fail on your machine before reaching the server (not signed in, server down
 counted.
 
 **Gallery** (`/gallery`) shows the example pages that ship in this package's `gallery/`
-folder, read-only, so every install has them and they never mix with your own. To make one
-your own, copy it and `html-server put` it.
+folder, read-only, so every install has them and they never mix with your own. In a browser
+tab an example sits in the site's frame, as your pages do (`?raw=1` for the example alone).
+Sixteen of them show the skills of [effective-html](https://github.com/plannotator/effective-html),
+two per skill: filter by **Effective HTML**, or open them from the sidebar's Skills. To make
+one your own, copy it and `html-server put` it.
 
 **Docs** (`/docs`, also `/api`): the command line, MCP and the HTTP API on one page, built
 from the CLI's own usage text, the MCP tool definitions and the route table, so it stays
@@ -825,4 +833,6 @@ MIT, see [`LICENSE`](LICENSE). The site's look follows [Quartz](https://github.c
 default theme (MIT). The fonts are under the SIL Open Font License (licences in
 `public/fonts`). The explain-diff gallery page follows Geoffrey Litt's explain-diff format,
 and the featured page summarizes and links to Thariq Shihipar's article; both are credited
-on the pages, and neither copies the original.
+on the pages, and neither copies the original. The Effective HTML examples follow the skills
+of [plannotator/effective-html](https://github.com/plannotator/effective-html) (MIT), and
+the Claude Code ones draw on the Claude Code docs; each page links to what it used.

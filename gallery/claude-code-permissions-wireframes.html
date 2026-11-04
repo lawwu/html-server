@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code permissions — three wireframe directions</title>
+<meta name="description" content="Three low-fidelity wireframe directions for a Claude Code screen that shows what Claude may do in a project without asking and which settings file each rule comes from, with notes on what each tests, its trade-offs, and how one collapses on a phone.">
+<meta name="category" content="effective-html">
+<style>:root{--paper:#ececec;--sheet:#fff;--ink:#1c1c1c;--ink-2:#555;--ink-3:#8a8a8a;--line:#c6c6c6;--fill:#e1e1e1;--soft:#f5f5f5;
+--sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#131313;--sheet:#1c1c1c;--ink:#ebebeb;--ink-2:#ababab;--ink-3:#7b7b7b;--line:#3b3b3b;--fill:#333;--soft:#232323;color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#131313;--sheet:#1c1c1c;--ink:#ebebeb;--ink-2:#ababab;--ink-3:#7b7b7b;--line:#3b3b3b;--fill:#333;--soft:#232323;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 var(--sans)}
+.wrap{max-width:74rem;margin:0 auto;padding:28px 16px 36px}
+h1,h2,h3,h4,h5{text-wrap:balance}
+h1{font-size:clamp(1.45rem,4.2vw,2.1rem);line-height:1.15;margin:.25rem 0 .6rem;letter-spacing:-.01em}
+h2{font-size:1.15rem;margin:0 0 .4rem}
+p{margin:0}
+code{font-family:var(--mono);font-size:.86em;overflow-wrap:anywhere}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.eyebrow{font:600 .72rem var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+.lede{max-width:44rem;font-size:1.02rem}
+.brief{display:grid;gap:14px;margin:20px 0 14px}
+@media (min-width:760px){.brief{grid-template-columns:1fr 1fr}}
+.brief>div{background:var(--sheet);border:1px solid var(--line);border-radius:3px;padding:14px 16px}
+.brief h2{font-size:.95rem}
+.brief ul,.notes ul,.notes ol,.closing ul{margin:0;padding-left:1.15rem}
+.brief li,.notes li,.closing li{margin:3px 0}
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;font-size:.84rem;color:var(--ink-2);margin:0 0 6px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.t{display:inline-block;font:700 .66rem/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;padding:.32em .5em;border:1.5px solid var(--ink);border-radius:2px;white-space:nowrap;text-align:center;min-width:4.6em}
+.t-deny{background:var(--ink);color:var(--sheet)}
+.t-ask{background:var(--sheet);color:var(--ink)}
+.t-allow{background:var(--fill);color:var(--ink);border-color:var(--fill)}
+.ph{display:inline-block;border:1px dashed var(--ink-3);border-radius:2px;padding:0 .4em;color:var(--ink-2);font-size:.8rem;line-height:1.6}
+.pin{display:inline-grid;place-items:center;flex:none;width:1.3rem;height:1.3rem;border:1.5px solid var(--ink);border-radius:50%;font:700 .68rem/1 var(--mono);background:var(--sheet);color:var(--ink);margin-right:6px;vertical-align:middle}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0 14px}
+.tabs button{font:600 .9rem var(--sans);padding:.5rem .85rem;border:1.5px solid var(--ink);background:var(--sheet);color:var(--ink);border-radius:3px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--sheet)}
+.dir{display:grid;gap:16px;margin-bottom:12px}
+@media (min-width:1080px){.dir{grid-template-columns:minmax(0,1fr) 19rem;align-items:start}}
+.dh{grid-column:1/-1}
+.dh p{color:var(--ink-2);max-width:48rem}
+.frame{background:var(--sheet);border:1.5px solid var(--ink);border-radius:4px;container-type:inline-size;min-width:0}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:10px 14px;border-bottom:1.5px solid var(--ink)}
+.proj{font-family:var(--mono);font-size:.85rem;color:var(--ink-2)}
+.chip{font:600 .72rem var(--mono);border:1px solid var(--ink-2);border-radius:2px;padding:.12rem .4rem;white-space:nowrap}
+.bar .chip{margin-left:auto}
+.fb{padding:14px;display:grid;gap:12px}
+.combine,.key,.sum{display:flex;align-items:flex-start;gap:4px;font-size:.88rem;padding:8px 10px;border:1px solid var(--line);background:var(--soft);border-radius:2px}
+.key{flex-wrap:wrap}
+.key ul{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:4px 14px;width:100%}
+.key li{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.grp,.tool,.out{border:1px solid var(--line);border-radius:3px;min-width:0}
+.gh{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:8px 12px;background:var(--soft);border-bottom:1px solid var(--line)}
+.gh h4,.out h4{margin:0;font-size:.95rem;display:flex;align-items:center}
+.gh .file{font-size:.8rem}
+.nw{white-space:nowrap}
+.who,.cnt{font-size:.8rem;color:var(--ink-2)}
+.cnt{font-family:var(--mono)}
+.add{margin-left:auto;font:600 .8rem var(--sans);padding:.3rem .6rem;border:1.5px solid var(--ink);background:var(--sheet);color:var(--ink);border-radius:2px;cursor:pointer}
+.add[aria-expanded="true"]{background:var(--ink);color:var(--sheet)}
+.rows,.lane ul,.out ul,.p-sec ul,.p-warn ul{list-style:none;margin:0;padding:0}
+.row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:start;padding:9px 12px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.rc{display:flex;flex-direction:column;min-width:0}
+.r{font-size:.84rem}
+.g{font-size:.82rem;color:var(--ink-2)}
+.ra{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px}
+.ro{font-size:.78rem;color:var(--ink-2);font-style:italic}
+.flag{font:600 .72rem var(--mono);border:1px solid var(--ink);border-radius:2px;padding:.1rem .35rem}
+.off .r s{color:var(--ink-2)}
+.why{grid-column:1/-1;font-size:.84rem}
+.why summary{cursor:pointer;color:var(--ink-2);width:max-content;max-width:100%}
+.why p{margin-top:6px;padding:8px 10px;border-left:3px solid var(--ink);background:var(--soft)}
+@container (max-width:540px){.row{grid-template-columns:auto minmax(0,1fr)}.ra{grid-column:2;justify-content:flex-start}}
+.empty,.none{font-size:.84rem;color:var(--ink-2);padding:9px 12px}
+.none{padding:0}
+.else{font-size:.86rem;color:var(--ink-2);padding:0 2px}
+.out .else{padding:9px 12px}
+.slot:empty{display:none}
+.slot{padding:10px 12px;border-bottom:1px solid var(--line)}
+.lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.lane{padding:10px 12px;border-left:1px solid var(--line);min-width:0}
+.lane:first-child{border-left:0}
+.lane h5{margin:0 0 6px;display:flex;align-items:center;gap:6px;font-size:.75rem;font-weight:400;color:var(--ink-2)}
+.card{display:flex;flex-direction:column;align-items:flex-start;gap:3px;border:1px solid var(--line);border-radius:2px;padding:7px 9px;margin-top:6px;min-width:0;max-width:100%}
+.card .r{max-width:100%}
+.tag{font:600 .7rem var(--mono);border:1px solid var(--line);border-radius:2px;padding:.05rem .35rem;color:var(--ink-2);white-space:nowrap}
+.fallback{font-size:.84rem;color:var(--ink-2);padding:8px 12px;border-top:1px dashed var(--line)}
+@container (max-width:600px){.lanes{grid-template-columns:1fr}.lane{border-left:0;border-top:1px solid var(--line)}.lane:first-child{border-top:0}}
+.ctools{display:grid;gap:10px}
+.check{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 10px;font-size:.86rem}
+.check .lbl{font-weight:600;color:var(--ink)}
+.fake{border:1px solid var(--ink-3);border-radius:2px;padding:.15rem .5rem;background:var(--sheet);min-width:12rem}
+.res{flex-basis:100%;color:var(--ink-2)}
+.cadd{display:flex;align-items:center}
+.cadd .add{margin-left:0}
+.ctools .slot{border:1px solid var(--line);border-radius:2px}
+.out h4{padding:8px 12px;background:var(--soft);border-bottom:1px solid var(--line);gap:8px}
+.n{font:600 .8rem var(--mono);border:1px solid var(--ink);border-radius:2px;padding:0 .4rem}
+.erow{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.4fr) minmax(0,1fr);gap:4px 14px;align-items:baseline;padding:9px 12px;border-top:1px solid var(--line)}
+.erow:first-child{border-top:0}
+.what{font-weight:600;font-size:.9rem}
+.rule{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;gap:8px;min-width:0}
+.from{font-size:.82rem;min-width:0}
+.from code{display:block;color:var(--ink-2)}
+.also{grid-column:1/-1;font-size:.84rem;line-height:1.9;margin-top:4px;padding:5px 10px;border-left:3px solid var(--ink-3);background:var(--soft)}
+.also .flag{margin-right:4px}
+@container (max-width:620px){.erow{grid-template-columns:minmax(0,1fr)}}
+.notes{font-size:.9rem;min-width:0}
+.notes h3{font:700 .7rem var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin:14px 0 4px}
+.notes h3:first-child{margin-top:0}
+.phone-sec{margin-top:30px}
+.phone-sec>p{color:var(--ink-2);max-width:48rem;margin-bottom:14px}
+.pgrid{display:grid;gap:18px;align-items:start}
+@media (min-width:820px){.pgrid{grid-template-columns:360px minmax(0,1fr)}}
+.phone{width:100%;max-width:360px;background:var(--sheet);border:2px solid var(--ink);border-radius:16px;overflow:hidden}
+.p-bar{display:flex;align-items:center;gap:10px;padding:12px 14px 4px}
+.p-bar b{font-size:1.05rem}
+.p-sub{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 14px 10px;font-family:var(--mono);font-size:.8rem;color:var(--ink-2);border-bottom:1.5px solid var(--ink)}
+.p-warn{margin:10px 12px;border:1px solid var(--ink);border-radius:2px;font-size:.84rem}
+.p-warn summary,.p-sec summary{cursor:pointer;padding:8px 10px}
+.p-warn summary{font-weight:600}
+.p-warn li{padding:6px 10px;border-top:1px solid var(--line);color:var(--ink-2)}
+.p-sec{border-top:1px solid var(--line)}
+.p-sec summary{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 14px;font-weight:600;list-style:none}
+.p-sec summary::-webkit-details-marker{display:none}
+.p-sec summary::after{content:"+";font:700 1rem var(--mono);margin-left:6px}
+.p-sec[open] summary::after{content:"\2212"}
+.p-sec summary b{margin-left:auto;font:600 .8rem var(--mono);border:1px solid var(--ink);border-radius:2px;padding:0 .4rem}
+.p-sec li{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 14px;border-top:1px solid var(--line)}
+.p-else{font-size:.84rem;color:var(--ink-2);padding:10px 14px;border-top:1px solid var(--line)}
+.p-foot{border-top:1.5px solid var(--ink);padding:10px 14px;text-align:center}
+.p-foot .ph{font-size:.9rem;padding:.25rem 1.2rem}
+.closing{display:grid;gap:14px;margin-top:30px}
+@media (min-width:860px){.closing{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.closing>div{border-top:1.5px solid var(--ink);padding-top:10px;font-size:.9rem}
+.closing h2{font-size:1rem}
+.addform{display:grid;gap:10px;font-size:.88rem}
+.addform h4{margin:0;font-size:.95rem}
+.addform fieldset{border:1px solid var(--line);border-radius:2px;padding:8px 10px;margin:0;display:flex;flex-wrap:wrap;gap:6px 16px;min-width:0}
+.addform legend{font-weight:600;padding:0 4px}
+.addform label{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 6px}
+.addform label span,.addform .dis{color:var(--ink-2)}
+.addform input[type="text"]{font:.9rem var(--mono);padding:.4rem .5rem;border:1.5px solid var(--ink);border-radius:2px;background:var(--sheet);color:var(--ink);width:100%;max-width:28rem}
+.addform input[type="text"]::placeholder{color:var(--ink-3)}
+.hint{color:var(--ink-2);font-size:.82rem}
+.af-notes{margin:0;padding-left:1.1rem;color:var(--ink-2)}
+.af-btns{display:flex;gap:8px;flex-wrap:wrap}
+.af-btns button{font:600 .85rem var(--sans);padding:.4rem .8rem;border:1.5px solid var(--ink);border-radius:2px;background:var(--sheet);color:var(--ink);cursor:pointer}
+#af-add{background:var(--ink);color:var(--sheet)}
+.addform label.af-rl{display:block;margin-bottom:4px}
+.af-status:empty{display:none}
+.af-status{border:1px dashed var(--ink-3);padding:6px 8px;border-radius:2px}
+footer{margin-top:34px;padding-top:12px;border-top:1px solid var(--line);font-size:.84rem;color:var(--ink-2)}
+footer ul{margin:4px 0 10px;padding-left:1.15rem}
+footer p+p{margin-top:6px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<p class="eyebrow">Wireframe · low fidelity · Claude Code</p>
+<h1>Claude Code permissions — three wireframe directions</h1>
+<p class="lede">Wireframes for a screen where someone reviews and edits their Claude Code permission rules. Every direction has to answer one question: <b>what is Claude allowed to do in this project without asking, and where does each rule come from?</b></p>
+</header>
+<section class="brief" aria-label="Brief">
+<div><h2>Same content in every direction</h2><ul>
+<li>Project <code>acme-app</code>: a trusted folder, in Manual mode.</li>
+<li>16 rules in four settings files: Managed 4, Project local 2, Shared project 6, User 4. None from the command line.</li>
+<li>Two rules don’t apply: a User allow for <code>Bash(curl *)</code> that a managed deny blocks, and a Project local allow for <code>Bash(git push *)</code> that a Shared project ask out-ranks.</li>
+</ul></div>
+<div><h2>How Claude Code combines rules</h2><ul>
+<li>Rule lists from every settings file merge; no file replaces another’s list.</li>
+<li>Deny is checked first, then ask, then allow. The first match decides, whichever file it’s in and however specific it is.</li>
+<li>Nothing outside managed settings can lift a managed rule.</li>
+<li>Anything no rule matches follows the permission mode.</li>
+</ul></div>
+</section>
+<p class="legend"><b>Key</b><span><span class="t t-deny">Deny</span> blocked</span><span><span class="t t-ask">Ask</span> asks first</span><span><span class="t t-allow">Allow</span> runs without asking</span><span><s>struck</s> doesn’t apply</span><span><span class="pin">1</span> pinned note</span><span><span class="ph">dashed</span> placeholder, not built</span></p>
+<main>
+<div class="tabs" role="tablist" aria-label="Wireframe directions"><button type="button" role="tab" id="tab-a" aria-controls="dir-a" aria-selected="true">A · By file</button><button type="button" role="tab" id="tab-b" aria-controls="dir-b" aria-selected="false" tabindex="-1">B · By tool</button><button type="button" role="tab" id="tab-c" aria-controls="dir-c" aria-selected="false" tabindex="-1">C · What happens</button></div>
+<section class="dir" id="dir-a" role="tabpanel" aria-labelledby="tab-a" tabindex="0"><div class="dh"><h2>A · By file</h2><p>Mirrors the files on disk, so it’s obvious where each rule lives and where a new one goes; to know what Claude will actually do, you merge five lists in your head.</p></div><div class="frame" role="group" aria-label="Wireframe of direction A, desktop"><div class="bar"><b>Permissions</b><span class="proj">acme-app</span><span class="chip">Mode: Manual</span></div><div class="fb"><p class="combine"><span class="pin" aria-hidden="true">1</span><span>Files are listed highest precedence first. Permission rules don’t override by file: every file’s rules merge, then deny → ask → allow decides, first match wins.</span></p><section class="grp" data-host><div class="gh"><h4>Managed</h4><code class="file"><span class="nw">managed-settings.json</span></code><span class="who">From your organization · read-only</span><span class="cnt">4 rules</span></div><div class="slot"></div><ul class="rows"><li class="row"><span class="t t-deny">Deny</span><div class="rc"><code class="r">Bash(<wbr>curl *)</code><span class="g">curl commands</span></div><div class="ra"><span class="ro">Read-only</span></div></li><li class="row"><span class="t t-deny">Deny</span><div class="rc"><code class="r">Read(<wbr>./secrets/**)</code><span class="g">Reading files in secrets/</span></div><div class="ra"><span class="ro">Read-only</span></div></li><li class="row"><span class="t t-deny">Deny</span><div class="rc"><code class="r">WebFetch(<wbr>domain:<wbr>pastebin.com)</code><span class="g">Fetching pastebin.com</span></div><div class="ra"><span class="ro">Read-only</span></div></li><li class="row"><span class="t t-allow">Allow</span><div class="rc"><code class="r">WebFetch(<wbr>domain:<wbr>github.com)</code><span class="g">Fetching github.com</span></div><div class="ra"><span class="ro">Read-only</span></div></li></ul></section><section class="grp" data-host><div class="gh"><h4><span class="pin" aria-hidden="true">3</span>Command line</h4><code class="file"><span class="nw">--settings</span>, <span class="nw">--allowedTools</span>, <span class="nw">--disallowedTools</span></code><span class="who">This session only</span></div><div class="slot"></div><p class="empty">No rules this session.</p></section><section class="grp" data-host><div class="gh"><h4>Project local</h4><code class="file"><span class="nw">.claude/settings.local.json</span></code><span class="who">Only you, in acme-app · kept out of git · where “Yes, and don’t ask again” saves</span><span class="cnt">2 rules · 1 doesn’t apply</span><button type="button" class="add" data-dest="local" aria-expanded="false" aria-controls="addform">+ Add rule here</button></div><div class="slot"></div><ul class="rows"><li class="row"><span class="t t-allow">Allow</span><div class="rc"><code class="r">WebFetch(<wbr>domain:<wbr>docs.npmjs.com)</code><span class="g">Fetching docs.npmjs.com</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li><li class="row off"><span class="t t-allow">Allow</span><div class="rc"><code class="r"><s>Bash(<wbr>git push *)</s></code><span class="g">git push commands</span></div><div class="ra"><span class="pin" aria-hidden="true">2</span><span class="flag">Doesn’t apply: Shared project asks</span><span class="ph">Edit</span><span class="ph">Remove</span></div><details class="why"><summary>Why doesn’t this apply?</summary><p>The shared <code>.claude/settings.json</code> asks before <code>Bash(git push *)</code>. Ask is checked before allow whichever file holds each rule, so git push still asks, even though Project local sits higher in settings precedence. Removing that ask rule changes it for everyone on the project.</p></details></li></ul></section><section class="grp" data-host><div class="gh"><h4>Shared project</h4><code class="file"><span class="nw">.claude/settings.json</span></code><span class="who">Everyone in acme-app · committed to git</span><span class="cnt">6 rules</span><button type="button" class="add" data-dest="project" aria-expanded="false" aria-controls="addform">+ Add rule here</button></div><div class="slot"></div><ul class="rows"><li class="row"><span class="t t-deny">Deny</span><div class="rc"><code class="r">Read(<wbr>./.env)</code><span class="g">Reading .env</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li><li class="row"><span class="t t-ask">Ask</span><div class="rc"><code class="r">Bash(<wbr>git push *)</code><span class="g">git push commands</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li><li class="row"><span class="t t-ask">Ask</span><div class="rc"><code class="r">Edit(<wbr>/.github/workflows/**)</code><span class="g">Editing CI workflow files</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li><li class="row"><span class="t t-allow">Allow</span><div class="rc"><code class="r">Bash(<wbr>npm run *)</code><span class="g">npm run scripts</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li><li class="row"><span class="t t-allow">Allow</span><div class="rc"><code class="r">Edit(<wbr>/src/**)</code><span class="g">Editing files in src/</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li><li class="row"><span class="t t-allow">Allow</span><div class="rc"><code class="r">mcp__github__get_*</code><span class="g">GitHub MCP: get_ tools</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li></ul></section><section class="grp" data-host><div class="gh"><h4>User</h4><code class="file"><span class="nw">~/.claude/settings.json</span></code><span class="who">You, in every project on this machine</span><span class="cnt">4 rules · 1 doesn’t apply</span><button type="button" class="add" data-dest="user" aria-expanded="false" aria-controls="addform">+ Add rule here</button></div><div class="slot"></div><ul class="rows"><li class="row"><span class="t t-ask">Ask</span><div class="rc"><code class="r">mcp__puppeteer__*</code><span class="g">Puppeteer MCP: every tool</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li><li class="row"><span class="t t-allow">Allow</span><div class="rc"><code class="r">Bash(<wbr>git commit *)</code><span class="g">git commit commands</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li><li class="row"><span class="t t-allow">Allow</span><div class="rc"><code class="r">Read(<wbr>~/.zshrc)</code><span class="g">Reading ~/.zshrc</span></div><div class="ra"><span class="ph">Edit</span><span class="ph">Remove</span></div></li><li class="row off"><span class="t t-allow">Allow</span><div class="rc"><code class="r"><s>Bash(<wbr>curl *)</s></code><span class="g">curl commands</span></div><div class="ra"><span class="flag">Doesn’t apply: Managed denies</span><span class="ph">Edit</span><span class="ph">Remove</span></div><details class="why"><summary>Why doesn’t this apply?</summary><p>Your organization’s managed settings deny <code>Bash(curl *)</code>. Deny is checked before allow, and nothing outside managed settings can lift a managed rule. <code>/status</code> shows which managed source applies; ask your administrator if the policy should change.</p></details></li></ul></section><p class="else">Anything no rule matches follows <b>Manual mode</b>: reads inside the working directories and built-in read-only commands run without asking; other shell commands, file edits and most web fetches ask.</p></div></div><aside class="notes" aria-label="Notes on direction A"><h3>What it tests</h3><p>Whether people think of their rules as “my file versus the team’s file” first, and whether adding a rule inside the file it writes to removes the destination question.</p><h3>Gains</h3><ul><li>Same model as <code>/permissions</code>: each rule beside the file it comes from.</li><li>“Add rule here” needs no destination picker.</li><li>Managed rules are fenced off as read-only in one block.</li></ul><h3>Costs</h3><ul><li>Files sit in precedence order, which suggests the top file wins. For permission rules it doesn’t.</li><li>Each conflict spans two groups (curl: Managed and User), so its explanation has to point across the page.</li><li>No single place answers “can Claude run git push?”</li></ul><h3>Pinned notes</h3><ol><li>Without this line the order reads as “higher file overrides lower”. Lists merge, then deny → ask → allow decides.</li><li>Project local sits above Shared project, yet its allow loses to the shared ask. Is a “Why?” disclosure enough, or should the row link to the rule that wins?</li><li>Show an empty source like Command line, or hide sources with no rules?</li></ol></aside></section>
+<section class="dir" id="dir-b" role="tabpanel" aria-labelledby="tab-b" tabindex="0"><div class="dh"><h2>B · By tool</h2><p>Puts each tool’s deny, ask and allow rules side by side, so conflicts show at a glance; where a rule lives shrinks to a tag, and the lanes don’t survive a phone.</p></div><div class="frame" role="group" aria-label="Wireframe of direction B, desktop"><div class="bar"><b>Permissions</b><span class="proj">acme-app</span><span class="chip">Mode: Manual</span></div><div class="fb"><div class="key"><span class="pin" aria-hidden="true">1</span><span>Tag = the settings file the rule comes from:</span><ul><li><span class="tag">Managed</span> <code>managed-settings.json</code></li><li><span class="tag">Project local</span> <code>.claude/settings.local.json</code></li><li><span class="tag">Shared project</span> <code>.claude/settings.json</code></li><li><span class="tag">User</span> <code>~/.claude/settings.json</code></li><li><span class="tag">Command line</span> none this session</li></ul></div><section class="tool" data-host><div class="gh"><h4><span class="pin" aria-hidden="true">2</span>Bash</h4><span class="who">shell commands</span><span class="cnt">6 rules</span><button type="button" class="add" data-tool="Bash" aria-expanded="false" aria-controls="addform">+ Add Bash rule</button></div><div class="slot"></div><div class="lanes"><div class="lane"><h5><span class="t t-deny">Deny</span><span>checked first</span></h5><ul><li class="card"><code class="r">Bash(<wbr>curl *)</code><span class="g">curl commands</span><span class="tag">Managed</span></li></ul></div><div class="lane"><h5><span class="t t-ask">Ask</span><span>then</span></h5><ul><li class="card"><code class="r">Bash(<wbr>git push *)</code><span class="g">git push commands</span><span class="tag">Shared project</span></li></ul></div><div class="lane"><h5><span class="t t-allow">Allow</span><span>last</span></h5><ul><li class="card"><code class="r">Bash(<wbr>npm run *)</code><span class="g">npm run scripts</span><span class="tag">Shared project</span></li><li class="card"><code class="r">Bash(<wbr>git commit *)</code><span class="g">git commit commands</span><span class="tag">User</span></li><li class="card off"><code class="r"><s>Bash(<wbr>git push *)</s></code><span class="g">git push commands</span><span class="tag">Project local</span><span class="flag">Doesn’t apply: Shared project asks</span><details class="why"><summary>Why?</summary><p>The shared <code>.claude/settings.json</code> asks before <code>Bash(git push *)</code>. Ask is checked before allow whichever file holds each rule, so git push still asks, even though Project local sits higher in settings precedence. Removing that ask rule changes it for everyone on the project.</p></details></li><li class="card off"><code class="r"><s>Bash(<wbr>curl *)</s></code><span class="g">curl commands</span><span class="tag">User</span><span class="flag">Doesn’t apply: Managed denies</span><details class="why"><summary>Why?</summary><p>Your organization’s managed settings deny <code>Bash(curl *)</code>. Deny is checked before allow, and nothing outside managed settings can lift a managed rule. <code>/status</code> shows which managed source applies; ask your administrator if the policy should change.</p></details></li></ul></div></div><p class="fallback"><b>No rule matches:</b> Manual mode asks, except built-in read-only commands such as <code>ls</code>, <code>cat</code> and <code>grep</code>.</p></section><section class="tool" data-host><div class="gh"><h4>Read</h4><span class="who">reading files</span><span class="cnt">3 rules</span><button type="button" class="add" data-tool="Read" aria-expanded="false" aria-controls="addform">+ Add Read rule</button></div><div class="slot"></div><div class="lanes"><div class="lane"><h5><span class="t t-deny">Deny</span><span>checked first</span></h5><ul><li class="card"><code class="r">Read(<wbr>./secrets/**)</code><span class="g">Reading files in secrets/</span><span class="tag">Managed</span></li><li class="card"><code class="r">Read(<wbr>./.env)</code><span class="g">Reading .env</span><span class="tag">Shared project</span></li></ul></div><div class="lane"><h5><span class="t t-ask">Ask</span><span>then</span></h5><p class="none">None</p></div><div class="lane"><h5><span class="t t-allow">Allow</span><span>last</span></h5><ul><li class="card"><code class="r">Read(<wbr>~/.zshrc)</code><span class="g">Reading ~/.zshrc</span><span class="tag">User</span></li></ul></div></div><p class="fallback"><b>No rule matches:</b> no approval needed inside the working directories.</p></section><section class="tool" data-host><div class="gh"><h4>Edit</h4><span class="who">changing files</span><span class="cnt">2 rules</span><button type="button" class="add" data-tool="Edit" aria-expanded="false" aria-controls="addform">+ Add Edit rule</button></div><div class="slot"></div><div class="lanes"><div class="lane"><h5><span class="t t-deny">Deny</span><span>checked first</span></h5><p class="none">None</p></div><div class="lane"><h5><span class="t t-ask">Ask</span><span>then</span></h5><ul><li class="card"><code class="r">Edit(<wbr>/.github/workflows/**)</code><span class="g">Editing CI workflow files</span><span class="tag">Shared project</span></li></ul></div><div class="lane"><h5><span class="t t-allow">Allow</span><span>last</span></h5><ul><li class="card"><code class="r">Edit(<wbr>/src/**)</code><span class="g">Editing files in src/</span><span class="tag">Shared project</span></li></ul></div></div><p class="fallback"><b>No rule matches:</b> Manual mode asks.</p></section><section class="tool" data-host><div class="gh"><h4>WebFetch</h4><span class="who">fetching web pages</span><span class="cnt">3 rules</span><button type="button" class="add" data-tool="WebFetch" aria-expanded="false" aria-controls="addform">+ Add WebFetch rule</button></div><div class="slot"></div><div class="lanes"><div class="lane"><h5><span class="t t-deny">Deny</span><span>checked first</span></h5><ul><li class="card"><code class="r">WebFetch(<wbr>domain:<wbr>pastebin.com)</code><span class="g">Fetching pastebin.com</span><span class="tag">Managed</span></li></ul></div><div class="lane"><h5><span class="t t-ask">Ask</span><span>then</span></h5><p class="none">None</p></div><div class="lane"><h5><span class="t t-allow">Allow</span><span>last</span></h5><ul><li class="card"><code class="r">WebFetch(<wbr>domain:<wbr>github.com)</code><span class="g">Fetching github.com</span><span class="tag">Managed</span></li><li class="card"><code class="r">WebFetch(<wbr>domain:<wbr>docs.npmjs.com)</code><span class="g">Fetching docs.npmjs.com</span><span class="tag">Project local</span></li></ul></div></div><p class="fallback"><b>No rule matches:</b> Manual mode asks, except a built-in set of preapproved documentation domains.</p></section><section class="tool" data-host><div class="gh"><h4><span class="pin" aria-hidden="true">3</span>MCP tools</h4><span class="who">tools from MCP servers</span><span class="cnt">2 rules</span><button type="button" class="add" data-tool="MCP" aria-expanded="false" aria-controls="addform">+ Add MCP rule</button></div><div class="slot"></div><div class="lanes"><div class="lane"><h5><span class="t t-deny">Deny</span><span>checked first</span></h5><p class="none">None</p></div><div class="lane"><h5><span class="t t-ask">Ask</span><span>then</span></h5><ul><li class="card"><code class="r">mcp__puppeteer__*</code><span class="g">Puppeteer MCP: every tool</span><span class="tag">User</span></li></ul></div><div class="lane"><h5><span class="t t-allow">Allow</span><span>last</span></h5><ul><li class="card"><code class="r">mcp__github__get_*</code><span class="g">GitHub MCP: get_ tools</span><span class="tag">Shared project</span></li></ul></div></div><p class="fallback"><b>No rule matches:</b> Manual mode prompts on first use of each tool.</p></section></div></div><aside class="notes" aria-label="Notes on direction B"><h3>What it tests</h3><p>Whether people review by capability (“what can it do in the shell?”), and whether left-to-right lanes teach the deny → ask → allow order.</p><h3>Gains</h3><ul><li>The git push conflict shows without reading: the ask and the struck-out allow are neighbours.</li><li>Each tool ends with what happens when no rule matches.</li><li>“Add Bash rule” names the tool up front.</li></ul><h3>Costs</h3><ul><li>Adding needs a destination choice, because the file is no longer the frame.</li><li>Sparse: 4 of 15 lanes are empty even with 16 rules.</li><li>Provenance is a tag; the file path is one legend away.</li></ul><h3>Pinned notes</h3><ol><li>Tags replace the file path. Are “Shared project” and “Project local” clear without the path beside them?</li><li>Lanes run left to right in evaluation order. Does that teach the order, or read as a pipeline a call flows through?</li><li>MCP grows with every server: one group, or one per server?</li></ol></aside></section>
+<section class="dir" id="dir-c" role="tabpanel" aria-labelledby="tab-c" tabindex="0"><div class="dh"><h2>C · What happens</h2><p>Leads with the answer (runs without asking, asks first, blocked) and gives each rule’s file second; it’s a derived view, one step away from the files people edit.</p></div><div class="frame" role="group" aria-label="Wireframe of direction C, desktop"><div class="bar"><b>Permissions</b><span class="proj">acme-app</span><span class="chip">Mode: Manual</span></div><div class="fb"><p class="sum"><span class="pin" aria-hidden="true">3</span><span><b>16 rules:</b> 7 run without asking · 3 ask first · 4 blocked · 2 don’t apply</span></p>
+<div class="ctools" data-host><div class="check ph"><span class="pin" aria-hidden="true">1</span><span class="lbl">Check a call</span><span class="fake"><code>git push origin main</code></span><span class="res">Asks first: ask <code>Bash(git push *)</code> in Shared project. The Project local allow for the same commands doesn’t apply.</span></div><div class="cadd"><span class="pin" aria-hidden="true">2</span><button type="button" class="add" aria-expanded="false" aria-controls="addform">+ Add rule</button></div><div class="slot"></div></div>
+<section class="out"><h4>Runs without asking <span class="n">7</span></h4><ul><li class="erow"><span class="what">npm run scripts</span><span class="rule"><span class="t t-allow">Allow</span> <code class="r">Bash(<wbr>npm run *)</code></span><span class="from"><b>Shared project</b> <code>.claude/settings.json</code></span></li><li class="erow"><span class="what">git commit commands</span><span class="rule"><span class="t t-allow">Allow</span> <code class="r">Bash(<wbr>git commit *)</code></span><span class="from"><b>User</b> <code>~/.claude/settings.json</code></span></li><li class="erow"><span class="what">Reading ~/.zshrc</span><span class="rule"><span class="t t-allow">Allow</span> <code class="r">Read(<wbr>~/.zshrc)</code></span><span class="from"><b>User</b> <code>~/.claude/settings.json</code></span></li><li class="erow"><span class="what">Editing files in src/</span><span class="rule"><span class="t t-allow">Allow</span> <code class="r">Edit(<wbr>/src/**)</code></span><span class="from"><b>Shared project</b> <code>.claude/settings.json</code></span></li><li class="erow"><span class="what">Fetching github.com</span><span class="rule"><span class="t t-allow">Allow</span> <code class="r">WebFetch(<wbr>domain:<wbr>github.com)</code></span><span class="from"><b>Managed</b> <code>managed-settings.json</code></span></li><li class="erow"><span class="what">Fetching docs.npmjs.com</span><span class="rule"><span class="t t-allow">Allow</span> <code class="r">WebFetch(<wbr>domain:<wbr>docs.npmjs.com)</code></span><span class="from"><b>Project local</b> <code>.claude/settings.local.json</code></span></li><li class="erow"><span class="what">GitHub MCP: get_ tools</span><span class="rule"><span class="t t-allow">Allow</span> <code class="r">mcp__github__get_*</code></span><span class="from"><b>Shared project</b> <code>.claude/settings.json</code></span></li></ul></section><section class="out"><h4>Asks first <span class="n">3</span></h4><ul><li class="erow"><span class="what">git push commands</span><span class="rule"><span class="t t-ask">Ask</span> <code class="r">Bash(<wbr>git push *)</code></span><span class="from"><b>Shared project</b> <code>.claude/settings.json</code></span><div class="also"><span class="flag">Also matches · doesn’t apply</span> <span class="t t-allow">Allow</span> <code class="r"><s>Bash(<wbr>git push *)</s></code> in <b>Project local</b>. Ask is checked before allow, whichever file holds each rule. <span class="ph">Remove</span></div></li><li class="erow"><span class="what">Editing CI workflow files</span><span class="rule"><span class="t t-ask">Ask</span> <code class="r">Edit(<wbr>/.github/workflows/**)</code></span><span class="from"><b>Shared project</b> <code>.claude/settings.json</code></span></li><li class="erow"><span class="what">Puppeteer MCP: every tool</span><span class="rule"><span class="t t-ask">Ask</span> <code class="r">mcp__puppeteer__*</code></span><span class="from"><b>User</b> <code>~/.claude/settings.json</code></span></li></ul></section><section class="out"><h4>Blocked <span class="n">4</span></h4><ul><li class="erow"><span class="what">curl commands</span><span class="rule"><span class="t t-deny">Deny</span> <code class="r">Bash(<wbr>curl *)</code></span><span class="from"><b>Managed</b> <code>managed-settings.json</code></span><div class="also"><span class="flag">Also matches · doesn’t apply</span> <span class="t t-allow">Allow</span> <code class="r"><s>Bash(<wbr>curl *)</s></code> in <b>User</b>. Deny is checked before allow, and nothing outside managed settings can lift a managed rule. <span class="ph">Remove</span></div></li><li class="erow"><span class="what">Reading files in secrets/</span><span class="rule"><span class="t t-deny">Deny</span> <code class="r">Read(<wbr>./secrets/**)</code></span><span class="from"><b>Managed</b> <code>managed-settings.json</code></span></li><li class="erow"><span class="what">Reading .env</span><span class="rule"><span class="t t-deny">Deny</span> <code class="r">Read(<wbr>./.env)</code></span><span class="from"><b>Shared project</b> <code>.claude/settings.json</code></span></li><li class="erow"><span class="what">Fetching pastebin.com</span><span class="rule"><span class="t t-deny">Deny</span> <code class="r">WebFetch(<wbr>domain:<wbr>pastebin.com)</code></span><span class="from"><b>Managed</b> <code>managed-settings.json</code></span></li></ul></section>
+<section class="out"><h4>Anything else</h4><p class="else">Anything no rule matches follows <b>Manual mode</b>: reads inside the working directories and built-in read-only commands run without asking; other shell commands, file edits and most web fetches ask.</p></section></div></div><aside class="notes" aria-label="Notes on direction C"><h3>What it tests</h3><p>Whether outcome-first groups with plain-language labels answer the question faster than A or B, and whether nesting a losing rule under the rule that beats it explains conflicts.</p><h3>Gains</h3><ul><li>The first group is the literal answer to the question.</li><li>Rules that don’t apply sit under the rule that beats them, with the reason.</li><li>“Anything else” ties the list to the permission mode.</li></ul><h3>Costs</h3><ul><li>Cleaning up one file means hunting through every group.</li><li>The single “Add rule” asks for type, rule and file every time.</li><li>Ordered by the question, not evaluation order, so the reasons have to teach deny → ask → allow.</li></ul><h3>Pinned notes</h3><ol><li>Static example. A real lookup needs Claude Code’s own matcher (compound commands, wrappers), so building it is a product decision, not a wireframe one.</li><li>Without a fixed file, the form defaults to Project local: only you, and where prompt approvals already save. Confirm.</li><li>If the organization sets <code>allowManagedPermissionRulesOnly</code>, every user, project and local rule is ignored and new rules can’t be saved: one banner, or every row?</li></ol></aside></section>
+<section class="phone-sec" aria-labelledby="ph-h">
+<h2 id="ph-h">On a phone: C, collapsed</h2>
+<p>The same 16 rules at 360 px. C is drawn here because its single list survives the collapse; the notes say what A and B would lose.</p>
+<div class="pgrid"><div class="phone" role="group" aria-label="Phone wireframe of direction C">
+<div class="p-bar"><span class="ph" aria-hidden="true">‹</span><b>Permissions</b></div>
+<p class="p-sub">acme-app <span class="chip">Mode: Manual</span></p>
+<details class="p-warn"><summary>2 of your rules don’t apply</summary><ul><li><span class="t t-allow">Allow</span> <code class="r"><s>Bash(<wbr>git push *)</s></code> · Project local<br>A Shared project ask for the same commands wins.</li><li><span class="t t-allow">Allow</span> <code class="r"><s>Bash(<wbr>curl *)</s></code> · User<br>A managed deny for the same commands wins.</li></ul></details>
+<details class="p-sec" open><summary><span>Runs without asking</span><b>7</b></summary><ul><li><span class="what">npm run scripts</span><code class="r">Bash(<wbr>npm run *)</code><span class="tag">Shared project</span></li><li><span class="what">git commit commands</span><code class="r">Bash(<wbr>git commit *)</code><span class="tag">User</span></li><li><span class="what">Reading ~/.zshrc</span><code class="r">Read(<wbr>~/.zshrc)</code><span class="tag">User</span></li><li><span class="what">Editing files in src/</span><code class="r">Edit(<wbr>/src/**)</code><span class="tag">Shared project</span></li><li><span class="what">Fetching github.com</span><code class="r">WebFetch(<wbr>domain:<wbr>github.com)</code><span class="tag">Managed</span></li><li><span class="what">Fetching docs.npmjs.com</span><code class="r">WebFetch(<wbr>domain:<wbr>docs.npmjs.com)</code><span class="tag">Project local</span></li><li><span class="what">GitHub MCP: get_ tools</span><code class="r">mcp__github__get_*</code><span class="tag">Shared project</span></li></ul></details><details class="p-sec"><summary><span>Asks first</span><b>3</b></summary><ul><li><span class="what">git push commands</span><code class="r">Bash(<wbr>git push *)</code><span class="tag">Shared project</span></li><li><span class="what">Editing CI workflow files</span><code class="r">Edit(<wbr>/.github/workflows/**)</code><span class="tag">Shared project</span></li><li><span class="what">Puppeteer MCP: every tool</span><code class="r">mcp__puppeteer__*</code><span class="tag">User</span></li></ul></details><details class="p-sec"><summary><span>Blocked</span><b>4</b></summary><ul><li><span class="what">curl commands</span><code class="r">Bash(<wbr>curl *)</code><span class="tag">Managed</span></li><li><span class="what">Reading files in secrets/</span><code class="r">Read(<wbr>./secrets/**)</code><span class="tag">Managed</span></li><li><span class="what">Reading .env</span><code class="r">Read(<wbr>./.env)</code><span class="tag">Shared project</span></li><li><span class="what">Fetching pastebin.com</span><code class="r">WebFetch(<wbr>domain:<wbr>pastebin.com)</code><span class="tag">Managed</span></li></ul></details>
+<p class="p-else"><b>Anything else</b> follows Manual mode.</p>
+<div class="p-foot"><span class="ph">+ Add rule</span></div>
+</div>
+<aside class="notes" aria-label="Notes on the phone layout"><h3>What collapses where</h3><ul>
+<li>Outcome groups become accordions, and only “Runs without asking” starts open, because it is the question.</li>
+<li>Each row keeps three lines: plain words, the rule, the source’s name. The file path moves to a row detail screen, not drawn.</li>
+<li>The two rules that don’t apply leave the counts and sit behind one banner, each with its one-line reason.</li>
+<li>“Add rule” becomes a bottom bar. Its sheet is the desktop form stacked: type, rule, then file.</li>
+</ul><h3>The other two on a phone</h3><ul>
+<li><b>A</b> folds into five file accordions and loses nothing it had.</li>
+<li><b>B</b> stacks its lanes per tool, which breaks the side-by-side comparison that is its reason to exist.</li>
+</ul></aside></div>
+</section>
+<section class="closing" aria-label="Assumptions and next steps">
+<div><h2>Assumptions</h2><ul>
+<li>A graphical surface: desktop app, IDE panel or web. In the terminal, <code>/permissions</code> already lists every rule with the settings file it comes from.</li>
+<li><code>acme-app</code> is trusted. Until a folder is trusted, allow rules in its <code>.claude/settings.json</code> don’t apply; that state needs its own design.</li>
+<li>Manual mode throughout. In <code>dontAsk</code> mode an ask rule denies instead of asking, so every direction keeps the mode in its title bar.</li>
+</ul></div>
+<div><h2>Deferred to a mockup</h2><ul>
+<li>Colour for deny, ask and allow; here they differ only by fill.</li>
+<li>Icons for tools and settings files.</li>
+<li>Type scale, row density and spacing.</li>
+<li>Motion for opening rows, accordions and the form.</li>
+</ul></div>
+<div><h2>Next round</h2><ul>
+<li>Test C as the default view, with a “group by file” switch borrowed from A for cleaning up one file.</li>
+<li>Decide whether “Check a call” earns a real matcher.</li>
+<li>Design the untrusted-folder and managed-rules-only states.</li>
+</ul></div>
+</section>
+</main>
+<footer>
+<p>Built from these Claude Code docs pages (fetched November 2026). The project, files and rules are illustrative; how rules combine is as the docs describe it.</p>
+<ul><li><a href="https://code.claude.com/docs/en/permissions" target="_blank" rel="noopener">Configure permissions</a></li><li><a href="https://code.claude.com/docs/en/settings" target="_blank" rel="noopener">Settings files and precedence</a></li><li><a href="https://code.claude.com/docs/en/settings-reference#permission-settings" target="_blank" rel="noopener">All settings: permission settings</a></li></ul>
+<p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html-wireframe" target="_blank" rel="noopener">html-wireframe</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+<form id="addform" class="addform" hidden novalidate aria-labelledby="af-title">
+<h4 id="af-title">Add a rule</h4>
+<fieldset><legend>Type</legend><label><input type="radio" name="type" value="allow" checked> Allow <span>runs without asking</span></label><label><input type="radio" name="type" value="ask"> Ask <span>asks every time</span></label><label><input type="radio" name="type" value="deny"> Deny <span>blocked</span></label></fieldset>
+<div><label class="af-rl" for="af-rule"><b>Rule</b></label><input id="af-rule" name="rule" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="af-hint"></div>
+<p id="af-hint" class="hint">Write <code>Tool</code> or <code>Tool(specifier)</code>. <code>Bash(npm run test:*)</code> is the same rule as <code>Bash(npm run test *)</code>.</p>
+<fieldset id="af-dest"><legend>Save to</legend><label><input type="radio" name="dest" value="local" checked> Project local <code>.claude/settings.local.json</code></label><label><input type="radio" name="dest" value="project"> Shared project <code>.claude/settings.json</code></label><label><input type="radio" name="dest" value="user"> User <code>~/.claude/settings.json</code></label><label class="dis"><input type="radio" name="dest" value="managed" disabled> Managed: set by your organization</label></fieldset>
+<p id="af-fixed" hidden></p>
+<ul id="af-notes" class="af-notes"></ul>
+<div class="af-btns"><button type="button" id="af-add">Add rule</button><button type="button" id="af-cancel">Cancel</button></div>
+<p id="af-status" class="af-status" role="status"></p>
+</form>
+<script>(function(){
+var $=function(s,c){return (c||document).querySelector(s);},$$=function(s,c){return [].slice.call((c||document).querySelectorAll(s));};
+var form=$('#addform'),title=$('#af-title'),rule=$('#af-rule'),notes=$('#af-notes'),status=$('#af-status'),destSet=$('#af-dest'),fixed=$('#af-fixed'),opener=null,fixedDest=null;
+var DEST={local:['Project local','.claude/settings.local.json','Only you, in acme-app. Kept out of git.'],project:['Shared project','.claude/settings.json','Everyone working in acme-app, once you commit it.'],user:['User','~/.claude/settings.json','You, in every project on this machine.']};
+var PH={Bash:'Bash(npm run test *)',Read:'Read(./docs/**)',Edit:'Edit(/docs/**)',WebFetch:'WebFetch(domain:example.com)',MCP:'mcp__github__*'};
+function val(n){var r=$('input[name="'+n+'"]:checked',form);return r?r.value:'';}
+function dest(){return fixedDest||val('dest');}
+function update(){
+var t=val('type'),d=dest(),r=rule.value.trim(),o=[DEST[d][2]];
+if(d==='project'&&t==='allow')o.push('Allow rules in this file wait until each person trusts the folder; ask and deny rules apply right away.');
+if(t==='allow')o.push('A deny or ask rule in any file that matches the same call still wins.');
+if(t==='ask')o.push('Asks even in modes that would otherwise approve the call, such as acceptEdits.');
+if(t==='deny')o.push('Blocks matching calls in every mode, including bypassPermissions.');
+if(t==='deny'&&/^Bash\(/.test(r))o.push('A Bash rule matches the command as written: Bash(curl *) doesn\u2019t stop /usr/bin/curl or sh -c \u2018curl \u2026\u2019.');
+if(d==='user'&&/^(Read|Edit)\(\/(?!\/)/.test(r))o.push('Check the path: in user settings, a rule that starts with a single / anchors at ~/.claude, not this project. Use ~/ or //.');
+if(/^mcp__[^(]*\(/.test(r))o.push('Claude Code skips an mcp__ rule that has parentheses when it loads a settings file.');
+if(/^(Write|NotebookEdit|Glob)\(/.test(r))o.push('Path rules for Write, NotebookEdit and Glob never match. Use Edit(path), or Read(path) in place of Glob.');
+notes.textContent='';o.forEach(function(s){var li=document.createElement('li');li.textContent=s;notes.appendChild(li);});
+status.textContent='';
+}
+function closeForm(focus){if(form.hidden)return;form.hidden=true;document.body.appendChild(form);if(opener){opener.setAttribute('aria-expanded','false');if(focus)opener.focus();}}
+function openForm(btn){
+if(opener&&opener!==btn)opener.setAttribute('aria-expanded','false');
+opener=btn;fixedDest=btn.getAttribute('data-dest');var tool=btn.getAttribute('data-tool');
+$('.slot',btn.closest('[data-host]')).appendChild(form);
+form.reset();
+destSet.hidden=!!fixedDest;fixed.hidden=!fixedDest;fixed.textContent='';
+if(fixedDest){var b=document.createElement('strong'),c=document.createElement('code');b.textContent=DEST[fixedDest][0];c.textContent=DEST[fixedDest][1];fixed.append('Saves to ',b,' ',c);}
+title.textContent=fixedDest?'Add a rule to '+DEST[fixedDest][0]:tool?'Add '+(tool==='MCP'?'an ':'a ')+tool+' rule':'Add a rule';
+rule.placeholder=PH[tool]||PH.Bash;
+form.hidden=false;btn.setAttribute('aria-expanded','true');update();
+$('input[name="type"]:checked',form).focus();
+}
+$$('button.add').forEach(function(b){b.addEventListener('click',function(){if(!form.hidden&&opener===b){closeForm(true);return;}openForm(b);});});
+form.addEventListener('input',update);
+function add(){var r=rule.value.trim();if(!r){status.textContent='Enter a rule first, such as '+rule.placeholder+'.';rule.focus();return;}status.textContent='Wireframe only, so nothing was saved. This would add '+r+' to permissions.'+val('type')+' in '+DEST[dest()][1]+'.';}
+$('#af-add').addEventListener('click',add);
+rule.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();add();}});
+form.addEventListener('submit',function(e){e.preventDefault();});
+$('#af-cancel').addEventListener('click',function(){closeForm(true);});
+form.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();closeForm(true);}});
+var tabs=$$('[role="tab"]');
+function sel(t,f){tabs.forEach(function(x){var on=x===t;x.setAttribute('aria-selected',on?'true':'false');x.tabIndex=on?0:-1;document.getElementById(x.getAttribute('aria-controls')).hidden=!on;});closeForm(false);if(f)t.focus();}
+tabs.forEach(function(t,i){t.addEventListener('click',function(){sel(t);});t.addEventListener('keydown',function(e){var n=tabs.length,j=-1;if(e.key==='ArrowRight')j=(i+1)%n;else if(e.key==='ArrowLeft')j=(i+n-1)%n;else if(e.key==='Home')j=0;else if(e.key==='End')j=n-1;if(j>-1){e.preventDefault();sel(tabs[j],true);}});});
+sel(tabs[0]);
+})();</script>
+</body>
+</html>

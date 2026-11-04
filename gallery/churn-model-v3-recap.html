@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Churn model v3 — one-page recap</title>
+<meta name="description" content="A one-minute recap for teammates: churn model v3 now builds the retention team's weekly call list, and the same 2,000 calls reach 44% more customers who were about to cancel. What changed, what it means day to day, the caveats and what's next.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  --paper:#eff2f5;--sheet:#fff;--well:#f5f7fa;--ink:#121a25;--ink-2:#526072;--ink-3:#6a7688;--rule:#d6dce4;
+  --v3:#2a48d4;--v3-soft:#e5e9fc;--v3-mid:#a9b8f4;--on-v3:#fff;
+  --v2:#909bab;--v2-ink:#5a6677;--empty:#e0e5ec;
+  --warn:#8f5200;--warn-soft:#fbefdc;--live:#17703e;
+  --display:"DIN Alternate",Bahnschrift,"DIN 2014","D-DIN","Roboto Condensed","Arial Narrow",sans-serif;
+  --text:Charter,"Bitstream Charter","Sitka Text",Cambria,Georgia,serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0c1118;--sheet:#141b25;--well:#10161f;--ink:#e6ebf1;--ink-2:#a0acbb;--ink-3:#7c899b;--rule:#273241;
+    --v3:#8ea3ff;--v3-soft:#1c2550;--v3-mid:#4557a8;--on-v3:#0c1118;
+    --v2:#66738a;--v2-ink:#a6b1bf;--empty:#202a37;
+    --warn:#f0b35c;--warn-soft:#2c2112;--live:#4cc483;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0c1118;--sheet:#141b25;--well:#10161f;--ink:#e6ebf1;--ink-2:#a0acbb;--ink-3:#7c899b;--rule:#273241;
+  --v3:#8ea3ff;--v3-soft:#1c2550;--v3-mid:#4557a8;--on-v3:#0c1118;
+  --v2:#66738a;--v2-ink:#a6b1bf;--empty:#202a37;
+  --warn:#f0b35c;--warn-soft:#2c2112;--live:#4cc483;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:1.0625rem/1.55 var(--text)}
+h1,h2,h3,p,figure,ul,ol{margin:0}
+p{text-wrap:pretty}
+a{color:var(--v3);text-underline-offset:.16em}
+:focus-visible{outline:2px solid var(--v3);outline-offset:3px;border-radius:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.nw{white-space:nowrap}
+code{font:.9em/1 var(--mono)}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+.wrap{max-width:68rem;margin:0 auto;padding:2.25rem 1rem 1.75rem;display:grid;gap:3.25rem}
+@media (min-width:44rem){.wrap{padding:3.5rem 2rem 2.25rem;gap:4.25rem}}
+
+/* type roles: DIN speaks for the data, Charter for the people */
+.kicker{font:700 .74rem/1.2 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--v3)}
+h1{font:700 clamp(2.6rem,8vw,4.6rem)/.98 var(--display);letter-spacing:-.02em;text-wrap:balance}
+h2{font:700 clamp(1.5rem,3.2vw,1.9rem)/1.1 var(--display);letter-spacing:-.01em;text-wrap:balance}
+h3{font:700 1.12rem/1.25 var(--text);text-wrap:balance}
+.num{font-family:var(--display);font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.fine{font-size:.82rem;line-height:1.5;color:var(--ink-2);max-width:68ch}
+.ico{width:1.25rem;height:1.25rem;flex:none}
+
+/* header */
+.top{display:grid;gap:1.1rem;max-width:48rem}
+.lede{font-size:clamp(1.12rem,2.3vw,1.3rem);line-height:1.45;max-width:34em}
+.meta{display:flex;flex-wrap:wrap;gap:.45rem 1.25rem;font:.78rem/1.4 var(--mono);color:var(--ink-2);list-style:none;padding:0}
+.live{display:inline-flex;align-items:center;gap:.5rem;color:var(--live);font-weight:600}
+.live::before{content:"";width:.5rem;height:.5rem;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 25%,transparent)}
+
+.sheet{background:var(--sheet);border:1px solid var(--rule);border-radius:4px}
+.sec{display:grid;gap:1.25rem}
+
+/* hero: the two call lists */
+.hero{padding:1.25rem 1rem 1.1rem;display:grid;gap:1.4rem}
+@media (min-width:44rem){.hero{padding:2rem 2.25rem 1.5rem}}
+.claim{font-size:clamp(1.3rem,3.4vw,1.85rem);line-height:1.28;max-width:27em;text-wrap:balance}
+.claim strong{color:var(--v3)}
+.lists{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.4rem 1rem}
+@media (min-width:52rem){.lists{grid-template-columns:minmax(0,14.5rem) minmax(0,14.5rem) minmax(0,1fr);gap:2.75rem;align-items:center}}
+.list{display:grid;gap:.7rem;align-content:start}
+.list figcaption{display:flex;align-items:center;gap:.5rem;font:.74rem/1.2 var(--mono);color:var(--ink-2)}
+.chip{font:700 .74rem/1 var(--display);letter-spacing:.05em;padding:.28rem .45rem .22rem;border-radius:3px;color:var(--sheet)}
+.chip.v2{background:var(--v2-ink)}.chip.v3{background:var(--v3)}
+.grid{display:block;width:100%;height:auto}
+.grid .e{fill:var(--empty)}.grid .f2{fill:var(--v2)}.grid .f3,.grid .gain rect{fill:var(--v3)}
+.grid .gain rect{transform-box:fill-box;transform-origin:center;animation:pop .5s cubic-bezier(.2,.9,.3,1.25) both;animation-delay:calc(.45s + var(--i) * 75ms)}
+@keyframes pop{from{opacity:0;transform:scale(.2)}}
+.count{display:grid;gap:.35rem}
+.count .num{font-size:clamp(2.5rem,7vw,3.6rem)}
+.count.v2 .num{color:var(--v2-ink)}.count.v3 .num{color:var(--v3)}
+.count span{font-size:.86rem;line-height:1.35;color:var(--ink-2)}
+.delta{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr);gap:.2rem 1rem;align-items:center;padding-top:1.1rem;border-top:1px solid var(--rule)}
+.delta .num{font-size:clamp(2.6rem,8vw,4.4rem);color:var(--v3)}
+.delta p{font-size:1rem;line-height:1.4}
+@media (min-width:52rem){.delta{grid-column:auto;grid-template-columns:minmax(0,1fr);gap:.6rem;border-top:0;padding:0 0 0 2.5rem;border-left:1px solid var(--rule);align-self:stretch;align-content:center}}
+.legend{display:flex;flex-wrap:wrap;gap:.4rem 1.4rem;font-size:.86rem;color:var(--ink-2);list-style:none;padding:0}
+.legend li{display:flex;align-items:flex-start;gap:.45rem}
+.sw{width:.8rem;height:.8rem;border-radius:2px;flex:none;margin-top:.3em}
+.sw.on{background:linear-gradient(90deg,var(--v2) 50%,var(--v3) 50%)}.sw.off{background:var(--empty)}
+
+/* what-if disclosure */
+.whatif{border-top:1px solid var(--rule);padding-top:.9rem}
+.whatif summary{cursor:pointer;display:inline-flex;align-items:center;gap:.65rem;font-weight:700;list-style:none;padding:.2rem 0}
+.whatif summary::-webkit-details-marker{display:none}
+.whatif summary::before{content:"";width:.45rem;height:.45rem;border:solid currentColor;border-width:0 2px 2px 0;transform:rotate(-45deg);transition:transform .2s;margin:0 .1rem}
+.whatif[open] summary::before{transform:rotate(45deg) translate(-2px,-2px)}
+.whatif summary:hover{color:var(--v3)}
+.wi{display:grid;gap:.9rem;padding-top:1rem;max-width:46rem}
+.gainsvg{display:block;width:100%;height:auto}
+.gainsvg .gl{stroke:var(--rule);stroke-width:1}
+.gainsvg .tk{font:10.5px var(--mono);fill:var(--ink-2)}
+.gainsvg .axt{font:700 11.5px var(--display);fill:var(--ink-2);letter-spacing:.03em}
+.gainsvg .today{stroke:var(--ink-3);stroke-dasharray:3 4}
+.gainsvg .c{fill:none;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.gainsvg .c.v2{stroke:var(--v2)}.gainsvg .c.v3{stroke:var(--v3);stroke-width:3}
+.gainsvg .cl,.gainsvg .val{font:700 14px var(--display);font-variant-numeric:tabular-nums}
+.gainsvg .v2.cl,.gainsvg .val.v2{fill:var(--v2-ink)}.gainsvg .v3.cl,.gainsvg .val.v3{fill:var(--v3)}
+.gainsvg .val .nm{font:11.5px var(--mono)}
+.gainsvg .mk{stroke:var(--ink);stroke-width:1.25}
+.gainsvg .lgbg{fill:var(--sheet);opacity:.94}
+.gainsvg .dot.v2{fill:var(--sheet);stroke:var(--v2);stroke-width:2.5}.gainsvg .dot.v3{fill:var(--v3)}
+.ctl{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"lab out" "rng rng";gap:.35rem 1rem;align-items:center;max-width:36rem}
+.ctl label{grid-area:lab;font-size:.95rem}
+.ctl output{grid-area:out;font:700 1.15rem/1 var(--display);font-variant-numeric:tabular-nums}
+.ctl input{grid-area:rng;width:100%;margin:.3rem 0;accent-color:var(--v3)}
+@media (min-width:40rem){.ctl{grid-template-columns:auto minmax(0,1fr) 4.5rem;grid-template-areas:"lab rng out"}.ctl output{text-align:right}}
+.read{font-size:1rem;line-height:1.45}
+.read b{font-family:var(--display);font-variant-numeric:tabular-nums}
+
+/* what changed */
+.three{display:grid;gap:1rem}
+.panel{padding:1rem;display:grid;gap:1rem;align-content:start}
+.pic{background:var(--well);border-radius:3px;padding:1rem;display:grid;align-content:center}
+.txt{display:grid;gap:.5rem;align-content:start}
+.txt p{font-size:.98rem}
+@media (min-width:40rem) and (max-width:61.99rem){.panel{grid-template-columns:minmax(0,18rem) minmax(0,1fr);gap:1.5rem;align-items:start}}
+@media (min-width:62rem){.three{grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:auto auto}.panel{grid-row:span 2;grid-template-rows:subgrid;padding:1.1rem 1.1rem 1.4rem}}
+.signs{gap:1rem}
+.sign{display:grid;grid-template-columns:1.6rem 3.1rem minmax(0,1fr);gap:.6rem;align-items:center}
+.sign .ico{width:1.6rem;height:1.6rem;color:var(--v3)}
+.sign .num{font-size:2.3rem;color:var(--v3)}
+.sign p{font-size:.9rem;line-height:1.3}
+.sign small{display:block;font:.72rem/1.4 var(--mono);color:var(--ink-2);margin-top:.15rem}
+.had{display:flex;flex-wrap:wrap;gap:.35rem;font:.72rem/1.2 var(--mono);color:var(--ink-2);padding-top:.85rem;border-top:1px dashed var(--rule)}
+.had span{border:1px solid var(--rule);border-radius:3px;padding:.2rem .35rem;background:var(--sheet)}
+.had span:first-child{border:0;background:none;padding-left:0}
+.tree,.cal{display:block;width:100%;height:auto}
+.tree .edge{stroke:var(--ink-3);stroke-width:1.4;fill:none}
+.tree .node rect{fill:var(--sheet);stroke:var(--ink-3);stroke-width:1.2}
+.tree .pill rect{fill:var(--sheet);stroke:var(--v2);stroke-width:1.4}
+.tree text{font:700 12.5px var(--display);fill:var(--ink)}
+.tree .elab{font:10px var(--mono);fill:var(--ink-2)}
+.tree .plus{font:700 15px var(--display);fill:var(--ink-2)}
+.tree .lo{fill:var(--empty)}.tree .md{fill:var(--v3-mid)}.tree .hi{fill:var(--v3)}
+.tree text.on{fill:var(--on-v3)}
+.tree .tcap{font:10px var(--mono);fill:var(--ink-2)}
+.tree .hd{font:700 10.5px var(--display);letter-spacing:.09em;fill:var(--ink-2)}
+.tree .hd .m2{fill:var(--v2-ink)}.tree .hd .m3{fill:var(--v3)}
+.tree .div{stroke:var(--rule);stroke-dasharray:3 4}
+.cal .gl{stroke:var(--rule);stroke-width:1;fill:none}
+.cal .tk{font:10px var(--mono);fill:var(--ink-2)}
+.cal .axt{font:700 11px var(--display);fill:var(--ink-2);letter-spacing:.03em}
+.cal .diag{stroke:var(--ink-3);stroke-width:1.3;stroke-dasharray:4 4;fill:none}
+.cal .l2{stroke:var(--v2);stroke-width:2;fill:none}.cal .l3{stroke:var(--v3);stroke-width:2.5;fill:none}
+.cal .p2 circle{fill:var(--well);stroke:var(--v2);stroke-width:2}.cal .p3 circle{fill:var(--v3)}
+.cal .lab{font:700 13px var(--display)}.cal .lab.v2{fill:var(--v2-ink)}.cal .lab.v3{fill:var(--v3)}
+.cal .ann{font:10.5px var(--mono)}.cal .ann.v2{fill:var(--v2-ink)}.cal .ann.v3{fill:var(--v3)}
+.calkey{display:flex;flex-wrap:wrap;gap:.3rem 1rem;font:.72rem/1.3 var(--mono);color:var(--ink-2);list-style:none;padding:.4rem 0 0}
+.calkey li{display:flex;align-items:center;gap:.4rem}
+.calkey i{display:inline-block;width:1.1rem;height:0;border-top:2px solid var(--v3)}
+.calkey i.v2{border-color:var(--v2)}.calkey i.ex{border-top:2px dashed var(--ink-3)}
+
+/* day to day */
+.team{padding:1.25rem 1rem;display:grid;gap:1.75rem}
+@media (min-width:44rem){.team{padding:1.75rem 2rem}}
+@media (min-width:62rem){.team{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:3rem;align-items:start}}
+.cap{display:grid;gap:.2rem;margin-bottom:.8rem}
+.cap b{font:700 .74rem/1.2 var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.cap span{font-size:.86rem;color:var(--ink-2)}
+.rows{list-style:none;padding:0;display:grid}
+.rows-head{display:none}
+.row{display:grid;grid-template-columns:4.7rem minmax(0,1fr);grid-template-areas:"score id" "score why";gap:.3rem .9rem;padding:.85rem 0;border-top:1px solid var(--rule)}
+.row:last-child{border-bottom:1px solid var(--rule)}
+.row .id{grid-area:id;font:.76rem/1.3 var(--mono);color:var(--ink-2);display:flex;flex-wrap:wrap;gap:.35rem .6rem;align-items:center}
+.row .score{grid-area:score;display:grid;gap:.25rem;align-content:start}
+.row .score .num{font-size:1.95rem;color:var(--v3)}
+.row .score small{font:.72rem/1.2 var(--mono);color:var(--v2-ink);white-space:nowrap}
+.row .why{grid-area:why;display:flex;gap:.55rem;align-items:flex-start;font-size:.98rem;line-height:1.35}
+.row .why .ico{color:var(--ink-2);margin-top:.05rem}
+.row.in .why .ico{color:var(--v3)}
+.row.out .score .num{color:var(--ink-2)}
+.tag{font:700 .66rem/1 var(--display);letter-spacing:.08em;text-transform:uppercase;padding:.28rem .42rem .22rem;border-radius:3px;background:var(--v3-soft);color:var(--v3);white-space:nowrap}
+.row.kept .tag{background:transparent;box-shadow:inset 0 0 0 1px var(--v3-mid)}
+.row.out .tag{background:transparent;color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--rule)}
+@media (min-width:40rem){
+  .rows-head{display:grid;grid-template-columns:8.75rem 4.5rem minmax(0,1fr);gap:1rem;font:700 .68rem/1.2 var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);padding-bottom:.55rem}
+  .rows-head em{font-style:normal;color:var(--v3)}
+  .row{grid-template-columns:8.75rem 4.5rem minmax(0,1fr);grid-template-areas:"id score why";gap:1rem;align-items:center}
+  .row .id{flex-direction:column;align-items:flex-start}
+}
+.points{list-style:none;padding:0;display:grid;gap:1.1rem;align-content:start}
+.points li{display:grid;grid-template-columns:.6rem minmax(0,1fr);gap:.85rem;line-height:1.45}
+.points li::before{content:"";width:.6rem;height:.6rem;margin-top:.48em;border-radius:1.5px;background:var(--v3)}
+.points b{display:block}
+
+/* watch-outs */
+.watch{display:grid;gap:1.6rem}
+@media (min-width:52rem){.watch{grid-template-columns:repeat(3,minmax(0,1fr));gap:2.25rem}}
+.w{display:grid;gap:.55rem;align-content:start}
+.badge{width:2.3rem;height:2.3rem;border-radius:4px;background:var(--warn-soft);color:var(--warn);display:grid;place-items:center;margin-bottom:.2rem}
+.w p{font-size:.98rem}
+
+/* what's next */
+.next{list-style:none;padding:0;display:grid;gap:1.4rem}
+.next li{position:relative;padding-left:1.9rem;display:grid;gap:.25rem;align-content:start}
+.next li::before{content:"";position:absolute;left:0;top:.28rem;width:12px;height:12px;border-radius:50%;background:var(--paper);box-shadow:inset 0 0 0 2px var(--v3)}
+.next li:not(:last-child)::after{content:"";position:absolute;left:5px;top:calc(.28rem + 12px);bottom:calc(-1.4rem - .28rem);width:2px;background:var(--rule)}
+.next li.now::before{background:var(--v3)}
+.when{font:700 .76rem/1.4 var(--display);letter-spacing:.11em;text-transform:uppercase;color:var(--v3)}
+.next p{font-size:.98rem}
+@media (min-width:52rem){
+  .next{grid-template-columns:repeat(4,minmax(0,1fr));gap:2rem}
+  .next li{padding:1.65rem 0 0}
+  .next li::before{top:0}
+  .next li:not(:last-child)::after{left:12px;right:-2rem;top:5px;bottom:auto;width:auto;height:2px}
+}
+.ask{font-size:1.05rem;padding:1rem 1.1rem;border-radius:4px;background:var(--v3-soft)}
+.ask code{color:var(--v3);font-weight:600}
+.foot{display:grid;gap:.3rem;font-size:.8rem;color:var(--ink-2);border-top:1px solid var(--rule);padding-top:1rem}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <rect id="sq" x=".8" y=".8" width="8.4" height="8.4" rx="1.3"/>
+    <g id="row"><use href="#sq"/><use href="#sq" x="10"/><use href="#sq" x="20"/><use href="#sq" x="30"/><use href="#sq" x="40"/><use href="#sq" x="50"/><use href="#sq" x="60"/><use href="#sq" x="70"/><use href="#sq" x="80"/><use href="#sq" x="90"/></g>
+    <g id="seven"><use href="#sq"/><use href="#sq" x="10"/><use href="#sq" x="20"/><use href="#sq" x="30"/><use href="#sq" x="40"/><use href="#sq" x="50"/><use href="#sq" x="60"/></g>
+    <symbol id="i-card" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 9.5h19M6 15h4M15 13.5l3.5 3.5M18.5 13.5L15 17"/></g></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h16v11H10l-4.5 4v-4H4z"/><path d="M8 8.5h8M8 11.5h5"/></g></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5l6.5 6.5 4-4 7.5 7.5"/><path d="M21 11.5v5h-5"/></g></symbol>
+    <symbol id="i-ok" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16.2 9.6"/></g></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></g></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9c2.2-2.6 4.3-2.6 6.5 0s4.3 2.6 6.5 0 3.9-2.6 5 -1.3"/><path d="M3 15.5c2.2-2.6 4.3-2.6 6.5 0s4.3 2.6 6.5 0 3.9-2.6 5-1.3"/></g></symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></g></symbol>
+  </defs>
+</svg>
+
+<main class="wrap">
+  <header class="top">
+    <p class="kicker"><span class="nw">Recap</span> · <span class="nw">Data Science → Retention team</span> · <span class="nw">4 Nov 2026</span></p>
+    <h1>Churn model v3 is live.</h1>
+    <p class="lede">Every Monday the model ranks all subscribers by their chance of cancelling in the next <span class="nw">30 days</span>. The top 2,000 become the retention team's call list for the week.</p>
+    <ul class="meta">
+      <li class="live">Live since Mon 26 Oct</li>
+      <li>Replaces v2, in use since March 2024</li>
+      <li>Ran 4 weeks side by side before launch</li>
+    </ul>
+  </header>
+
+  <section class="hero sheet" aria-labelledby="h-bought">
+    <h2 id="h-bought" class="kicker">What it bought</h2>
+    <p class="claim">Same 2,000 calls a week. <strong>240 more</strong> of them now reach someone who was about to cancel.</p>
+    <div class="lists">
+      <figure class="list">
+        <figcaption><span class="chip v2">v2</span><span class="nw">until 19 Oct</span></figcaption>
+        <svg class="grid" viewBox="0 0 100 100" role="img" aria-label="v2 list: 27 of 100 squares filled">
+          <g class="f2"><use href="#row"/><use href="#row" y="10"/><use href="#seven" y="20"/></g>
+          <g class="e"><use href="#sq" x="70" y="20"/><use href="#sq" x="80" y="20"/><use href="#sq" x="90" y="20"/><use href="#row" y="30"/><use href="#row" y="40"/><use href="#row" y="50"/><use href="#row" y="60"/><use href="#row" y="70"/><use href="#row" y="80"/><use href="#row" y="90"/></g>
+        </svg>
+        <p class="count v2"><span class="num">540</span><span>calls a week reached someone about to cancel</span></p>
+      </figure>
+      <figure class="list">
+        <figcaption><span class="chip v3">v3</span><span class="nw">since 26 Oct</span></figcaption>
+        <svg class="grid" viewBox="0 0 100 100" role="img" aria-label="v3 list: 39 of 100 squares filled">
+          <g class="f3"><use href="#row"/><use href="#row" y="10"/><use href="#seven" y="20"/></g>
+          <g class="e"><use href="#sq" x="70" y="20"/><use href="#sq" x="80" y="20"/><use href="#sq" x="90" y="20"/><use href="#row" y="30"/><use href="#row" y="40"/><use href="#row" y="50"/><use href="#row" y="60"/><use href="#row" y="70"/><use href="#row" y="80"/><use href="#row" y="90"/></g>
+          <g class="gain">
+            <rect x="70.8" y="20.8" width="8.4" height="8.4" rx="1.3" style="--i:0"/><rect x="80.8" y="20.8" width="8.4" height="8.4" rx="1.3" style="--i:1"/><rect x="90.8" y="20.8" width="8.4" height="8.4" rx="1.3" style="--i:2"/>
+            <rect x=".8" y="30.8" width="8.4" height="8.4" rx="1.3" style="--i:3"/><rect x="10.8" y="30.8" width="8.4" height="8.4" rx="1.3" style="--i:4"/><rect x="20.8" y="30.8" width="8.4" height="8.4" rx="1.3" style="--i:5"/><rect x="30.8" y="30.8" width="8.4" height="8.4" rx="1.3" style="--i:6"/><rect x="40.8" y="30.8" width="8.4" height="8.4" rx="1.3" style="--i:7"/><rect x="50.8" y="30.8" width="8.4" height="8.4" rx="1.3" style="--i:8"/><rect x="60.8" y="30.8" width="8.4" height="8.4" rx="1.3" style="--i:9"/><rect x="70.8" y="30.8" width="8.4" height="8.4" rx="1.3" style="--i:10"/><rect x="80.8" y="30.8" width="8.4" height="8.4" rx="1.3" style="--i:11"/>
+          </g>
+        </svg>
+        <p class="count v3"><span class="num">780</span><span>calls a week reach someone about to cancel</span></p>
+      </figure>
+      <div class="delta">
+        <span class="num">+44%</span>
+        <p>That's 39 in every 100 calls, up from 27 — from the same team, in the same hours.</p>
+      </div>
+    </div>
+    <ul class="legend">
+      <li><span class="sw on"></span>Would have cancelled within 30 days without a call</li>
+      <li><span class="sw off"></span>Stayed anyway</li>
+      <li>Each square = 20 of the week's 2,000 calls</li>
+    </ul>
+    <p class="fine">How we know: 12 past weeks (July–September) the model never saw, measured on a random 5% of customers the team never calls — so a customer saved by a call doesn't make either model look wrong.</p>
+
+    <details class="whatif" id="whatif">
+      <summary>What if the team made more or fewer calls?</summary>
+      <div class="wi">
+        <div id="gainBox"><svg class="gainsvg" id="gain" role="img" aria-label="Chart of at-risk customers reached per week against calls per week, for v2 and v3."><g id="gainG"></g></svg></div>
+        <div class="ctl">
+          <label for="calls">Calls per week</label>
+          <input id="calls" type="range" min="500" max="6000" step="250" value="2000" aria-valuetext="2,000 calls a week">
+          <output id="callsOut" for="calls">2,000</output>
+        </div>
+        <p class="read" id="read" aria-live="polite">At <b>2,000</b> calls a week (today), v2 reaches <b>540</b> (27 in 100) and v3 reaches <b>780</b> (39 in 100): <b>+240</b>.</p>
+        <p class="fine">v3 reaches v2's weekly 540 within its first <span id="same">1,150</span> or so calls. Each extra call is a little less likely to land than the one before, because the list puts the riskiest customers first. Curves are the average of the 12 test weeks.</p>
+      </div>
+    </details>
+  </section>
+
+  <section class="sec" aria-labelledby="h-changed">
+    <h2 id="h-changed">What changed</h2>
+    <div class="three">
+      <article class="panel sheet">
+        <div class="pic signs">
+          <div class="sign">
+            <svg class="ico" aria-hidden="true"><use href="#i-card"/></svg>
+            <span class="num">5×</span>
+            <p>as likely to cancel after a <strong>failed card payment</strong><small>21% vs 4% of all subscribers</small></p>
+          </div>
+          <div class="sign">
+            <svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>
+            <span class="num">3×</span>
+            <p>after <strong>2+ support contacts</strong> in a month<small>12% vs 4%</small></p>
+          </div>
+          <p class="had"><span>Already in v2:</span><span>months subscribed</span><span>plan and price</span><span>how often they use it</span><span>discounts</span></p>
+        </div>
+        <div class="txt">
+          <h3>It sees two new warning signs</h3>
+          <p>Failed payments and support contacts. v2 couldn't see either, and they account for most of v3's gain.</p>
+        </div>
+      </article>
+
+      <article class="panel sheet">
+        <div class="pic">
+          <svg class="tree" viewBox="0 0 320 282" role="img" aria-labelledby="tree-t">
+            <title id="tree-t">v2 added the same points for using it less, joining lately and a price rise, whoever the customer. v3 is about 400 small decision trees. In this simplified one, the first question is whether a payment failed. If not: using it less means medium risk, otherwise low. If it did: fixed within 3 days means low risk, not fixed means high.</title>
+            <text class="hd" x="16" y="13"><tspan class="m2">V2</tspan> · ADDS UP POINTS, SAME FOR EVERYONE</text>
+            <g class="pill" text-anchor="middle">
+              <rect x="16" y="22" width="80" height="26" rx="4"/><text x="56" y="39.5">Using less</text>
+              <rect x="110" y="22" width="102" height="26" rx="4"/><text x="161" y="39.5">Joined lately</text>
+              <rect x="226" y="22" width="78" height="26" rx="4"/><text x="265" y="39.5">Price rise</text>
+            </g>
+            <text class="plus" x="103" y="40.5" text-anchor="middle">+</text><text class="plus" x="219" y="40.5" text-anchor="middle">+</text>
+            <path class="div" d="M16 64H304"/>
+            <text class="hd" x="16" y="85"><tspan class="m3">V3</tspan> · ASKS QUESTIONS IN A CHAIN</text>
+            <g transform="translate(0 88)">
+              <path class="edge" d="M160 38L82 72M160 38L238 72M82 100L44 136M82 100L120 136M238 100L200 136M238 100L276 136"/>
+              <text class="elab" x="111" y="51" text-anchor="end">no</text><text class="elab" x="209" y="51" text-anchor="start">yes</text>
+              <text class="elab" x="56" y="119" text-anchor="end">no</text><text class="elab" x="108" y="119" text-anchor="start">yes</text>
+              <text class="elab" x="212" y="119" text-anchor="end">yes</text><text class="elab" x="264" y="119" text-anchor="start">no</text>
+              <g class="node" text-anchor="middle">
+                <rect x="93" y="10" width="134" height="28" rx="14"/><text x="160" y="28.5">Payment failed?</text>
+                <rect x="22" y="72" width="120" height="28" rx="14"/><text x="82" y="90.5">Using it less?</text>
+                <rect x="170" y="72" width="136" height="28" rx="14"/><text x="238" y="90.5">Fixed in 3 days?</text>
+              </g>
+              <g text-anchor="middle">
+                <rect class="lo" x="14" y="136" width="60" height="24" rx="4"/><text x="44" y="152.5">low</text>
+                <rect class="md" x="90" y="136" width="60" height="24" rx="4"/><text x="120" y="152.5">medium</text>
+                <rect class="lo" x="170" y="136" width="60" height="24" rx="4"/><text x="200" y="152.5">low</text>
+                <rect class="hi" x="246" y="136" width="60" height="24" rx="4"/><text class="on" x="276" y="152.5">high</text>
+                <text class="tcap" x="160" y="186">1 of ~400 small trees · simplified</text>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <div class="txt">
+          <h3>It weighs signs together</h3>
+          <p>v2 added the same points whoever the customer was. v3 asks questions in a chain, so a failed payment fixed within days barely counts, and one left unfixed counts a lot.</p>
+          <p class="fine">Technically: gradient-boosted trees (about 400 small decision trees, each correcting the ones before it) replace logistic regression.</p>
+        </div>
+      </article>
+
+      <article class="panel sheet">
+        <div class="pic">
+          <svg class="cal" viewBox="0 0 320 212" role="img" aria-labelledby="cal-t">
+            <title id="cal-t">What the score said against the share who actually cancelled within 30 days, by score band. v3 sits on the line: 4 to 4, 15 to 14, 29 to 28, 49 to 48, 70 to 68. v2 sits well below it: 4 to 3, 15 to 10, 29 to 17, 49 to 25, 70 to 34.</title>
+            <path class="gl" d="M44 178H300M44 140H300M44 102H300M44 64H300M44 26H300M44 26V178M108 26V178M172 26V178M236 26V178M300 26V178"/>
+            <g class="tk" text-anchor="middle"><text x="44" y="193">0</text><text x="108" y="193">20</text><text x="172" y="193">40</text><text x="236" y="193">60</text><text x="300" y="193">80</text></g>
+            <g class="tk" text-anchor="end"><text x="37" y="181.5">0</text><text x="37" y="143.5">20</text><text x="37" y="105.5">40</text><text x="37" y="67.5">60</text><text x="37" y="29.5">80</text></g>
+            <path class="diag" d="M44 178L300 26"/>
+            <polyline class="l2" points="56.8,172.3 92,159 136.8,145.7 200.8,130.5 268,113.4"/>
+            <polyline class="l3" points="56.8,170.4 92,151.4 136.8,124.8 200.8,86.8 268,48.8"/>
+            <g class="p2"><circle cx="56.8" cy="172.3" r="3.6"/><circle cx="92" cy="159" r="3.6"/><circle cx="136.8" cy="145.7" r="3.6"/><circle cx="200.8" cy="130.5" r="3.6"/><circle cx="268" cy="113.4" r="3.6"/></g>
+            <g class="p3"><circle cx="56.8" cy="170.4" r="4.2"/><circle cx="92" cy="151.4" r="4.2"/><circle cx="136.8" cy="124.8" r="4.2"/><circle cx="200.8" cy="86.8" r="4.2"/><circle cx="268" cy="48.8" r="4.2"/></g>
+            <text class="lab v3" x="278" y="56">v3</text>
+            <text class="lab v2" x="278" y="118">v2</text>
+            <text class="ann v3" x="192" y="78" text-anchor="end">said 50 → 48</text>
+            <text class="ann v2" x="206" y="148">said 50 → 25</text>
+            <text class="axt" x="44" y="14">ACTUALLY CANCELLED, %</text>
+            <text class="axt" x="300" y="209" text-anchor="end">SCORE SAID</text>
+          </svg>
+          <ul class="calkey"><li><i></i>v3</li><li><i class="v2"></i>v2</li><li><i class="ex"></i>score matches reality</li></ul>
+        </div>
+        <div class="txt">
+          <h3>Its scores mean what they say</h3>
+          <p>When v3 says 50, about half of those customers cancel within 30 days. A v2 50 meant about a quarter: its scores had crept up over two years.</p>
+          <p class="fine">Recalibrated: checked band by band against who actually cancelled.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-team">
+    <h2 id="h-team">What it means for the retention team</h2>
+    <div class="team sheet">
+      <div>
+        <p class="cap"><b>Four customers, scored by v2 and v3</b><span>Score = chance of cancelling in the next 30 days, out of 100</span></p>
+        <ul class="rows">
+          <li class="rows-head" aria-hidden="true"><span>Customer</span><span>Score</span><span>Main reason <em>· new column</em></span></li>
+          <li class="row in">
+            <span class="id">#48213 <span class="tag">New on the list</span></span>
+            <span class="score"><span class="sr">v3 score </span><span class="num">47</span><small>v2 said 9</small></span>
+            <span class="why"><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span>Card declined twice, not yet updated</span></span>
+          </li>
+          <li class="row in">
+            <span class="id">#12054 <span class="tag">New on the list</span></span>
+            <span class="score"><span class="sr">v3 score </span><span class="num">33</span><small>v2 said 22</small></span>
+            <span class="why"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><span>3 support contacts in 2 weeks</span></span>
+          </li>
+          <li class="row kept">
+            <span class="id">#31790 <span class="tag">Still on the list</span></span>
+            <span class="score"><span class="sr">v3 score </span><span class="num">38</span><small>v2 said 71</small></span>
+            <span class="why"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg><span>Using it 60% less than last month</span></span>
+          </li>
+          <li class="row out">
+            <span class="id">#77361 <span class="tag">Off the list</span></span>
+            <span class="score"><span class="sr">v3 score </span><span class="num">12</span><small>v2 said 58</small></span>
+            <span class="why"><svg class="ico" aria-hidden="true"><use href="#i-ok"/></svg><span>Quiet month, but 4 years in and always pays on time</span></span>
+          </li>
+        </ul>
+      </div>
+      <ul class="points">
+        <li><span><b>Same routine.</b> Same Monday list, same 2,000 rows, same CRM view.</span></li>
+        <li><span><b>Each row says why.</b> The new Main reason column gives you an opening line.</span></li>
+        <li><span><b>More billing calls.</b> About 1 in 4 rows is a failed payment. Often the fix is helping update the card — no offer needed.</span></li>
+        <li><span><b>Lower numbers, same risk.</b> v3 scores run lower than v2's. Customers aren't safer; the old scores were inflated. Don't compare old and new numbers.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-watch">
+    <h2 id="h-watch">Watch-outs</h2>
+    <div class="watch">
+      <div class="w">
+        <span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg></span>
+        <h3>Support data is new</h3>
+        <p>Support contacts only go back to March, when the help desk changed systems. The model learned them from four months of data and hasn't seen a holiday season yet.</p>
+      </div>
+      <div class="w">
+        <span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-wave"/></svg></span>
+        <h3>Scores can go stale</h3>
+        <p>Customers and prices change. We check every Monday that scores, reasons and results hold steady. One to watch: a bank reissuing cards can fill the list with failed payments from people who aren't leaving.</p>
+      </div>
+      <div class="w">
+        <span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-cal"/></svg></span>
+        <h3>Live proof takes 30 days</h3>
+        <p>The numbers above come from past weeks. Live results arrive in early December, 30 days after the first v3 list.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-next">
+    <h2 id="h-next">What's next</h2>
+    <ol class="next">
+      <li class="now"><span class="when">Every Monday</span><p>We check scores, reasons and results, and post anything odd in <code>#retention-data</code>.</p></li>
+      <li><span class="when">Early December</span><p>First live results, once the first v3 lists are 30 days old.</p></li>
+      <li><span class="when">January 2027</span><p>Retrain with the holiday season in the data.</p></li>
+      <li><span class="when">Q1 2027</span><p>Pilot two ideas: rank by who a call is most likely to change, and send card-update reminders automatically so calls go to harder cases.</p></li>
+    </ol>
+    <p class="ask">Questions, or a row on the list that looks wrong? Post in <code>#retention-data</code>.</p>
+  </section>
+
+  <footer class="foot">
+    <p>Illustrative: the business, customers and figures on this page are made up.</p>
+    <p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/one-pager" target="_blank" rel="noopener">one-pager</a> skill from effective-html (MIT) · HTML Server gallery</p>
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  /* Calls per week -> customers reached who would have cancelled within 30 days.
+     Fictional figures: the average of the 12 test weeks, smoothed as
+     R(n) = a*n + b*s*(1 - e^(-n/s)) and fitted through two measured points per model.
+     The 2,000-call points match the hero: v2 540, v3 780. */
+  var POINTS = {
+    v2: { n1: 2000, r1: 540, n2: 6000, r2: 1120, s: 1500 },
+    v3: { n1: 2000, r1: 780, n2: 6000, r2: 1560, s: 900 }
+  };
+  var TODAY = 2000, NMAX = 6000, RMAX = 1600;
+
+  function fit(p) {
+    function g(n) { return p.s * (1 - Math.exp(-n / p.s)); }
+    var b = (p.r2 * p.n1 - p.r1 * p.n2) / (g(p.n2) * p.n1 - g(p.n1) * p.n2);
+    var a = (p.r1 - b * g(p.n1)) / p.n1;
+    return function (n) { return a * n + b * g(n); };
+  }
+  var R = { v2: fit(POINTS.v2), v3: fit(POINTS.v3) };
+
+  function $(id) { return document.getElementById(id); }
+  var box = $("gainBox"), svg = $("gain"), g = $("gainG"), input = $("calls"),
+      out = $("callsOut"), read = $("read"), same = $("same"), det = $("whatif");
+  if (!box || !svg || !g || !input) return;
+
+  function fmt(v) { return Math.round(v).toLocaleString("en-US"); }
+  function r10(v) { return Math.round(v / 10) * 10; }
+
+  // Calls v3 needs to match what v2 reached with today's 2,000 calls.
+  (function () {
+    var target = R.v2(TODAY), lo = 0, hi = TODAY;
+    for (var i = 0; i < 40; i++) { var mid = (lo + hi) / 2; if (R.v3(mid) < target) lo = mid; else hi = mid; }
+    if (same) same.textContent = fmt(Math.round(hi / 50) * 50);
+  })();
+
+  function draw() {
+    var W = box.clientWidth;
+    if (!W) return;
+    var n = +input.value;
+    var H = Math.round(Math.max(230, Math.min(320, W * 0.5)));
+    var L = 50, RM = 20, T = 30, B = 46, pw = W - L - RM, ph = H - T - B;
+    function X(v) { return +(L + v / NMAX * pw).toFixed(1); }
+    function Y(v) { return +(T + ph - v / RMAX * ph).toFixed(1); }
+    var s = "";
+    for (var y = 0; y <= RMAX; y += 400) {
+      s += '<line class="gl" x1="' + L + '" x2="' + (W - RM) + '" y1="' + Y(y) + '" y2="' + Y(y) + '"/>' +
+           '<text class="tk" x="' + (L - 8) + '" y="' + (Y(y) + 3.5) + '" text-anchor="end">' + fmt(y) + '</text>';
+    }
+    var step = W < 440 ? 2000 : 1000;
+    for (var x = 0; x <= NMAX; x += step) {
+      s += '<text class="tk" x="' + X(x) + '" y="' + (T + ph + 17) + '" text-anchor="middle">' + fmt(x) + '</text>';
+    }
+    s += '<line class="today" x1="' + X(TODAY) + '" x2="' + X(TODAY) + '" y1="' + T + '" y2="' + (T + ph) + '"/>' +
+         '<text class="tk" x="' + (X(TODAY) + 5) + '" y="' + (T + ph - 6) + '">today</text>';
+    ["v2", "v3"].forEach(function (k) {
+      var d = "";
+      for (var i = 0; i <= 60; i++) { var v = i * 100; d += (i ? "L" : "M") + X(v) + " " + Y(R[k](v)); }
+      s += '<path class="c ' + k + '" d="' + d + '"/>';
+    });
+    s += '<text class="cl v3" x="' + (W - RM - 4) + '" y="' + (Y(R.v3(NMAX)) - 9) + '" text-anchor="end">v3</text>' +
+         '<text class="cl v2" x="' + (W - RM - 4) + '" y="' + (Y(R.v2(NMAX)) + 19) + '" text-anchor="end">v2</text>';
+    var a2 = r10(R.v2(n)), a3 = r10(R.v3(n)), xm = X(n);
+    // Live readings sit in the plot's top-left corner, which the rising curves never reach;
+    // the backing hides the gridlines and the "today" line behind them.
+    s += '<rect class="lgbg" x="' + (L + 4) + '" y="' + (T + 3) + '" width="112" height="44" rx="3"/>';
+    [["v3", a3, 0], ["v2", a2, 21]].forEach(function (p) {
+      var ly = T + 20 + p[2];
+      s += '<circle class="dot ' + p[0] + '" cx="' + (L + 17) + '" cy="' + (ly - 4.5) + '" r="4.5"/>' +
+           '<text class="val ' + p[0] + '" x="' + (L + 30) + '" y="' + ly + '"><tspan class="nm">' + p[0] + '</tspan></text>' +
+           '<text class="val ' + p[0] + '" x="' + (L + 108) + '" y="' + ly + '" text-anchor="end">' + fmt(p[1]) + '</text>';
+    });
+    // Marker runs from the axis to just above the v3 dot, so it never crosses the readings.
+    s += '<line class="mk" x1="' + xm + '" x2="' + xm + '" y1="' + Math.max(T, Y(R.v3(n)) - 14) + '" y2="' + (T + ph) + '"/>' +
+         '<circle class="dot v3" cx="' + xm + '" cy="' + Y(R.v3(n)) + '" r="5"/>' +
+         '<circle class="dot v2" cx="' + xm + '" cy="' + Y(R.v2(n)) + '" r="5"/>';
+    s += '<text class="axt" x="' + L + '" y="13">AT-RISK CUSTOMERS REACHED PER WEEK</text>' +
+         '<text class="axt" x="' + (W - RM) + '" y="' + (H - 5) + '" text-anchor="end">CALLS PER WEEK</text>';
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    g.innerHTML = s;
+  }
+
+  function update() {
+    var n = +input.value, a2 = r10(R.v2(n)), a3 = r10(R.v3(n));
+    out.textContent = fmt(n);
+    input.setAttribute("aria-valuetext", fmt(n) + " calls a week");
+    read.innerHTML = "At <b>" + fmt(n) + "</b> calls a week" + (n === TODAY ? " (today)" : "") +
+      ", v2 reaches <b>" + fmt(a2) + "</b> (" + Math.round(a2 / n * 100) + " in 100) and v3 reaches <b>" +
+      fmt(a3) + "</b> (" + Math.round(a3 / n * 100) + " in 100): <b>+" + fmt(a3 - a2) + "</b>.";
+    svg.setAttribute("aria-label", "Chart of at-risk customers reached per week against calls per week. At " +
+      fmt(n) + " calls, v2 reaches " + fmt(a2) + " and v3 reaches " + fmt(a3) + ".");
+    draw();
+  }
+
+  input.addEventListener("input", update);
+  if (det) det.addEventListener("toggle", draw);
+  if ("ResizeObserver" in window) new ResizeObserver(draw).observe(box);
+  else window.addEventListener("resize", draw);
+  update();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code — a pocket reference</title>
+<meta name="description" content="A pocket card for Claude Code: the keyboard shortcuts, slash commands and CLI flags worth knowing, grouped by what you are doing, from starting a session to scripting with -p. It maps every Ctrl key at the prompt, filters as you type, and prints cleanly.">
+<meta name="category" content="effective-html">
+<meta name="color-scheme" content="light dark">
+<!--
+  Design plan (design-artifact skill)
+  Color  light: canary stock #F2DB6B, carbon ink #1D1A12, faded ink #5F5633, screen #D2BB5B, field #F8EBA8
+         dark (the card in negative): carbon stock #1A1813, paper ink #ECE6D0, faded #A39C84, canary press #F0CD48
+  Type   display DIN Condensed (tabs, title, keycap legends) · body Charter (descriptions)
+         · utility ui-monospace (literals; placeholders italic, man-page style)
+  Layout a programmer's pocket card unfolded: a Ctrl-layer keyboard on the cover, then six
+         task groups flowing through newspaper columns, each opened by a knockout tab.
+-->
+<style>
+:root{
+  --stock:#F2DB6B; --ink:#1D1A12; --faded:#5F5633; --press:#1D1A12; --knock:#F2DB6B;
+  --screen:#D2BB5B; --field:#F8EBA8;
+  --display:"DIN Condensed","Bahnschrift Condensed","Bahnschrift","Arial Narrow","Roboto Condensed","Liberation Sans Narrow",sans-serif;
+  --body:Charter,"Bitstream Charter","Sitka Text",Cambria,Georgia,serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,"DejaVu Sans Mono","Liberation Mono",monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --stock:#1A1813; --ink:#ECE6D0; --faded:#A39C84; --press:#F0CD48; --knock:#1A1813;
+    --screen:#3A3529; --field:#24211A; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --stock:#1A1813; --ink:#ECE6D0; --faded:#A39C84; --press:#F0CD48; --knock:#1A1813;
+  --screen:#3A3529; --field:#24211A; color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --stock:#F2DB6B; --ink:#1D1A12; --faded:#5F5633; --press:#1D1A12; --knock:#F2DB6B;
+  --screen:#D2BB5B; --field:#F8EBA8; color-scheme:light;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--stock);color:var(--ink);font:.9375rem/1.45 var(--body);font-variant-numeric:tabular-nums}
+.wrap{max-width:76rem;margin:0 auto;padding:1.25rem 1rem 2.25rem}
+@media (min-width:720px){.wrap{padding:1.75rem 2rem 3rem}}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+a{color:inherit;text-decoration-thickness:1.5px;text-underline-offset:.18em}
+a:focus-visible,button:focus-visible{outline:3px solid var(--ink);outline-offset:2px;border-radius:2px}
+
+/* running head + title */
+.run{margin:0;display:flex;flex-wrap:wrap;justify-content:space-between;gap:.25rem 1.5rem;padding-bottom:.5rem;border-bottom:3px solid var(--ink);font:700 .78rem/1.1 var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--faded)}
+.top{display:grid;gap:1.25rem 3rem;margin:1.1rem 0 0}
+@media (min-width:920px){.top{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:end}}
+h1{margin:0;font-weight:400}
+.t1{display:block;font:700 clamp(3.4rem,11vw,6rem)/.82 var(--display);letter-spacing:.005em;text-transform:uppercase;padding-top:.12em}
+.t2{display:block;margin-top:.3rem;font:italic 400 clamp(1.2rem,2.6vw,1.55rem)/1.2 var(--body)}
+.lede{margin:0 0 .85rem;max-width:34rem;font-size:1.02rem;line-height:1.5;text-wrap:pretty}
+
+/* the filter, drawn as Claude Code's own prompt box */
+.prompt{display:flex;align-items:center;gap:.55rem;border:2px solid var(--ink);border-radius:.7rem;background:var(--field);padding:.5rem .6rem .5rem .8rem}
+.prompt:focus-within{outline:3px solid var(--ink);outline-offset:3px}
+.caret{font:700 1.05rem/1 var(--mono)}
+.prompt input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:500 .95rem/1.3 var(--mono);padding:.15rem 0;outline:none;-webkit-appearance:none;appearance:none}
+.prompt input::placeholder{color:var(--faded);opacity:1}
+.prompt input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
+.clr{border:1.5px solid var(--ink);border-bottom-width:3px;border-radius:.3rem;background:transparent;color:var(--ink);font:700 .78rem/1 var(--display);letter-spacing:.08em;text-transform:uppercase;padding:.32rem .45rem .2rem;cursor:pointer}
+.hint{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.25rem 1rem;margin:.5rem .15rem 0;font:.78rem/1.35 var(--mono);color:var(--faded)}
+.hint kbd{font-size:.68rem}
+.empty{margin:.75rem 0 0;padding:.6rem .75rem;border:2px dashed var(--ink);border-radius:.4rem;font-size:.95rem}
+@media (pointer:coarse){#q-hint{display:none}}
+
+/* shared marks */
+kbd{display:inline-block;min-width:1.6em;padding:.24em .38em .12em;border:1.5px solid currentColor;border-bottom-width:3px;border-radius:.28em;font:700 .8rem/1 var(--display);letter-spacing:.06em;text-transform:uppercase;text-align:center;vertical-align:.08em;white-space:nowrap}
+dd kbd,figcaption kbd,.w kbd{font-size:.7rem;padding:.2em .32em .08em;border-bottom-width:2px}
+.p{margin:0 .12em;color:var(--faded);font:400 .8rem/1 var(--mono)}
+.or,.ctx{font:italic 400 .86rem/1.3 var(--body);color:var(--faded)}
+.or{margin:0 .05em}
+.nw{white-space:nowrap}
+code{font:600 .875rem/1.35 var(--mono);letter-spacing:.02em}
+dd code,.w code,figcaption code,.lede code{font-size:.82rem;font-weight:500}
+var{font-style:italic;font-weight:400;color:var(--faded)}
+.aka{font:400 .76rem/1.3 var(--mono);letter-spacing:.02em;color:var(--faded);margin-left:.1em;white-space:nowrap}
+.v{display:inline-block;margin-left:.35em;padding:.16em .35em .1em;border:1px solid var(--faded);border-radius:.25rem;font:600 .66rem/1 var(--mono);color:var(--faded);white-space:nowrap;vertical-align:.12em}
+
+/* tabs: solid ink with knocked-out caps, like the section heads of a printed card */
+.tab{margin:0;background:var(--press);color:var(--knock);font:700 1.1rem/1 var(--display);letter-spacing:.08em;text-transform:uppercase;padding:.5rem .7rem .32rem;break-after:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.tag{margin:.45rem 0 .2rem;font:italic 400 .95rem/1.35 var(--body);color:var(--faded);break-after:avoid}
+
+/* entries, man-page form: literal over an indented description */
+dl{margin:0}
+.e{break-inside:avoid;padding:.42rem 0 .38rem}
+dt{font:600 .875rem/1.5 var(--mono);overflow-wrap:anywhere}
+dd{margin:.08rem 0 0 1.15rem;font-size:.94rem;line-height:1.42;text-wrap:pretty}
+.miss{transition:opacity .15s}
+.e.miss{display:none}
+
+/* the cover: At the prompt + Hold Ctrl */
+.deck{display:grid;gap:1.75rem 2.75rem;margin:2rem 0 2.5rem}
+@media (min-width:1000px){.deck{grid-template-columns:minmax(16rem,20rem) minmax(0,1fr);align-items:start}}
+.kbsec figure{margin:.85rem 0 0}
+.kb{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(40,minmax(0,1fr));grid-auto-rows:4.35rem;row-gap:.42rem;max-width:48rem}
+.k{grid-row:var(--r);grid-column:var(--c)/span 4;margin:0 .2rem;min-width:0;display:flex;flex-direction:column;justify-content:space-between;padding:.32rem .38rem .3rem;border:2px solid var(--ink);border-bottom-width:4px;border-radius:.42rem;overflow:hidden}
+.k .cap{font:700 1.5rem/1 var(--display);text-transform:uppercase;padding-top:.1em}
+.k .lg{font:700 .66rem/1.08 var(--display);letter-spacing:.05em;text-transform:uppercase;overflow-wrap:anywhere}
+.k.on{background:var(--press);border-color:var(--press);color:var(--knock);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.k.rs{border-color:var(--faded);color:var(--faded);background:repeating-linear-gradient(135deg,transparent 0 5px,var(--screen) 5px 7px)}
+.k.free{border-color:var(--screen);color:var(--faded)}
+.k.held{grid-row:4;grid-column:1/span 7;border-width:3px;border-bottom-width:5px}
+.k.held .cap{font-size:1.25rem;letter-spacing:.08em}
+.k.miss{opacity:.18}
+.kb-note{grid-row:4;grid-column:9/-1;align-self:center;margin:0 .2rem;font:italic .95rem/1.3 var(--body);color:var(--faded)}
+figcaption{margin-top:.9rem;max-width:48rem;font-size:.9rem;line-height:1.5;color:var(--faded)}
+figcaption b{color:var(--ink);font-weight:700}
+figcaption p{margin:0 0 .35rem}
+@media (max-width:640px){
+  .kb{grid-template-columns:1fr 1fr;grid-auto-rows:auto;gap:.5rem .9rem}
+  .k{grid-row:auto;grid-column:auto;order:var(--o);flex-direction:row;align-items:center;justify-content:flex-start;gap:.55rem;margin:0;padding:0;border:0;border-radius:0;background:none;color:var(--ink);overflow:visible}
+  .k .cap{flex:none;display:grid;place-items:center;width:2rem;height:2rem;padding:.22rem 0 0;border:2px solid var(--ink);border-bottom-width:3px;border-radius:.35rem;font-size:1.1rem}
+  .k .lg{font:400 .9rem/1.2 var(--body);letter-spacing:0;text-transform:none}
+  .k.on{background:none;color:var(--ink)}
+  .k.on .cap{background:var(--press);border-color:var(--press);color:var(--knock)}
+  .k.rs{order:calc(var(--o) + 40);background:none;color:var(--faded)}
+  .k.rs .cap{border-color:var(--faded);background:repeating-linear-gradient(135deg,transparent 0 4px,var(--screen) 4px 6px)}
+  .k.free{display:none}
+  .k.held{grid-row:auto;grid-column:1/-1;order:-1;border:0}
+  .k.held .cap{width:auto;padding:.25rem .5rem 0;font-size:1rem}
+  .k.held .lg::after{content:", then a letter"}
+  .k.miss{display:none}
+  .kb-note{display:none}
+}
+
+/* the six groups flow through columns like the panels of a folded card */
+.groups{columns:19rem 3;column-gap:2.75rem}
+.g{margin:0 0 1.9rem;break-inside:avoid}
+.g dl{margin-top:.15rem}
+
+/* Shift+Tab cycle: an ordered track, because the order is real */
+.cycle{margin:.55rem 0 .4rem}
+.cycle figcaption{margin:0 0 .5rem;color:var(--ink);font-size:.94rem}
+.cycle ol{list-style:none;margin:0 0 0 .45rem;padding:0 0 0 1.05rem;border-left:3px solid var(--ink)}
+.cycle li{position:relative;padding:.26rem 0 .34rem .55rem}
+.cycle li::before{content:"";position:absolute;left:calc(-1.05rem - 1.5px - .36rem);top:.62rem;width:.72rem;height:.72rem;border-radius:50%;border:3px solid var(--ink);background:var(--stock)}
+.cycle li.opt::before{border-style:dotted}
+.sb{display:inline-flex;align-items:center;gap:.4rem;font:600 .82rem/1.3 var(--mono)}
+.gl{width:.9em;height:.75em;fill:currentColor;flex:none}
+.w{display:block;font-size:.92rem;line-height:1.4}
+.loop{margin:.35rem 0 0 calc(2.05rem + 3px);font:italic .88rem/1.35 var(--body);color:var(--faded)}
+.cycle .e.solo{margin:.6rem 0 0;padding:.5rem .6rem;border:2px dashed var(--faded);border-radius:.4rem}
+
+footer{margin-top:1.5rem;padding-top:.9rem;border-top:3px solid var(--ink);display:grid;gap:.55rem;font-size:.88rem;line-height:1.5;color:var(--faded)}
+footer p{margin:0;max-width:62rem}
+footer a{color:var(--ink)}
+.credit{color:var(--ink)}
+
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+
+@media print{
+  :root:root:root{--stock:#fff;--ink:#000;--faded:#444;--press:#000;--knock:#fff;--screen:#bbb;--field:#fff}
+  html{font-size:9.5px}
+  .wrap{max-width:none;padding:0}
+  .find .prompt,.hint,.empty,.clr{display:none!important}
+  [hidden]{display:revert!important}
+  .find .prompt[hidden],.hint[hidden],.empty[hidden]{display:none!important}
+  .e.miss{display:block!important}
+  .k.miss{opacity:1!important}
+  .top{grid-template-columns:auto minmax(0,1fr);align-items:end;margin-top:.7rem}
+  .t1{font-size:4.6rem}
+  .lede{margin:0}
+  .deck{grid-template-columns:17rem minmax(0,1fr);gap:1rem 2rem;margin:1.1rem 0 1.2rem}
+  .kb{max-width:none;grid-auto-rows:3.9rem}
+  .k .lg{font-size:.8rem}
+  .k.rs{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .e{padding:.24rem 0 .2rem}
+  .tag{margin:.3rem 0 .05rem}
+  .groups{columns:3;column-gap:6mm}
+  .g{break-inside:auto;margin-bottom:1.1rem}
+  footer{margin-top:.6rem}
+  .src a::after{content:" (" attr(href) ")";font-size:.85em}
+  @page{margin:11mm}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="pz" viewBox="0 0 12 10"><path d="M2 1h2.6v8H2zM7.4 1H10v8H7.4z"/></symbol>
+  <symbol id="ff" viewBox="0 0 12 10"><path d="M.6 1l5 4-5 4zM6.4 1l5 4-5 4z"/></symbol>
+</svg>
+<div class="wrap">
+<header>
+  <p class="run"><span>Pocket reference</span><span>Checked against the Claude Code docs · November 2026</span></p>
+  <div class="top">
+    <h1><span class="t1">Claude Code</span><span class="t2"><span class="sr">— </span>a pocket reference</span></h1>
+    <div class="find">
+      <p class="lede">The keys, commands and flags worth keeping in your head, grouped by what you are doing. In Claude Code itself, press <kbd>?</kbd> on an empty prompt for the shortcut panel, or type <kbd>/</kbd> to see the commands available to you.</p>
+      <div class="prompt" id="box" hidden>
+        <label class="sr" for="q">Filter keys, commands and flags</label>
+        <span class="caret" aria-hidden="true">&gt;</span>
+        <input id="q" type="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="filter: resume, ctrl+r, -p" aria-describedby="q-hint">
+        <button type="button" class="clr" id="clr" hidden>Clear</button>
+      </div>
+      <p class="hint" id="hintline" hidden><span id="q-hint"><kbd>/</kbd> to filter · <kbd>Esc</kbd> to clear</span><span id="count" aria-live="polite"></span></p>
+      <p class="empty" id="empty" hidden></p>
+    </div>
+  </div>
+</header>
+
+<main>
+<div class="deck" data-box>
+  <section class="pre" data-box aria-labelledby="h-pre">
+    <h2 class="tab" id="h-pre">At the prompt</h2>
+    <dl>
+      <div class="e" data-f="slash command skill menu"><dt><kbd>/</kbd> <span class="ctx">to start</span></dt> <dd>Command or skill. Keep typing to narrow the list.</dd></div>
+      <div class="e" data-f="bang bash shell mode run"><dt><kbd>!</kbd> <span class="ctx">to start</span></dt> <dd>Shell mode: you run the command, its output joins the conversation and Claude responds.</dd></div>
+      <div class="e" data-f="at mention file path"><dt><kbd>@</kbd></dt> <dd>Mention a file path, with autocomplete.</dd></div>
+      <div class="e" data-f="question help shortcut panel"><dt><kbd>?</kbd> <span class="ctx">on an empty prompt</span></dt> <dd>Show the shortcut panel.</dd></div>
+      <div class="e" data-f="new line newline multiline backslash"><dt><span class="nw"><kbd>\</kbd><span class="p">+</span><kbd>Enter</kbd></span></dt> <dd>New line, in any terminal.</dd></div>
+      <div class="e" data-f="new line newline multiline"><dt><span class="nw"><kbd>Shift</kbd><span class="p">+</span><kbd>Enter</kbd></span></dt> <dd>New line in iTerm2, WezTerm, Ghostty, Kitty, Warp, Apple Terminal and Windows Terminal. <code>/terminal-setup</code> adds it to VS Code, Cursor, Devin Desktop, Alacritty and Zed.</dd></div>
+      <div class="e" data-f="autocomplete suggestion accept"><dt><kbd>Tab</kbd></dt> <dd>Accept the selected autocomplete suggestion.</dd></div>
+      <div class="e" data-f="undo edit ctrl+shift+-"><dt><span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>_</kbd></span></dt> <dd>Undo your last edit to the prompt.</dd></div>
+    </dl>
+  </section>
+
+  <section class="kbsec" data-box aria-labelledby="h-ctrl">
+    <h2 class="tab" id="h-ctrl">Hold Ctrl</h2>
+    <figure>
+      <ul class="kb">
+        <li class="k free" style="--r:1;--c:1;--o:17" aria-hidden="true"><span class="cap">Q</span></li>
+        <li class="k on" style="--r:1;--c:5;--o:23" data-f="delete back to previous whitespace word"><span class="cap"><span class="sr">Ctrl+</span>W</span><span class="lg">delete to space</span></li>
+        <li class="k on" style="--r:1;--c:9;--o:5" data-f="move cursor end of line"><span class="cap"><span class="sr">Ctrl+</span>E</span><span class="lg">line end</span></li>
+        <li class="k on" style="--r:1;--c:13;--o:18" data-f="reverse search command history prompts"><span class="cap"><span class="sr">Ctrl+</span>R</span><span class="lg">search history</span></li>
+        <li class="k on" style="--r:1;--c:17;--o:20" data-f="toggle to-do todo task checklist list"><span class="cap"><span class="sr">Ctrl+</span>T</span><span class="lg">task checklist</span></li>
+        <li class="k on" style="--r:1;--c:21;--o:25" data-f="paste deleted text yank"><span class="cap"><span class="sr">Ctrl+</span>Y</span><span class="lg">paste deleted</span></li>
+        <li class="k on" style="--r:1;--c:25;--o:21" data-f="delete from cursor to line start"><span class="cap"><span class="sr">Ctrl+</span>U</span><span class="lg">delete to start</span></li>
+        <li class="k rs" style="--r:1;--c:29;--o:9" data-f="reserved tab"><span class="cap"><span class="sr">Ctrl+</span>I</span><span class="lg">is Tab</span></li>
+        <li class="k on" style="--r:1;--c:33;--o:15" data-f="toggle transcript viewer tool calls detail"><span class="cap"><span class="sr">Ctrl+</span>O</span><span class="lg">transcript</span></li>
+        <li class="k on" style="--r:1;--c:37;--o:16" data-f="move up previous history"><span class="cap"><span class="sr">Ctrl+</span>P</span><span class="lg">up · history</span></li>
+        <li class="k on" style="--r:2;--c:2;--o:1" data-f="move cursor start of line"><span class="cap"><span class="sr">Ctrl+</span>A</span><span class="lg">line start</span></li>
+        <li class="k on" style="--r:2;--c:6;--o:19" data-f="stash restore prompt draft"><span class="cap"><span class="sr">Ctrl+</span>S</span><span class="lg">stash prompt</span></li>
+        <li class="k on" style="--r:2;--c:10;--o:4" data-f="exit quit session press twice delete character"><span class="cap"><span class="sr">Ctrl+</span>D</span><span class="lg">exit · press twice</span></li>
+        <li class="k free" style="--r:2;--c:14;--o:6" aria-hidden="true"><span class="cap">F</span></li>
+        <li class="k on" style="--r:2;--c:18;--o:7" data-f="open prompt in default text editor external"><span class="cap"><span class="sr">Ctrl+</span>G</span><span class="lg">open in editor</span></li>
+        <li class="k rs" style="--r:2;--c:22;--o:8" data-f="reserved backspace"><span class="cap"><span class="sr">Ctrl+</span>H</span><span class="lg">is Backspace</span></li>
+        <li class="k on" style="--r:2;--c:26;--o:10" data-f="insert newline new line multiline"><span class="cap"><span class="sr">Ctrl+</span>J</span><span class="lg">new line</span></li>
+        <li class="k on" style="--r:2;--c:30;--o:11" data-f="delete to end of line kill"><span class="cap"><span class="sr">Ctrl+</span>K</span><span class="lg">delete to end</span></li>
+        <li class="k on" style="--r:2;--c:34;--o:12" data-f="redraw screen garbled display"><span class="cap"><span class="sr">Ctrl+</span>L</span><span class="lg">redraw</span></li>
+        <li class="k on" style="--r:3;--c:4;--o:26" data-f="suspend fg unix shell"><span class="cap"><span class="sr">Ctrl+</span>Z</span><span class="lg">suspend</span></li>
+        <li class="k on" style="--r:3;--c:8;--o:24" data-f="chord prefix ctrl+x ctrl+e ctrl+x ctrl+s ctrl+x ctrl+k"><span class="cap"><span class="sr">Ctrl+</span>X</span><span class="lg">chord prefix</span></li>
+        <li class="k on" style="--r:3;--c:12;--o:3" data-f="interrupt cancel stop clear input exit"><span class="cap"><span class="sr">Ctrl+</span>C</span><span class="lg">interrupt · clear</span></li>
+        <li class="k on" style="--r:3;--c:16;--o:22" data-f="paste image clipboard screenshot alt+v cmd+v"><span class="cap"><span class="sr">Ctrl+</span>V</span><span class="lg">paste image</span></li>
+        <li class="k on" style="--r:3;--c:20;--o:2" data-f="background running tasks bash commands agents"><span class="cap"><span class="sr">Ctrl+</span>B</span><span class="lg">background</span></li>
+        <li class="k on" style="--r:3;--c:24;--o:14" data-f="move down next history"><span class="cap"><span class="sr">Ctrl+</span>N</span><span class="lg">down · history</span></li>
+        <li class="k rs" style="--r:3;--c:28;--o:13" data-f="reserved enter return"><span class="cap"><span class="sr">Ctrl+</span>M</span><span class="lg">is Enter</span></li>
+        <li class="k held" aria-hidden="true"><span class="cap">Ctrl</span><span class="lg">held</span></li>
+        <li class="kb-note" aria-hidden="true">then a letter</li>
+      </ul>
+      <figcaption>
+        <p><b>Lit</b> keys act at the prompt. <b>Hatched</b> ones always reach Claude Code as Tab, Enter or Backspace. <b>Blank</b> ones have no default there.</p>
+        <p><span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>X</kbd></span> starts chords: then <span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>E</kbd></span> opens your editor, <span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>S</kbd></span> sends queued messages now, <span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>K</kbd></span> stops background subagents (press it twice). On Windows, paste images with <span class="nw"><kbd>Alt</kbd><span class="p">+</span><kbd>V</kbd></span>; WSL takes either key.</p>
+      </figcaption>
+    </figure>
+  </section>
+</div>
+
+<div class="groups">
+
+<section class="g" data-box aria-labelledby="g1">
+  <h2 class="tab" id="g1">Start &amp; resume</h2>
+  <p class="tag">Opening a terminal, or coming back to one</p>
+  <dl>
+    <div class="e" data-f="launch open new session"><dt><code>claude</code></dt> <dd>Start an interactive session.</dd></div>
+    <div class="e" data-f="launch first prompt"><dt><code>claude <var>"query"</var></code></dt> <dd>Start one with an opening prompt.</dd></div>
+    <div class="e" data-f="continue last latest resume"><dt><code>claude <span class="nw">-c</span></code> <span class="aka"><span class="nw">--continue</span></span></dt> <dd>Continue the most recent conversation in this directory.</dd></div>
+    <div class="e" data-f="resume picker id name"><dt><code>claude <span class="nw">-r</span> <var>"&lt;session&gt;"</var></code> <span class="aka"><span class="nw">--resume</span></span></dt> <dd>Resume a session by ID or name. Leave the name off to pick from a list.</dd></div>
+    <div class="e" data-f="fork copy new id resume continue"><dt><code><span class="nw">--fork-session</span></code></dt> <dd>With <code><span class="nw">-c</span></code> or <code><span class="nw">-r</span></code>: carry on under a new session ID instead of reusing the original.</dd></div>
+    <div class="e" data-f="name label title"><dt><code>claude <span class="nw">-n</span> <var>"name"</var></code> <span class="aka"><span class="nw">--name</span></span></dt> <dd>Name the session. The name shows in <code>/resume</code> and the terminal title, and <code>claude <span class="nw">-r</span> <var>name</var></code> finds it.</dd></div>
+    <div class="e" data-f="pull request pr github gitlab"><dt><code>claude <span class="nw">--from-pr</span> <var>123</var></code></dt> <dd>Pick from the sessions linked to a pull request, by number or URL.</dd></div>
+    <div class="e" data-f="worktree git isolated branch"><dt><code>claude <span class="nw">-w</span> <var>[name]</var></code> <span class="aka"><span class="nw">--worktree</span></span></dt> <dd>Start in an isolated git worktree under <code>.claude/worktrees/</code>.</dd></div>
+    <div class="e" data-f="resume continue picker switch"><dt><code>/resume <var>[session]</var></code> <span class="aka">/continue</span></dt> <dd>Switch to an earlier conversation, or open the picker.</dd></div>
+    <div class="e" data-f="branch fork try"><dt><code>/branch <var>[name]</var></code></dt> <dd>Branch the conversation here to try another direction. The original stays in <code>/resume</code>.</dd></div>
+    <div class="e" data-f="agent view background sessions parallel"><dt><code>claude agents</code></dt> <dd>Open agent view to watch and dispatch background sessions.</dd></div>
+    <div class="e" data-f="quit leave detach"><dt><code>/exit</code> <span class="aka">/quit</span></dt> <dd>Leave. In an attached background session, it detaches and the session keeps running.</dd></div>
+  </dl>
+</section>
+
+<section class="g" data-box aria-labelledby="g2">
+  <h2 class="tab" id="g2">Steer a session</h2>
+  <p class="tag">While Claude is working</p>
+  <dl>
+    <div class="e" data-f="escape stop interrupt redirect"><dt><kbd>Esc</kbd></dt> <dd>Stop Claude mid-turn to redirect it. The work so far is kept.</dd></div>
+    <div class="e" data-f="escape twice rewind clear draft checkpoint"><dt><span class="nw"><kbd>Esc</kbd> <kbd>Esc</kbd></span></dt> <dd>On an empty prompt, open the rewind menu. With text, clear the draft; <kbd>Up</kbd> brings it back.</dd></div>
+    <div class="e" data-f="queue message"><dt><kbd>Enter</kbd> <span class="ctx">while Claude works</span></dt> <dd>Queue a message instead of interrupting. Claude gets it when the running tool calls finish, or when the turn ends.</dd></div>
+    <div class="e" data-f="send queued now ctrl+x ctrl+s"><dt><span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>Enter</kbd></span> <span class="or">or</span> <span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>X</kbd> <kbd>Ctrl</kbd><span class="p">+</span><kbd>S</kbd></span></dt> <dd>Send queued messages right away. The chord works in any terminal. <span class="v">2.1.275+</span></dd></div>
+    <div class="e" data-f="interrupt cancel clear exit"><dt><span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>C</kbd></span></dt> <dd>Interrupt. With nothing running, clear the prompt; a second press exits.</dd></div>
+    <div class="e" data-f="background bash commands agents tmux"><dt><span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>B</kbd></span></dt> <dd>Move running Bash commands and agents to the background. In tmux, press it twice.</dd></div>
+    <div class="e" data-f="tasks background work bashes subagents"><dt><code>/tasks</code> <span class="aka">/bashes</span></dt> <dd>See and manage this session’s background work.</dd></div>
+    <div class="e" data-f="background detach agent view"><dt><code>/background <var>[prompt]</var></code> <span class="aka">/bg</span></dt> <dd>Detach the whole session as a background agent and free the terminal.</dd></div>
+    <div class="e" data-f="model switch picker meta+p"><dt><span class="nw"><kbd>Option</kbd><span class="p">+</span><kbd>P</kbd></span> <span class="or">or</span> <span class="nw"><kbd>Alt</kbd><span class="p">+</span><kbd>P</kbd></span></dt> <dd>Switch model without clearing your prompt.</dd></div>
+    <div class="e" data-f="model switch default"><dt><code>/model <var>[model]</var></code></dt> <dd>Switch model and keep it as your default. In the picker, <kbd>S</kbd> on a row switches this session only.</dd></div>
+    <div class="e" data-f="effort reasoning level low medium high xhigh max auto"><dt><code>/effort <var>[level]</var></code></dt> <dd>Set effort: <code>low</code> to <code>xhigh</code>, <code>max</code>, or <code>auto</code>.</dd></div>
+    <div class="e" data-f="fast mode toggle meta+o"><dt><span class="nw"><kbd>Option</kbd><span class="p">+</span><kbd>O</kbd></span> <span class="or">or</span> <span class="nw"><kbd>Alt</kbd><span class="p">+</span><kbd>O</kbd></span></dt> <dd>Toggle fast mode. <code>/fast</code> does the same.</dd></div>
+    <div class="e" data-f="transcript viewer tool calls detail verbose"><dt><span class="nw"><kbd>Ctrl</kbd><span class="p">+</span><kbd>O</kbd></span></dt> <dd>Toggle the transcript viewer: tool calls in detail, with timestamps.</dd></div>
+    <div class="e" data-f="diff changes review uncommitted"><dt><code>/diff</code></dt> <dd>Review uncommitted changes, Claude’s edits included.</dd></div>
+    <div class="e" data-f="rewind undo checkpoint restore roll back"><dt><code>/rewind</code> <span class="aka">/undo /checkpoint</span></dt> <dd>Roll code, conversation or both back to an earlier point.</dd></div>
+    <div class="e" data-f="copy clipboard response"><dt><code>/copy <var>[N]</var></code></dt> <dd>Copy the last response, or the Nth-latest, to the clipboard.</dd></div>
+  </dl>
+</section>
+
+<section class="g" data-box aria-labelledby="g3">
+  <h2 class="tab" id="g3">Manage context</h2>
+  <p class="tag">When the conversation gets long</p>
+  <dl>
+    <div class="e" data-f="context window usage tokens full"><dt><code>/context</code></dt> <dd>See what is filling the context window, with suggestions for trimming it.</dd></div>
+    <div class="e" data-f="compact summarize summary free space"><dt><code>/compact <var>[instructions]</var></code></dt> <dd>Summarize the conversation to free space. Add instructions to focus the summary.</dd></div>
+    <div class="e" data-f="clear reset new fresh empty"><dt><code>/clear <var>[name]</var></code> <span class="aka">/reset /new</span></dt> <dd>Start a new conversation with empty context. The old one stays in <code>/resume</code>.</dd></div>
+    <div class="e" data-f="btw side question aside"><dt><code>/btw <var>[question]</var></code></dt> <dd>Ask a side question. Neither it nor the answer joins the conversation history.</dd></div>
+    <div class="e" data-f="autocompact auto compact window threshold"><dt><code>/autocompact <var>[auto|&lt;tokens&gt;]</var></code></dt> <dd>Set how full the window gets before Claude Code compacts on its own, such as <code>500k</code>.</dd></div>
+    <div class="e" data-f="memory claude.md auto memory"><dt><code>/memory</code></dt> <dd>Edit CLAUDE.md files; turn auto memory on or off.</dd></div>
+    <div class="e" data-f="init claude.md starter project"><dt><code>/init</code></dt> <dd>Write a starter CLAUDE.md for the project.</dd></div>
+    <div class="e" data-f="add directory folder access --add-dir"><dt><code>/add-dir <var>&lt;path&gt;</var></code></dt> <dd>Give Claude file access to another directory. At launch: <code><span class="nw">--add-dir</span></code>.</dd></div>
+    <div class="e" data-f="usage cost stats limits plan"><dt><code>/usage</code> <span class="aka">/cost /stats</span></dt> <dd>Session cost, plan usage limits and activity.</dd></div>
+    <div class="e" data-f="export save transcript text file"><dt><code>/export <var>[filename]</var></code></dt> <dd>Export the conversation as plain text, to a file or the clipboard.</dd></div>
+  </dl>
+</section>
+
+<section class="g" data-box aria-labelledby="g4">
+  <h2 class="tab" id="g4">Permissions</h2>
+  <p class="tag">What runs without asking</p>
+  <figure class="cycle" data-box>
+    <figcaption><span class="nw"><kbd>Shift</kbd><span class="p">+</span><kbd>Tab</kbd></span> steps down this track; the status bar names the mode you are in.</figcaption>
+    <ol>
+      <li class="e" data-f="shift+tab cycle permission mode default"><span class="sb"><svg class="gl" aria-hidden="true"><use href="#pz"/></svg>manual mode on</span> <span class="w">Reads only. Its config value is <code>default</code>.</span></li>
+      <li class="e" data-f="shift+tab cycle permission mode acceptedits"><span class="sb"><svg class="gl" aria-hidden="true"><use href="#ff"/></svg>accept edits on</span> <span class="w">Adds file edits and common file commands such as <code>mkdir</code> and <code>mv</code>.</span></li>
+      <li class="e" data-f="shift+tab cycle permission mode plan"><span class="sb"><svg class="gl" aria-hidden="true"><use href="#pz"/></svg>plan mode on</span> <span class="w">Reads; edits wait for a plan you approve.</span></li>
+      <li class="e opt" data-f="shift+tab cycle permission mode bypasspermissions skip dangerously"><span class="sb"><svg class="gl" aria-hidden="true"><use href="#ff"/></svg>bypass permissions on</span> <span class="w">Everything. On the track only if you started with a skip-permissions flag or setting.</span></li>
+      <li class="e opt" data-f="shift+tab cycle permission mode auto classifier"><span class="sb"><svg class="gl" aria-hidden="true"><use href="#ff"/></svg>auto mode on</span> <span class="w">Everything, with background safety checks. When it is available, new sessions start here by default. <span class="v">2.1.283+</span></span></li>
+    </ol>
+    <p class="loop">From auto, the next press goes back to manual. Dotted stops appear only when enabled.</p>
+    <div class="e solo" data-f="dontask permission mode ci locked"><span class="sb"><svg class="gl" aria-hidden="true"><use href="#ff"/></svg>don’t ask on</span> <span class="w">Never on the track: start it with <code><span class="nw">--permission-mode</span> dontAsk</code>. Pre-approved tools run; anything that would prompt is denied.</span></div>
+  </figure>
+  <dl>
+    <div class="e" data-f="plan mode enter"><dt><code>/plan <var>[description]</var></code></dt> <dd>Enter plan mode, optionally with the task: <code>/plan fix the auth bug</code>.</dd></div>
+    <div class="e" data-f="permissions rules allow ask deny allowed-tools"><dt><code>/permissions</code> <span class="aka">/allowed-tools</span></dt> <dd>View and edit allow, ask and deny rules.</dd></div>
+    <div class="e" data-f="permission mode start launch manual"><dt><code><span class="nw">--permission-mode</span> <var>&lt;mode&gt;</var></code></dt> <dd>Start in <code>default</code> (manual), <code>acceptEdits</code>, <code>plan</code>, <code>auto</code>, <code>dontAsk</code> or <code>bypassPermissions</code>.</dd></div>
+    <div class="e" data-f="allowedtools allowed-tools allow rules pre-approve"><dt><code><span class="nw">--allowedTools</span> "Bash(git log *)" "Read"</code></dt> <dd>Let matching tool calls run without a prompt.</dd></div>
+    <div class="e" data-f="disallowedtools disallowed-tools deny remove"><dt><code><span class="nw">--disallowedTools</span> "Edit"</code></dt> <dd>Deny rules. A bare tool name removes the tool; <code>Bash(rm *)</code> denies only matching calls.</dd></div>
+    <div class="e" data-f="tools restrict built-in"><dt><code><span class="nw">--tools</span> "Bash,Edit,Read"</code></dt> <dd>Limit which built-in tools Claude has. <code>""</code> turns them all off.</dd></div>
+    <div class="e" data-f="bypasspermissions yolo skip prompts container"><dt><code><span class="nw">--dangerously-skip-permissions</span></code></dt> <dd>Skip permission prompts, as <code>bypassPermissions</code>. Meant for isolated containers and VMs.</dd></div>
+    <div class="e" data-f="bypasspermissions shift+tab cycle"><dt><code><span class="nw">--allow-dangerously-skip-permissions</span></code></dt> <dd>Put <code>bypassPermissions</code> on the <span class="nw"><kbd>Shift</kbd><span class="p">+</span><kbd>Tab</kbd></span> track without starting in it.</dd></div>
+    <div class="e" data-f="sandbox bash shell isolate"><dt><code>/sandbox</code></dt> <dd>Turn the sandbox for Claude’s shell commands on or off, where supported.</dd></div>
+    <div class="e" data-f="comment permission prompt answer"><dt><kbd>Tab</kbd> <span class="ctx">on a permission prompt</span></dt> <dd>Add a comment to your Yes or No.</dd></div>
+    <div class="e" data-f="allowlist fewer prompts transcripts"><dt><code>/fewer-permission-prompts</code></dt> <dd>Find common read-only calls in your transcripts and allowlist them.</dd></div>
+  </dl>
+</section>
+
+<section class="g" data-box aria-labelledby="g5">
+  <h2 class="tab" id="g5">Configure</h2>
+  <p class="tag">Settings, servers, plugins, and when something breaks</p>
+  <dl>
+    <div class="e" data-f="config settings preferences theme"><dt><code>/config <var>[key=value]</var></code> <span class="aka">/settings</span></dt> <dd>Open settings, or set one directly: <code>/config theme=dark</code>.</dd></div>
+    <div class="e" data-f="status version account model"><dt><code>/status</code></dt> <dd>Version, model, account and connectivity.</dd></div>
+    <div class="e" data-f="doctor checkup diagnose fix"><dt><code>/doctor</code> <span class="aka">/checkup</span></dt> <dd>Diagnose install, settings and CLAUDE.md problems; Claude applies fixes after you confirm.</dd></div>
+    <div class="e" data-f="mcp servers connect oauth"><dt><code>/mcp</code></dt> <dd>Manage MCP server connections and sign-ins.</dd></div>
+    <div class="e" data-f="plugins install enable disable"><dt><code>/plugin</code></dt> <dd>Browse, install, enable or disable plugins.</dd></div>
+    <div class="e" data-f="skills list tokens"><dt><code>/skills</code></dt> <dd>List your skills; <kbd>T</kbd> sorts them by token count.</dd></div>
+    <div class="e" data-f="keybindings rebind shortcuts keys"><dt><code>/keybindings</code></dt> <dd>Open your keybindings file to change shortcuts.</dd></div>
+    <div class="e" data-f="statusline status line"><dt><code>/statusline</code></dt> <dd>Set up the status line: describe what you want, or run it bare to build one from your shell prompt.</dd></div>
+    <div class="e" data-f="theme colors dark light colorblind"><dt><code>/theme</code></dt> <dd>Color theme, with auto, light, dark, colorblind-friendly and ANSI options.</dd></div>
+    <div class="e" data-f="model alias sonnet opus haiku fable launch"><dt><code><span class="nw">--model</span> <var>&lt;model&gt;</var></code></dt> <dd>Model for this session: <code>sonnet</code>, <code>opus</code>, <code>haiku</code>, <code>fable</code> or a full name.</dd></div>
+    <div class="e" data-f="settings file json override"><dt><code><span class="nw">--settings</span> <var>&lt;file-or-json&gt;</var></code></dt> <dd>Override settings for this session only.</dd></div>
+    <div class="e" data-f="safe mode troubleshoot customizations broken"><dt><code><span class="nw">--safe-mode</span></code></dt> <dd>Start with every customization off, to see whether one is the problem.</dd></div>
+    <div class="e" data-f="update upgrade version"><dt><code>claude update</code></dt> <dd>Update to the latest version.</dd></div>
+    <div class="e" data-f="doctor diagnostics install shell"><dt><code>claude doctor</code></dt> <dd>Read-only install and settings diagnostics, without starting a session.</dd></div>
+  </dl>
+</section>
+
+<section class="g" data-box aria-labelledby="g6">
+  <h2 class="tab" id="g6">Scripting with <span class="nw">-p</span></h2>
+  <p class="tag">No one at the keyboard</p>
+  <dl>
+    <div class="e" data-f="print headless non-interactive sdk"><dt><code>claude <span class="nw">-p</span> <var>"query"</var></code> <span class="aka"><span class="nw">--print</span></span></dt> <dd>Answer, print the response, exit.</dd></div>
+    <div class="e" data-f="pipe stdin cat"><dt><code>cat logs.txt | claude <span class="nw">-p</span> "explain"</code></dt> <dd>Pipe content in.</dd></div>
+    <div class="e" data-f="continue print"><dt><code>claude <span class="nw">-c</span> <span class="nw">-p</span> <var>"query"</var></code></dt> <dd>Continue the most recent conversation non-interactively, earlier <code><span class="nw">-p</span></code> runs included.</dd></div>
+    <div class="e" data-f="output format json stream-json text"><dt><code><span class="nw">--output-format</span> <var>text|json|stream-json</var></code></dt> <dd>Choose the output format.</dd></div>
+    <div class="e" data-f="json schema structured output"><dt><code><span class="nw">--json-schema</span> <var>'{…}'</var></code></dt> <dd>Get validated JSON that matches your schema once the work is done.</dd></div>
+    <div class="e" data-f="max turns limit"><dt><code><span class="nw">--max-turns</span> <var>3</var></code></dt> <dd>Cap the number of agentic turns.</dd></div>
+    <div class="e" data-f="budget cost spend limit dollars"><dt><code><span class="nw">--max-budget-usd</span> <var>5.00</var></code></dt> <dd>Stop once estimated API spend reaches the cap.</dd></div>
+    <div class="e" data-f="permissions denied approval allowedtools auto"><dt><code><span class="nw">--allowedTools</span> "Bash(npm test)"</code> <span class="or">or</span> <code><span class="nw">--permission-mode</span> auto</code></dt> <dd><code><span class="nw">-p</span></code> runs deny any call that needs approval. List what may run, or let auto mode’s classifier review each call. <span class="v">2.1.302+</span></dd></div>
+    <div class="e" data-f="bare minimal fast startup skip discovery"><dt><code><span class="nw">--bare</span></code></dt> <dd>Skip hooks, skills, plugins, MCP servers, auto memory and CLAUDE.md so scripted calls start faster.</dd></div>
+    <div class="e" data-f="system prompt append instructions"><dt><code><span class="nw">--append-system-prompt</span> <var>"…"</var></code></dt> <dd>Add instructions to the default system prompt.</dd></div>
+    <div class="e" data-f="system prompt replace"><dt><code><span class="nw">--system-prompt</span> <var>"…"</var></code></dt> <dd>Replace the default system prompt entirely.</dd></div>
+    <div class="e" data-f="stream partial messages events"><dt><code><span class="nw">--include-partial-messages</span></code></dt> <dd>Stream partial events too. Needs <code><span class="nw">--output-format</span> stream-json</code>.</dd></div>
+    <div class="e" data-f="no session persistence save disk"><dt><code><span class="nw">--no-session-persistence</span></code></dt> <dd>Don’t save the session to disk; it can’t be resumed.</dd></div>
+    <div class="e" data-f="token ci oauth setup-token"><dt><code>claude setup-token</code></dt> <dd>Generate a long-lived OAuth token for CI and scripts. Needs a Claude subscription.</dd></div>
+  </dl>
+</section>
+
+</div>
+</main>
+
+<footer>
+  <p>Keys can differ by platform and terminal. On macOS, Option shortcuts such as <span class="nw"><kbd>Option</kbd><span class="p">+</span><kbd>P</kbd></span> need Option set as Meta in your terminal. In commands, <var>&lt;angle&gt;</var> marks a required argument and <var>[square]</var> an optional one.</p>
+  <p class="src">Built from the Claude Code docs:
+    <a href="https://code.claude.com/docs/en/interactive-mode" target="_blank" rel="noopener">Interactive mode</a> ·
+    <a href="https://code.claude.com/docs/en/commands" target="_blank" rel="noopener">Commands</a> ·
+    <a href="https://code.claude.com/docs/en/cli-reference" target="_blank" rel="noopener">CLI reference</a> ·
+    <a href="https://code.claude.com/docs/en/keybindings" target="_blank" rel="noopener">Customize keyboard shortcuts</a> ·
+    <a href="https://code.claude.com/docs/en/permission-modes" target="_blank" rel="noopener">Choose a permission mode</a></p>
+  <p class="credit">Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/design-artifact" target="_blank" rel="noopener">design-artifact</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+
+<script>
+(function () {
+  var q = document.getElementById('q'), box = document.getElementById('box'),
+      hintline = document.getElementById('hintline'), count = document.getElementById('count'),
+      empty = document.getElementById('empty'), clr = document.getElementById('clr');
+  if (!q) return;
+  box.hidden = false; hintline.hidden = false;
+
+  // Text of an entry with a space at each part boundary (term, alias, description),
+  // but none inside a key combo, so "ctrl+r" and "--continue" both match.
+  function words(el) {
+    var s = '';
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) { s += c.nodeValue; continue; }
+        if (c.nodeType !== 1) continue;
+        var cut = /^(DT|DD|P)$/.test(c.tagName) || /\b(aka|or|ctx|cap|lg|sb|w)\b/.test(c.getAttribute('class') || '');
+        if (cut) s += ' ';
+        walk(c);
+        if (cut) s += ' ';
+      }
+    })(el);
+    return s;
+  }
+  var items = [].slice.call(document.querySelectorAll('.e, .k[data-f]'));
+  var hay = items.map(function (el) {
+    return (words(el) + ' ' + (el.getAttribute('data-f') || '')).toLowerCase().replace(/\s+/g, ' ');
+  });
+  var boxes = [].slice.call(document.querySelectorAll('[data-box]'));
+
+  // Every typed word must start a word in the entry, so "esc" finds Esc but not
+  // "description", and "-p" finds "claude -p" but not the "-p" in "--permission-mode".
+  function has(h, t) {
+    var flag = t.charAt(0) === '-' || t.charAt(0) === '/';
+    for (var i = h.indexOf(t); i !== -1; i = h.indexOf(t, i + 1)) {
+      var prev = i ? h.charAt(i - 1) : ' ';
+      if (flag ? !/[\w\-\/.]/.test(prev) : !/[a-z0-9]/.test(prev)) return true;
+    }
+    return false;
+  }
+
+  function run() {
+    var v = q.value.trim().toLowerCase(), toks = v ? v.split(/\s+/) : [], n = 0;
+    items.forEach(function (el, i) {
+      var ok = toks.every(function (t) { return has(hay[i], t); });
+      el.classList.toggle('miss', toks.length > 0 && !ok);
+      if (toks.length && ok) n++;
+    });
+    boxes.forEach(function (b) {
+      b.hidden = toks.length > 0 && !b.querySelector('.e:not(.miss), .k[data-f]:not(.miss)');
+    });
+    clr.hidden = !q.value;
+    count.textContent = !toks.length ? '' : n ? n + (n === 1 ? ' match' : ' matches') : '';
+    empty.hidden = !(toks.length && !n);
+    if (!empty.hidden) {
+      empty.textContent = 'Nothing matches “' + q.value.trim() + '”. Try a key such as ctrl+r, a command such as /compact, or a word such as resume.';
+    }
+  }
+
+  q.addEventListener('input', run);
+  q.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (q.value) { q.value = ''; run(); } else { q.blur(); }
+    }
+  });
+  clr.addEventListener('click', function () { q.value = ''; run(); q.focus(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target, tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) return;
+    e.preventDefault();
+    q.focus();
+  });
+})();
+</script>
+</body>
+</html>

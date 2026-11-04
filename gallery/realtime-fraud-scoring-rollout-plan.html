@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Real-time fraud scoring — rollout plan</title>
+<meta name="description" content="A five-phase plan for moving a card-fraud model from nightly batch scoring to scoring at authorization time, inside a 50 ms p99 budget. Owners, dependencies, acceptance checks, risks, rollback and open questions each cite the line of the source brief they preserve.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  --paper:#f3f6f5;--surface:#fff;--ink:#132322;--ink-2:#4a5a58;--rule:#d2dbd9;--rule-2:#e3e9e7;
+  --accent:#0b6577;--wash:#e0eef0;--q:#8a5300;--q-wash:#f7ecd9;--hl:#fcf1c4;--shade:rgba(19,35,34,.16);
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --serif:ui-serif,"New York",Charter,"Bitstream Charter",Cambria,Georgia,serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0e1615;--surface:#142120;--ink:#e2eae8;--ink-2:#9daeab;--rule:#2b3b39;--rule-2:#20302e;
+    --accent:#62c2d2;--wash:#10343a;--q:#e3b25e;--q-wash:#33280f;--hl:#3a3313;--shade:rgba(0,0,0,.5);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0e1615;--surface:#142120;--ink:#e2eae8;--ink-2:#9daeab;--rule:#2b3b39;--rule-2:#20302e;
+  --accent:#62c2d2;--wash:#10343a;--q:#e3b25e;--q-wash:#33280f;--hl:#3a3313;--shade:rgba(0,0,0,.5);
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:1rem/1.55 var(--sans)}
+main{max-width:50rem;margin:0 auto;padding:2.25rem 1rem 2.5rem;display:grid;grid-template-columns:minmax(0,1fr);gap:3rem}
+section{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem;align-content:start}
+h1,h2,h3{margin:0;line-height:1.2;font-weight:650;text-wrap:balance}
+h1{font-size:clamp(1.75rem,1.2rem + 2vw,2.35rem);letter-spacing:-.02em}
+h2{font-size:1.375rem;letter-spacing:-.01em;padding-top:1rem;border-top:1px solid var(--rule)}
+h3{font-size:1.0625rem}
+p,ul,ol,dl,table{margin:0}
+p,li{max-width:68ch}
+ul{padding-left:1.15rem}
+b{font-weight:650}
+a{color:var(--accent);text-underline-offset:.16em;text-decoration-thickness:1px}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+[id]{scroll-margin-top:1rem}
+.m{font-family:var(--mono);font-size:.875em}
+
+/* citations: B = source line, Added = this plan's own, Q = open question */
+.ref,.qr,.add{font:600 .75rem/1.3 var(--mono);padding:.08em .32em;border-radius:3px;white-space:nowrap;text-decoration:none}
+.ref{color:var(--accent);background:var(--wash)}
+.qr{color:var(--q);background:var(--q-wash)}
+.ref:hover,.qr:hover{text-decoration:underline}
+.add{color:var(--ink-2);border:1px dashed currentColor;font-weight:500;padding:0 .3em}
+a.ck{font:600 .8125rem var(--mono)}
+
+/* header */
+.top{display:grid;gap:1rem}
+.eyebrow{font:600 .75rem/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.lede{font-size:1.125rem;line-height:1.5;max-width:60ch}
+.meta{display:flex;flex-wrap:wrap;gap:.15rem 1.5rem;font-size:.875rem;color:var(--ink-2)}
+.legend{display:flex;flex-wrap:wrap;gap:.45rem 1.5rem;font-size:.875rem;color:var(--ink-2);padding-top:.9rem;border-top:1px dashed var(--rule);max-width:none}
+
+/* source brief */
+.brief{border:1px solid var(--rule);border-radius:4px;background:var(--surface)}
+.brief>summary{cursor:pointer;padding:.75rem 1rem;font-weight:600}
+.brief>summary .sm{font:400 .8125rem var(--mono);color:var(--ink-2);margin-left:.6rem}
+.brief[open]>summary{border-bottom:1px solid var(--rule-2)}
+.brief[open] .cl,.brief:not([open]) .op{display:none}
+.bbody{padding:1rem;display:grid;gap:1.1rem}
+.bhead{font-size:.875rem;color:var(--ink-2)}
+.gh{font:600 .6875rem/1.3 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);margin-bottom:.3rem}
+.bl{list-style:none;padding:0;display:grid;gap:.1rem}
+.bl li{display:grid;grid-template-columns:2.5rem minmax(0,1fr);column-gap:.5rem;padding:.4rem .5rem;margin:0 -.5rem;border-radius:3px;max-width:none}
+.bn{font:600 .8125rem/1.75 var(--mono);color:var(--accent)}
+.bt{font:1rem/1.5 var(--serif);max-width:62ch}
+.to{grid-column:2;display:flex;flex-wrap:wrap;gap:0 .55rem;font-size:.8125rem;color:var(--ink-2);margin-top:.15rem}
+.to::before{content:"→";content:"→" / "Used in:"}
+.to a{white-space:nowrap}
+.bl li:target,tr:target>*,.qs li:target{background:var(--hl)}
+.bl li:target{outline:1px solid var(--accent)}
+
+/* sequence */
+.seq{list-style:none;padding:0;border:1px solid var(--rule);border-radius:4px;background:var(--surface)}
+.seq li{display:grid;grid-template-columns:1.75rem minmax(0,1fr);column-gap:.75rem;row-gap:.1rem;padding:.75rem 1rem;max-width:none}
+.seq li+li{border-top:1px solid var(--rule-2)}
+.seq .n{grid-row:1/span 3;font:600 1.25rem/1.3 var(--mono);color:var(--accent)}
+.seq a,.seq .own,.seq .gate{grid-column:2}
+.seq a{font-weight:600;justify-self:start}
+.seq .own,.seq .gate{font-size:.875rem;color:var(--ink-2)}
+@media (min-width:46rem){
+  .seq li{grid-template-columns:1.75rem minmax(0,.85fr) minmax(0,1.3fr)}
+  .seq .n{grid-row:1/span 2}
+  .seq .gate{grid-column:3;grid-row:1/span 2;align-self:center}
+}
+
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:4px;background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:.9375rem;line-height:1.45}
+th,td{padding:.6rem .8rem;text-align:left;vertical-align:top}
+tbody tr>*{border-top:1px solid var(--rule-2)}
+thead th{font:600 .6875rem/1.3 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);padding-top:.7rem;padding-bottom:.55rem;white-space:nowrap}
+tbody th{font:600 .8125rem/1.65 var(--mono);white-space:nowrap}
+tbody th.t{font:600 .9375rem/1.45 var(--sans);white-space:normal}
+td.src{width:1%;white-space:nowrap}
+.w{min-width:46rem}
+.num{text-align:right;white-space:nowrap}
+td.num{font-family:var(--mono);font-size:.875rem;font-variant-numeric:tabular-nums}
+tfoot td,tfoot th{border-top:1px solid var(--rule);font-weight:650}
+.note{font-size:.875rem;color:var(--ink-2)}
+
+/* phases */
+#phases{gap:2.75rem}
+.phase,.stack{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
+.ph{display:grid;grid-template-columns:2.25rem minmax(0,1fr);column-gap:.75rem;row-gap:.35rem}
+.ph .n{grid-row:1/span 2;font:600 1.75rem/1 var(--mono);color:var(--accent)}
+.facts{display:grid;border-top:1px solid var(--rule)}
+.facts>div{display:grid;grid-template-columns:7.5rem minmax(0,1fr);column-gap:1rem;row-gap:.2rem;padding:.6rem 0;border-bottom:1px solid var(--rule-2)}
+.facts dt{font:600 .6875rem/1.3 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);padding-top:.3rem}
+.facts dd{margin:0}
+.facts ul{display:grid;gap:.3rem}
+.sub{font-size:.875rem;color:var(--ink-2);margin-bottom:.25rem}
+@media (min-width:40rem){.phase>.facts{margin-left:3rem}}
+@media (max-width:30rem){.facts>div{grid-template-columns:minmax(0,1fr)}}
+
+/* questions and lists */
+h3.minor{font:600 .6875rem/1.3 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);margin-top:.25rem}
+.qs{list-style:none;padding:0;display:grid}
+.qs li{display:grid;grid-template-columns:2.25rem minmax(0,1fr);column-gap:.6rem;row-gap:.3rem;padding:.85rem 0;border-top:1px solid var(--rule-2);max-width:none}
+.qs li>*{grid-column:2}
+.qs .qid{grid-column:1;grid-row:1/span 3;font:600 .875rem/1.5 var(--mono);color:var(--q)}
+.qs .qq{font-weight:650}
+.qm{font-size:.8125rem;color:var(--ink-2)}
+.plain{display:grid;gap:.5rem}
+.rules{display:grid;gap:.45rem}
+
+footer{max-width:50rem;margin:0 auto;padding:0 1rem 2.5rem;font-size:.8125rem;color:var(--ink-2)}
+footer p{border-top:1px solid var(--rule);padding-top:1rem;max-width:none}
+@media (min-width:40rem){main{padding:3rem 1.5rem 2.5rem}footer{padding-left:1.5rem;padding-right:1.5rem}}
+
+/* source-line preview */
+.tip{position:absolute;z-index:20;left:0;top:0;width:max-content;max-width:min(24rem,calc(100vw - 1rem));padding:.6rem .75rem;background:var(--surface);color:var(--ink);border:1px solid var(--rule);border-radius:4px;box-shadow:0 8px 28px var(--shade);font:.9375rem/1.45 var(--serif)}
+.tip b{display:block;font:600 .6875rem/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:.2rem}
+.tip[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<main>
+
+<header class="top">
+<p class="eyebrow">ML Platform · Rollout plan</p>
+<h1>Real-time fraud scoring — rollout plan</h1>
+<p class="lede">Move the card-fraud model txn-risk v7 from nightly batch scoring to scoring each authorization as it happens, inside a 50&nbsp;ms p99 budget. Five phases run in a fixed order; each has an owning role, its dependencies, and checks that must pass before the next one starts.</p>
+<p id="why"><b>Why.</b> v7 scores yesterday’s authorizations overnight, and its card risk tier reaches the rules engine at 06:00 <a class="ref" href="#b1">B1</a>. A compromised card can be used for most of a day first: in Q3, 61% of confirmed fraud loss on cards v7 later flagged happened before the next 06:00 load <a class="ref" href="#b2">B2</a>. Scoring at authorization time puts v7 into the decision itself <a class="ref" href="#b3">B3</a>.</p>
+<p class="meta"><span>Draft of 4 Nov 2026 for the 10 Nov design review</span><span>Built from the kickoff note of 3 Nov</span><span>Owners are roles, not people</span></p>
+<p class="legend"><span><a class="ref" href="#b7">B7</a> a line of the source brief: hover or focus to read it, select to open the brief there</span><span><span class="add">Added</span> introduced by this plan, not in the brief</span><span><a class="qr" href="#questions">Q</a> an open question</span></p>
+</header>
+
+<section id="source">
+<h2>Source brief</h2>
+<p>The kickoff note this plan is built from. Its 25 lines are numbered; the plan cites them, and each line lists where it landed.</p>
+<details class="brief" id="brief">
+<summary><span class="cl">Show the brief</span><span class="op">Hide the brief</span><span class="sm">25 lines · 3 Nov 2026</span></summary>
+<div class="bbody">
+<p class="bhead"><b>Kickoff note: real-time scoring for txn-risk v7.</b> From the ML Platform lead to Fraud Data Science, Fraud Strategy, Authorization Platform, SRE, Fraud Operations and Model Risk, for the 10 Nov design review.</p>
+<div class="grp" data-s="Why"><p class="gh" role="heading" aria-level="3">Why</p><ol class="bl">
+<li id="b1"><span class="bn">B1</span><span class="bt">txn-risk v7 scores the previous day’s card authorizations in our nightly batch job. The card-level risk tier it produces is loaded into the authorization rules engine at 06:00.</span><span class="to"><a href="#why">Why</a><a href="#dep-batch">Batch job</a><a href="#p5">Phase 5</a></span></li>
+<li id="b2"><span class="bn">B2</span><span class="bt">So a compromised card can be used for most of a day before the model sees it. In Q3, 61% of confirmed fraud loss on cards that v7 later flagged happened before the next 06:00 load.</span><span class="to"><a href="#why">Why</a></span></li>
+<li id="b3"><span class="bn">B3</span><span class="bt">Goal: score every authorization with v7 at authorization time, and let the rules engine use that score in the decision.</span><span class="to"><a href="#why">Why</a></span></li>
+</ol></div>
+<div class="grp" data-s="Agreed"><p class="gh" role="heading" aria-level="3">Agreed</p><ol class="bl">
+<li id="b4"><span class="bn">B4</span><span class="bt">Same model artifact and the same 46 features (34 velocity and amount windows, 12 merchant and account lookups). No retraining during the rollout; a real-time-native v8 is a separate project.</span><span class="to"><a href="#d1">D1</a><a href="#p1">Phase 1</a></span></li>
+<li id="b5"><span class="bn">B5</span><span class="bt">Latency budget for the scoring call: 50 ms p99, measured at the rules engine, feature lookup included. Rough split: 15 ms features, 10 ms model, the rest network and headroom.</span><span class="to"><a href="#d2">D2</a><a href="#a2">A2</a><a href="#budget">Budget</a><a href="#p2">Phase 2</a><a href="#p3">Phase 3</a><a href="#q5">Q5</a></span></li>
+<li id="b6"><span class="bn">B6</span><span class="bt">If the scorer times out or errors, the rules engine falls back to the batch risk tier, which is what it does today. Never a hard decline because the scorer was slow.</span><span class="to"><a href="#d3">D3</a><a href="#rollback">Rollback</a><a href="#r2">R2</a><a href="#r4">R4</a><a href="#q5">Q5</a></span></li>
+<li id="b7"><span class="bn">B7</span><span class="bt">Order: streaming feature parity, then shadow, then a canary on one merchant segment, then ramp by segment (the rest of card-not-present, about 35% of authorizations, then card-present, the other 62%), then retire the batch job. No skipping.</span><span class="to"><a href="#d4">D4</a><a href="#sequence">Sequence</a><a href="#phases">Phases</a><a href="#assumptions">Assumptions</a><a href="#notes">Notes</a></span></li>
+<li id="b8"><span class="bn">B8</span><span class="bt">Keep 10% of cards on the batch path as a holdout until the batch job is retired, so every guardrail has a control.</span><span class="to"><a href="#d5">D5</a><a href="#p3">Phase 3</a><a href="#p5">Phase 5</a><a href="#rollback">Rollback</a><a href="#r7">R7</a><a href="#notes">Notes</a></span></li>
+<li id="b9"><span class="bn">B9</span><span class="bt">ML Platform drives and signs off each phase with Fraud Strategy. Features and the scorer are ours; the rules change is Authorization Platform’s; guardrail reads are Fraud Strategy’s; the latency SLO is SRE’s.</span><span class="to"><a href="#d6">D6</a><a href="#sequence">Sequence</a><a href="#phases">Phases</a><a href="#notes">Notes</a></span></li>
+</ol></div>
+<div class="grp" data-s="Checks"><p class="gh" role="heading" aria-level="3">Checks</p><ol class="bl">
+<li id="b10"><span class="bn">B10</span><span class="bt">Parity: replay a week of authorizations through the streaming features before shadow, then compare live. Real-time and batch scores within 0.02 of each other for at least 99% of authorizations before anything goes live.</span><span class="to"><a href="#a1">A1</a><a href="#p1">Phase 1</a><a href="#p2">Phase 2</a><a href="#p4">Phase 4</a><a href="#r1">R1</a><a href="#q6">Q6</a></span></li>
+<li id="b11"><span class="bn">B11</span><span class="bt">Latency: the 50 ms p99 has to hold for 14 consecutive days of full shadow traffic.</span><span class="to"><a href="#a2">A2</a><a href="#p2">Phase 2</a></span></li>
+<li id="b12"><span class="bn">B12</span><span class="bt">False declines must not rise: no more than 0.05 percentage points above the holdout, counted from Fraud Operations’ decline alerts that the cardholder answers “Yes, this was me”.</span><span class="to"><a href="#a3">A3</a><a href="#p3">Phase 3</a><a href="#dep-alerts">Decline alerts</a></span></li>
+<li id="b13"><span class="bn">B13</span><span class="bt">Fraud loss must not rise against the holdout either. Labels mature slowly (about 70% of fraud is reported within 14 days), so gate on a 14-day read and confirm at 60 days.</span><span class="to"><a href="#a4">A4</a><a href="#p3">Phase 3</a><a href="#p4">Phase 4</a><a href="#p5">Phase 5</a><a href="#r7">R7</a><a href="#assumptions">Assumptions</a><a href="#notes">Notes</a></span></li>
+</ol></div>
+<div class="grp" data-s="Dependencies and constraints"><p class="gh" role="heading" aria-level="3">Dependencies and constraints</p><ol class="bl">
+<li id="b14"><span class="bn">B14</span><span class="bt">Online feature store (ours): live for the marketing models, never used in the authorization path. Needs a write path from the authorization event stream and reads under 10 ms p99 at peak.</span><span class="to"><a href="#dep-store">Feature store</a><a href="#p1">Phase 1</a><a href="#budget">Budget</a><a href="#r3">R3</a></span></li>
+<li id="b15"><span class="bn">B15</span><span class="bt">Model serving: v7 only runs inside the batch job today. It needs an online endpoint in both data centers, next to the rules engine.</span><span class="to"><a href="#dep-serving">Model serving</a><a href="#p2">Phase 2</a></span></li>
+<li id="b16"><span class="bn">B16</span><span class="bt">Rules engine: needs a score-based rule, per-segment routing, the holdout split and a kill switch. Authorization Platform has a slot in the first half of December.</span><span class="to"><a href="#dep-rules">Rules engine</a><a href="#p2">Phase 2</a><a href="#p3">Phase 3</a><a href="#rollback">Rollback</a><a href="#r5">R5</a></span></li>
+<li id="b17"><span class="bn">B17</span><span class="bt">Decisioning freeze 20 Nov – 5 Jan: nothing may change how authorizations are decided. Shadow is fine; it decides nothing.</span><span class="to"><a href="#dep-freeze">Freeze</a><a href="#phases">Phases</a><a href="#rollback">Rollback</a><a href="#r5">R5</a></span></li>
+<li id="b18"><span class="bn">B18</span><span class="bt">Model Risk has to review the real-time implementation before its score is used in any decision.</span><span class="to"><a href="#dep-mrm">Model Risk review</a><a href="#p3">Phase 3</a></span></li>
+</ol></div>
+<div class="grp" data-s="Worries"><p class="gh" role="heading" aria-level="3">Worries</p><ol class="bl">
+<li id="b19"><span class="bn">B19</span><span class="bt">Streaming features drifting from the batch definitions: two code paths for the same feature.</span><span class="to"><a href="#r1">R1</a></span></li>
+<li id="b20"><span class="bn">B20</span><span class="bt">Peak load: last Black Friday reached 3× normal peak, about 720 authorizations a second.</span><span class="to"><a href="#r2">R2</a><a href="#p1">Phase 1</a><a href="#p4">Phase 4</a><a href="#assumptions">Assumptions</a></span></li>
+<li id="b21"><span class="bn">B21</span><span class="bt">Fraud Operations’ review queues are fed by the batch scores. Catching more in real time changes what lands in them.</span><span class="to"><a href="#r6">R6</a><a href="#p3">Phase 3</a><a href="#p5">Phase 5</a><a href="#q7">Q7</a></span></li>
+</ol></div>
+<div class="grp" data-s="Not decided"><p class="gh" role="heading" aria-level="3">Not decided</p><ol class="bl">
+<li id="b22"><span class="bn">B22</span><span class="bt">Canary segment: I lean towards digital goods (card-not-present). About 3% of authorizations, small tickets, the biggest share of the overnight losses. It’s also the noisiest segment for fraud loss.</span><span class="to"><a href="#q1">Q1</a><a href="#p3">Phase 3</a><a href="#assumptions">Assumptions</a></span></li>
+<li id="b23"><span class="bn">B23</span><span class="bt">Is a canary that small enough to read the fraud-loss guardrail in 14 days?</span><span class="to"><a href="#q3">Q3</a></span></li>
+<li id="b24"><span class="bn">B24</span><span class="bt">Once the batch job is gone, what does the rules engine fall back to when the scorer times out?</span><span class="to"><a href="#q2">Q2</a><a href="#p5">Phase 5</a></span></li>
+<li id="b25"><span class="bn">B25</span><span class="bt">Do decline thresholds need recalibrating for transaction-level scores (today’s rules use the card tier), and who signs that off?</span><span class="to"><a href="#q4">Q4</a><a href="#p2">Phase 2</a></span></li>
+</ol></div>
+</div>
+</details>
+</section>
+
+<section id="sequence">
+<h2>Sequence</h2>
+<p>Five phases in the brief’s order, with no skipping <a class="ref" href="#b7">B7</a>. Each ends when its checks pass and the ML Platform lead and the Fraud Strategy lead sign it off <a class="ref" href="#b9">B9</a>.</p>
+<ol class="seq">
+<li><span class="n" aria-hidden="true">1</span><a href="#p1">Streaming feature parity</a><span class="own">Owner: ML engineer, feature pipelines</span><span class="gate">Exit: A1 on a replayed week; store reads under 10&nbsp;ms p99 at 720 a second</span></li>
+<li><span class="n" aria-hidden="true">2</span><a href="#p2">Shadow</a><span class="own">Owner: ML engineer, model serving</span><span class="gate">Exit: A1 and A2 over 14 consecutive days of full traffic. Can run during the freeze.</span></li>
+<li><span class="n" aria-hidden="true">3</span><a href="#p3">Canary: one merchant segment</a><span class="own">Owner: ML Platform lead</span><span class="gate">Exit: A2, A3 and A4’s 14-day read. Not before 6&nbsp;Jan.</span></li>
+<li><span class="n" aria-hidden="true">4</span><a href="#p4">Ramp by segment</a><span class="own">Owner: ML Platform lead</span><span class="gate">Exit: the same checks at 4a (the rest of card-not-present), then at 4b (card-present)</span></li>
+<li><span class="n" aria-hidden="true">5</span><a href="#p5">Retire the batch job</a><span class="own">Owner: ML Platform lead</span><span class="gate">Starts after the last 60-day read, with Q2 and Q7 answered and the review queues on real-time scores</span></li>
+</ol>
+</section>
+
+<section id="decisions">
+<h2>Decisions</h2>
+<p>What the brief records as agreed. The checks and dependencies below come from the brief too; anything marked <span class="add">Added</span> is this plan’s proposal for the review.</p>
+<div class="tw" role="region" aria-label="Decisions">
+<table>
+<thead><tr><th scope="col">ID</th><th scope="col">Decision</th><th scope="col">Source</th></tr></thead>
+<tbody>
+<tr id="d1"><th scope="row">D1</th><td>Same model artifact (txn-risk v7) and the same 46 features. No retraining during the rollout; a real-time-native v8 is a separate project.</td><td class="src"><a class="ref" href="#b4">B4</a></td></tr>
+<tr id="d2"><th scope="row">D2</th><td>The scoring call gets 50&nbsp;ms p99, measured at the rules engine with the feature lookup included.</td><td class="src"><a class="ref" href="#b5">B5</a></td></tr>
+<tr id="d3"><th scope="row">D3</th><td>If the scorer times out or errors, the rules engine uses the batch risk tier, as it does today. A slow scorer never causes a decline.</td><td class="src"><a class="ref" href="#b6">B6</a></td></tr>
+<tr id="d4"><th scope="row">D4</th><td>The phases run in a fixed order, with no skipping.</td><td class="src"><a class="ref" href="#b7">B7</a></td></tr>
+<tr id="d5"><th scope="row">D5</th><td>10% of cards stay on the batch path as the holdout until the batch job is retired. It is the control for every guardrail.</td><td class="src"><a class="ref" href="#b8">B8</a></td></tr>
+<tr id="d6"><th scope="row">D6</th><td>ML Platform drives the rollout and signs off each phase with Fraud Strategy.</td><td class="src"><a class="ref" href="#b9">B9</a></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="checks">
+<h2>Acceptance checks</h2>
+<p>Defined once here. Each phase lists the ones that end it.</p>
+<div class="tw" role="region" aria-label="Acceptance checks">
+<table class="w">
+<thead><tr><th scope="col">Check</th><th scope="col">Passes when</th><th scope="col">How it is read</th><th scope="col">Source</th></tr></thead>
+<tbody>
+<tr id="a1"><th scope="row" class="t"><span class="m">A1</span> Score parity</th><td>Real-time and batch scores are within 0.02 of each other for at least 99% of authorizations.</td><td>Phase 1 on a replayed week. From Phase 2, on live traffic, joining logged real-time scores to the nightly batch scores, until the batch job retires. Read by the feature-pipelines engineer.</td><td class="src"><a class="ref" href="#b10">B10</a></td></tr>
+<tr id="a2"><th scope="row" class="t"><span class="m">A2</span> Latency SLO</th><td>The scoring call, measured at the rules engine with the feature lookup included, is at or under 50&nbsp;ms p99.</td><td>Rules-engine timings, daily. Must hold for 14 consecutive days of full shadow traffic before Phase 3, then throughout. Read by SRE. No fallback-rate ceiling yet: <a class="qr" href="#q5">Q5</a>.</td><td class="src"><a class="ref" href="#b5">B5</a> <a class="ref" href="#b11">B11</a></td></tr>
+<tr id="a3"><th scope="row" class="t"><span class="m">A3</span> False-decline guardrail</th><td>The false-decline rate is no more than 0.05 percentage points above the holdout’s.</td><td>Declines the cardholder answers “Yes, this was me” on the decline alert, by segment, daily from Phase 3. Read by the fraud strategy analyst.</td><td class="src"><a class="ref" href="#b12">B12</a></td></tr>
+<tr id="a4"><th scope="row" class="t"><span class="m">A4</span> Fraud-loss guardrail</th><td>Fraud loss is no higher than the holdout’s.</td><td>A 14-day read gates each step; a 60-day read confirms it. Measured in basis points of approved spend <span class="add">Added</span>. Read by the fraud strategy analyst. Detectable difference: <a class="qr" href="#q3">Q3</a>.</td><td class="src"><a class="ref" href="#b13">B13</a></td></tr>
+</tbody>
+</table>
+</div>
+<div id="budget" class="stack">
+<h3>The 50&nbsp;ms budget</h3>
+<div class="tw" role="region" aria-label="Latency budget">
+<table>
+<thead><tr><th scope="col">Part of the scoring call</th><th scope="col" class="num">Budget</th></tr></thead>
+<tbody>
+<tr><td>Feature lookup from the online store (the store’s own reads: under 10&nbsp;ms p99 <a class="ref" href="#b14">B14</a>)</td><td class="num">15 ms</td></tr>
+<tr><td>Model inference, v7 on 46 features</td><td class="num">10 ms</td></tr>
+<tr><td>Network, serialization and headroom</td><td class="num">25 ms</td></tr>
+</tbody>
+<tfoot><tr><th scope="row">Scoring call, measured at the rules engine</th><td class="num">50 ms p99</td></tr></tfoot>
+</table>
+</div>
+<p class="note">The brief’s rough split, for each team to design against <a class="ref" href="#b5">B5</a>. Percentiles don’t add up, so only the 50&nbsp;ms total is tested, as A2.</p>
+</div>
+</section>
+
+<section id="phases">
+<h2>Phases</h2>
+
+<section class="phase" id="p1">
+<div class="ph"><span class="n" aria-hidden="true">1</span><h3>Phase 1 · Streaming feature parity</h3>
+<p>All 46 v7 features are served from the online feature store at authorization time, computed the way the batch job computes them. <a class="ref" href="#b4">B4</a> <a class="ref" href="#b7">B7</a></p></div>
+<dl class="facts">
+<div><dt>Owner</dt><dd>ML engineer, feature pipelines (ML Platform) <a class="ref" href="#b9">B9</a></dd></div>
+<div><dt>With</dt><dd>Fraud data scientist (feature definitions); SRE (load test)</dd></div>
+<div><dt>Needs</dt><dd><a href="#dep-store">Online feature store</a>: a write path from the authorization event stream, and reads under 10&nbsp;ms p99 at peak <a class="ref" href="#b14">B14</a></dd></div>
+<div><dt>Starts</dt><dd>After the 10 Nov review. It changes no decision, so the freeze does not apply. <a class="ref" href="#b17">B17</a></dd></div>
+<div><dt>Work</dt><dd><ul>
+<li>Port the 34 velocity and amount windows to the stream, writing to the online store. <a class="ref" href="#b4">B4</a></li>
+<li>Load the 12 merchant and account lookups into the store, refreshed daily as the batch job does. <a class="ref" href="#b4">B4</a></li>
+<li>Build the parity harness: replay a week of authorizations through the streaming features and v7, and compare with the batch scores. <a class="ref" href="#b10">B10</a></li>
+<li>Report mismatches per feature, not only per score. <span class="add">Added</span></li>
+<li>Load-test store reads at 720 a second, three times normal peak. <a class="ref" href="#b20">B20</a></li>
+</ul></dd></div>
+<div><dt>Exit checks</dt><dd><ul>
+<li><a class="ck" href="#a1">A1</a> on the replayed week. <a class="ref" href="#b10">B10</a></li>
+<li>Store reads under 10&nbsp;ms p99 at 720 a second <a class="ref" href="#b14">B14</a> <a class="ref" href="#b20">B20</a>, with the marketing loads running (<a href="#r3">R3</a>). <span class="add">Added</span></li>
+<li><a class="qr" href="#q6">Q6</a> answered, so any per-feature tolerances join A1. <span class="add">Added</span></li>
+<li>Signed off by the ML Platform lead and the Fraud Strategy lead. <a class="ref" href="#b9">B9</a></li>
+</ul></dd></div>
+</dl>
+</section>
+
+<section class="phase" id="p2">
+<div class="ph"><span class="n" aria-hidden="true">2</span><h3>Phase 2 · Shadow</h3>
+<p>Every authorization is scored in real time; the score is logged but not used, to prove parity and latency on live traffic. <a class="ref" href="#b7">B7</a> <a class="ref" href="#b10">B10</a> <a class="ref" href="#b11">B11</a></p></div>
+<dl class="facts">
+<div><dt>Owner</dt><dd>ML engineer, model serving (ML Platform) <a class="ref" href="#b9">B9</a></dd></div>
+<div><dt>With</dt><dd>Authorization Platform engineer; SRE; fraud strategy analyst</dd></div>
+<div><dt>Needs</dt><dd><a href="#dep-serving">Model serving</a> in both data centers <a class="ref" href="#b15">B15</a>; the <a href="#dep-rules">rules engine</a>’s December slot <a class="ref" href="#b16">B16</a></dd></div>
+<div><dt>Starts</dt><dd>Phase 1 signed off. Runs through the freeze, since shadow decides nothing. <a class="ref" href="#b17">B17</a></dd></div>
+<div><dt>Work</dt><dd><ul>
+<li>Deploy v7 behind an online endpoint in both data centers, next to the rules engine. <a class="ref" href="#b15">B15</a></li>
+<li>The rules engine calls the scorer on every authorization and logs the score and the call’s latency; the decision ignores the score. <a class="ref" href="#b5">B5</a></li>
+<li>Make the shadow call non-blocking, so a slow scorer cannot delay an authorization. <span class="add">Added</span></li>
+<li>In the same slot, ship the score-based rule, per-segment routing, holdout split and kill switch, all switched off. <a class="ref" href="#b16">B16</a></li>
+<li>Fraud Strategy drafts score cut-offs from the shadow scores, as input to <a class="qr" href="#q4">Q4</a>. <a class="ref" href="#b25">B25</a></li>
+</ul></dd></div>
+<div><dt>Exit checks</dt><dd><ul>
+<li><a class="ck" href="#a2">A2</a>: 50&nbsp;ms p99 on 14 consecutive days of full shadow traffic. <a class="ref" href="#b11">B11</a></li>
+<li><a class="ck" href="#a1">A1</a> on live traffic over the same 14 days. <a class="ref" href="#b10">B10</a></li>
+<li>Signed off by the ML Platform lead and the Fraud Strategy lead. <a class="ref" href="#b9">B9</a></li>
+</ul></dd></div>
+</dl>
+</section>
+
+<section class="phase" id="p3">
+<div class="ph"><span class="n" aria-hidden="true">3</span><h3>Phase 3 · Canary: one merchant segment</h3>
+<p>The real-time score drives decisions in one merchant segment, while holdout cards stay on the batch tier as the control. <a class="ref" href="#b7">B7</a> <a class="ref" href="#b8">B8</a></p></div>
+<dl class="facts">
+<div><dt>Owner</dt><dd>ML Platform lead <a class="ref" href="#b9">B9</a></dd></div>
+<div><dt>With</dt><dd>Authorization Platform engineer (the switch); fraud strategy analyst (guardrail reads); SRE; Fraud Operations manager (review queues)</dd></div>
+<div><dt>Segment</dt><dd>Digital goods, card-not-present: about 3% of authorizations. The brief’s lean, not a decision: <a class="qr" href="#q1">Q1</a>. <a class="ref" href="#b22">B22</a></dd></div>
+<div><dt>Needs</dt><dd><a href="#dep-mrm">Model Risk review</a> <a class="ref" href="#b18">B18</a>; <a href="#dep-alerts">decline-alert replies</a> split by holdout <a class="ref" href="#b12">B12</a>; the kill switch <a class="ref" href="#b16">B16</a></dd></div>
+<div><dt>Starts</dt><dd>Phase 2 signed off and Model Risk’s review complete <a class="ref" href="#b18">B18</a>. Not before 6&nbsp;Jan, when the freeze ends <a class="ref" href="#b17">B17</a>. <a class="qr" href="#q1">Q1</a>, <a class="qr" href="#q3">Q3</a>, <a class="qr" href="#q4">Q4</a> and <a class="qr" href="#q5">Q5</a> answered.</dd></div>
+<div><dt>Work</dt><dd><ul>
+<li>Switch the score-based rule on for the segment, for the 90% of cards outside the holdout. <a class="ref" href="#b8">B8</a> <a class="ref" href="#b16">B16</a></li>
+<li>Read A2 and A3 daily, and A4 at 14 days. <a class="ref" href="#b12">B12</a> <a class="ref" href="#b13">B13</a></li>
+<li>Fraud Operations checks review-queue volume weekly. <a class="ref" href="#b21">B21</a> <span class="add">Added</span></li>
+</ul></dd></div>
+<div><dt>Exit checks</dt><dd><p class="sub">After at least 14 days:</p><ul>
+<li><a class="ck" href="#a2">A2</a> holds with the score in the decision path. <a class="ref" href="#b5">B5</a></li>
+<li><a class="ck" href="#a3">A3</a>: false declines no more than 0.05&nbsp;pp above the holdout. <a class="ref" href="#b12">B12</a></li>
+<li><a class="ck" href="#a4">A4</a>: fraud loss at the 14-day read no higher than the holdout’s. <a class="ref" href="#b13">B13</a></li>
+<li>Signed off by the ML Platform lead and the Fraud Strategy lead. <a class="ref" href="#b9">B9</a></li>
+</ul></dd></div>
+</dl>
+</section>
+
+<section class="phase" id="p4">
+<div class="ph"><span class="n" aria-hidden="true">4</span><h3>Phase 4 · Ramp by segment</h3>
+<p>Real-time decisions extend one segment at a time, until every authorization outside the holdout uses them. <a class="ref" href="#b7">B7</a></p></div>
+<dl class="facts">
+<div><dt>Owner</dt><dd>ML Platform lead <a class="ref" href="#b9">B9</a></dd></div>
+<div><dt>With</dt><dd>As in Phase 3</dd></div>
+<div><dt>Steps</dt><dd><b>4a</b> the rest of card-not-present, about 35% of authorizations; then <b>4b</b> card-present, the other 62%. <a class="ref" href="#b7">B7</a></dd></div>
+<div><dt>Needs</dt><dd>Store and scorer capacity for decision traffic at 720 a second <a class="ref" href="#b20">B20</a></dd></div>
+<div><dt>Starts</dt><dd>Phase 3 signed off. Step 4b only after 4a passes its 14-day read. <a class="ref" href="#b13">B13</a></dd></div>
+<div><dt>Work</dt><dd><ul>
+<li>Switch each step on with the kill switch ready, and hold it for at least 14 days. <a class="ref" href="#b13">B13</a></li>
+<li>Keep reading A1 nightly against the batch scores. <a class="ref" href="#b10">B10</a></li>
+<li>The canary’s 60-day read lands during this phase. If it fails, that segment goes back to the batch tier. <a class="ref" href="#b13">B13</a></li>
+</ul></dd></div>
+<div><dt>Exit checks</dt><dd><p class="sub">At each step, after at least 14 days:</p><ul>
+<li><a class="ck" href="#a2">A2</a>, <a class="ck" href="#a3">A3</a> and the <a class="ck" href="#a4">A4</a> 14-day read, as in Phase 3. <a class="ref" href="#b13">B13</a></li>
+<li>Signed off before the next step starts. <a class="ref" href="#b9">B9</a></li>
+</ul></dd></div>
+</dl>
+</section>
+
+<section class="phase" id="p5">
+<div class="ph"><span class="n" aria-hidden="true">5</span><h3>Phase 5 · Retire the batch job</h3>
+<p>The nightly scoring job and the 06:00 tier load stop, and the holdout cards move to real-time scoring. <a class="ref" href="#b7">B7</a> <a class="ref" href="#b8">B8</a></p></div>
+<dl class="facts">
+<div><dt>Owner</dt><dd>ML Platform lead <a class="ref" href="#b9">B9</a></dd></div>
+<div><dt>With</dt><dd>Authorization Platform engineer (new fallback); Fraud Operations manager (queue feed)</dd></div>
+<div><dt>Needs</dt><dd>An answer to <a class="qr" href="#q2">Q2</a>, the fallback once the batch tier is gone <a class="ref" href="#b24">B24</a>; review queues fed by real-time scores <a class="ref" href="#b21">B21</a>; <a class="qr" href="#q7">Q7</a> answered</dd></div>
+<div><dt>Starts</dt><dd>When the last 60-day read (step 4b) confirms. Until then the holdout is still the control it needs. <a class="ref" href="#b8">B8</a> <a class="ref" href="#b13">B13</a></dd></div>
+<div><dt>Work</dt><dd><ul>
+<li>Switch the rules engine’s timeout fallback to the <a class="qr" href="#q2">Q2</a> answer. <a class="ref" href="#b24">B24</a></li>
+<li>Point the review queues at real-time scores. <a class="ref" href="#b21">B21</a></li>
+<li>Release the holdout cards to real-time scoring. <a class="ref" href="#b8">B8</a></li>
+<li>Disable the nightly job and the 06:00 load <a class="ref" href="#b1">B1</a>; keep both restorable for a month before deleting them. <span class="add">Added</span></li>
+</ul></dd></div>
+<div><dt>Exit checks</dt><dd><ul>
+<li>A month with the batch job disabled and never restored. <span class="add">Added</span></li>
+<li>Signed off by the ML Platform lead and the Fraud Strategy lead. <a class="ref" href="#b9">B9</a></li>
+</ul></dd></div>
+</dl>
+</section>
+</section>
+
+<section id="rollback">
+<h2>Rollback</h2>
+<p>Until Phase 5, rolling back is one switch. The rules engine’s kill switch <a class="ref" href="#b16">B16</a>, per segment or for everything, takes the score out of the decision; those authorizations go back to the batch risk tier, which is today’s behavior <a class="ref" href="#b6">B6</a>. Holdout cards never leave it <a class="ref" href="#b8">B8</a>.</p>
+<div class="tw" role="region" aria-label="Rollback by phase">
+<table>
+<thead><tr><th scope="col">Phase</th><th scope="col">Back out by</th><th scope="col">Decisions then use</th></tr></thead>
+<tbody>
+<tr><th scope="row" class="t">1 · Feature parity</th><td>Stopping the stream writers</td><td>The batch tier, as before</td></tr>
+<tr><th scope="row" class="t">2 · Shadow</th><td>Switching the shadow call off</td><td>The batch tier, as before</td></tr>
+<tr><th scope="row" class="t">3 · Canary</th><td>Kill switch for the segment</td><td>The batch tier, immediately</td></tr>
+<tr><th scope="row" class="t">4 · Ramp</th><td>Kill switch per segment, or for everything</td><td>The batch tier, immediately</td></tr>
+<tr><th scope="row" class="t">5 · Retire</th><td>Re-enabling the nightly job and the 06:00 load</td><td>The batch tier from the next 06:00 load; the <a class="qr" href="#q2">Q2</a> fallback until then</td></tr>
+</tbody>
+</table>
+</div>
+<p class="note">Phase 5 is the only rollback that isn’t immediate, which is why it waits for the last 60-day read.</p>
+<h3>Who, when, and what next</h3>
+<ul class="rules">
+<li><b>Who:</b> whoever is on call for the authorization path (SRE or Authorization Platform), without a change ticket. Rolling back restores today’s behavior, so it is allowed during the freeze. <a class="ref" href="#b17">B17</a> <span class="add">Added</span></li>
+<li><b>When:</b> A2 breached for 30 minutes; the fallback rate over the <a class="qr" href="#q5">Q5</a> ceiling; A3 breached on a daily read; A4 failed at a 14- or 60-day read; or a severity-1 or -2 incident on the authorization path involving the scorer. <span class="add">Added</span></li>
+<li><b>Next:</b> the step stays off until its owner and the Fraud Strategy lead agree the cause and its exit checks pass again. <span class="add">Added</span></li>
+</ul>
+</section>
+
+<section id="deps">
+<h2>Dependencies and constraints</h2>
+<p>What the plan needs from other systems and teams, and where each stands today.</p>
+<div class="tw" role="region" aria-label="Dependencies and constraints">
+<table class="w">
+<thead><tr><th scope="col">Dependency</th><th scope="col">Owner</th><th scope="col">Needed for</th><th scope="col">What the plan needs</th><th scope="col">Today</th><th scope="col">Source</th></tr></thead>
+<tbody>
+<tr id="dep-store"><th scope="row" class="t">Online feature store</th><td>ML Platform</td><td>From Phase&nbsp;1</td><td>A write path from the authorization event stream; reads under 10&nbsp;ms p99 at peak</td><td>Live for the marketing models; never used to authorize</td><td class="src"><a class="ref" href="#b14">B14</a></td></tr>
+<tr id="dep-serving"><th scope="row" class="t">Model serving</th><td>ML Platform</td><td>From Phase&nbsp;2</td><td>An online v7 endpoint in both data centers, next to the rules engine</td><td>v7 runs only inside the batch job</td><td class="src"><a class="ref" href="#b15">B15</a></td></tr>
+<tr id="dep-rules"><th scope="row" class="t">Authorization rules engine</th><td>Authorization Platform</td><td>From Phase&nbsp;2</td><td>Shadow call; score-based rule; per-segment routing; holdout split; kill switch</td><td>Slot in the first half of December</td><td class="src"><a class="ref" href="#b16">B16</a></td></tr>
+<tr id="dep-mrm"><th scope="row" class="t">Model Risk review</th><td>Model Risk</td><td>Before Phase&nbsp;3</td><td>A review of the real-time implementation, using the Phase 1 and 2 evidence</td><td>—</td><td class="src"><a class="ref" href="#b18">B18</a></td></tr>
+<tr id="dep-alerts"><th scope="row" class="t">Decline alerts</th><td>Fraud Operations</td><td>From Phase&nbsp;3</td><td>“Yes, this was me” replies, split by segment and by holdout</td><td>Sent today</td><td class="src"><a class="ref" href="#b12">B12</a></td></tr>
+<tr id="dep-batch"><th scope="row" class="t">Nightly batch job</th><td>ML Platform</td><td>Until Phase&nbsp;5</td><td>Keeps running as the parity reference (A1), the timeout fallback (D3) and the holdout path (D5)</td><td>Runs nightly; tier loaded at 06:00</td><td class="src"><a class="ref" href="#b1">B1</a></td></tr>
+<tr id="dep-freeze"><th scope="row" class="t">Decisioning freeze <span class="note">(constraint)</span></th><td>—</td><td>Phase&nbsp;3</td><td>Nothing may change how authorizations are decided from 20&nbsp;Nov to 5&nbsp;Jan</td><td>Starts 20&nbsp;Nov</td><td class="src"><a class="ref" href="#b17">B17</a></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="risks">
+<h2>Risks</h2>
+<p>R1, R2 and R6 are the brief’s own worries. The others are this plan’s reading of facts in the brief, so they carry <span class="add">Added</span>.</p>
+<div class="tw" role="region" aria-label="Risks and mitigations">
+<table class="w">
+<thead><tr><th scope="col">ID</th><th scope="col">Risk</th><th scope="col">Mitigation</th><th scope="col">Owner</th><th scope="col">Source</th></tr></thead>
+<tbody>
+<tr id="r1"><th scope="row">R1</th><td>Streaming features drift from the batch definitions: two code paths for one feature.</td><td>Replay parity before shadow; A1 nightly on live traffic until the batch job retires; a per-feature mismatch report (<a class="qr" href="#q6">Q6</a>).</td><td>ML engineer, feature pipelines</td><td class="src"><a class="ref" href="#b19">B19</a> <a class="ref" href="#b10">B10</a></td></tr>
+<tr id="r2"><th scope="row">R2</th><td>Peak load at three times normal peak, about 720 authorizations a second.</td><td>Load-test store and scorer at 720 a second before full shadow; full-traffic shadow measures the real p99; a slow call falls back to the batch tier (D3).</td><td>SRE</td><td class="src"><a class="ref" href="#b20">B20</a> <a class="ref" href="#b6">B6</a></td></tr>
+<tr id="r3"><th scope="row">R3</th><td>The feature store is shared with the marketing models, whose loads could slow authorization reads.</td><td>Separate capacity for the authorization path; run the Phase 1 load test with the marketing loads running.</td><td>ML engineer, feature pipelines</td><td class="src"><a class="ref" href="#b14">B14</a> <span class="add">Added</span></td></tr>
+<tr id="r4"><th scope="row">R4</th><td>The fallback hides a degraded scorer: decisions quietly revert to the batch tier.</td><td>Alert on the fallback rate; its threshold waits on <a class="qr" href="#q5">Q5</a>.</td><td>SRE</td><td class="src"><a class="ref" href="#b6">B6</a> <span class="add">Added</span></td></tr>
+<tr id="r5"><th scope="row">R5</th><td>Rules-engine changes ship in December, inside the decisioning freeze.</td><td>Ship everything switched off; shadow exercises the new call path; nothing switches on before 6&nbsp;Jan.</td><td>Authorization Platform engineer</td><td class="src"><a class="ref" href="#b16">B16</a> <a class="ref" href="#b17">B17</a> <span class="add">Added</span></td></tr>
+<tr id="r6"><th scope="row">R6</th><td>The review-queue mix changes as more fraud is caught in real time.</td><td>A weekly queue-volume check from Phase 3 <span class="add">Added</span>; the queue feed moves to real-time scores before Phase 5.</td><td>Fraud Operations manager</td><td class="src"><a class="ref" href="#b21">B21</a></td></tr>
+<tr id="r7"><th scope="row">R7</th><td>A step passes at 14 days and fails at 60, because fraud labels mature slowly.</td><td>A 60-day read confirms every step; the holdout stays until the last one; a failed read sends that segment back to the batch tier.</td><td>Fraud strategy analyst</td><td class="src"><a class="ref" href="#b13">B13</a> <a class="ref" href="#b8">B8</a> <span class="add">Added</span></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="questions">
+<h2>Open questions</h2>
+<p>None of these is decided. Each names who answers it and the phase that waits on it.</p>
+<h3 class="minor">From the brief</h3>
+<ol class="qs">
+<li id="q1"><span class="qid">Q1</span><p class="qq">Which merchant segment is the canary?</p><p>The brief leans towards digital goods, card-not-present: about 3% of authorizations, small tickets, and the biggest share of the overnight losses. It is also the noisiest segment for fraud loss, which is what Q3 asks about.</p><p class="qm">Answers: Fraud Strategy lead with the ML Platform lead&nbsp;· Needed before Phase 3&nbsp;· <a class="ref" href="#b22">B22</a></p></li>
+<li id="q2"><span class="qid">Q2</span><p class="qq">What does the rules engine fall back to once the batch tier is gone?</p><p>Candidates, none agreed: the card’s last real-time score held in the online store; rules only; a reduced nightly job that builds only the tier. <span class="add">Added</span></p><p class="qm">Answers: Authorization Platform with Fraud Strategy&nbsp;· Needed before Phase 5&nbsp;· <a class="ref" href="#b24">B24</a></p></li>
+<li id="q3"><span class="qid">Q3</span><p class="qq">Is a canary of about 3% of authorizations enough to read the fraud-loss guardrail in 14 days?</p><p>Needs the analyst’s estimate of the smallest difference the canary can detect at 14 days. If that is too coarse, the choices are a longer canary or a wider one.</p><p class="qm">Answers: fraud strategy analyst&nbsp;· Needed before Phase 3&nbsp;· <a class="ref" href="#b23">B23</a></p></li>
+<li id="q4"><span class="qid">Q4</span><p class="qq">Do decline thresholds need recalibrating for transaction-level scores, and who signs them off?</p><p>Today’s rules use the card tier. Phase 2’s shadow scores give the data; sign-off could sit with Fraud Strategy or with Model Risk.</p><p class="qm">Answers: Fraud Strategy lead and Model Risk&nbsp;· Needed before Phase 3&nbsp;· <a class="ref" href="#b25">B25</a></p></li>
+</ol>
+<h3 class="minor">Raised while drafting, not in the brief</h3>
+<ol class="qs">
+<li id="q5"><span class="qid">Q5</span><p class="qq">What timeout does the rules engine put on the scoring call, and what fallback rate is acceptable?</p><p>The brief sets the p99 and the fallback but neither number. The fallback-rate alert in R4 needs the second.</p><p class="qm">Answers: Authorization Platform with SRE&nbsp;· Needed before Phase 3&nbsp;· <a class="ref" href="#b5">B5</a> <a class="ref" href="#b6">B6</a></p></li>
+<li id="q6"><span class="qid">Q6</span><p class="qq">Is score-level parity enough?</p><p>A feature can drift without moving today’s scores much. Per-feature tolerances would catch it earlier (R1).</p><p class="qm">Answers: fraud data scientist with the feature-pipelines engineer&nbsp;· Needed before Phase 1 ends&nbsp;· <a class="ref" href="#b10">B10</a></p></li>
+<li id="q7"><span class="qid">Q7</span><p class="qq">What else reads the batch scores?</p><p>The brief names the review queues. Reporting and model monitoring may read them too, and would break when the job retires.</p><p class="qm">Answers: ML Platform lead&nbsp;· Needed before Phase 5&nbsp;· <a class="ref" href="#b21">B21</a></p></li>
+</ol>
+</section>
+
+<section id="assumptions">
+<h2>Assumptions</h2>
+<p>What the plan takes as true. If one proves wrong, the phase that leans on it changes.</p>
+<ul class="plain">
+<li>Normal peak is about 240 authorizations a second; last Black Friday reached three times that, about 720. <a class="ref" href="#b20">B20</a></li>
+<li>About 70% of fraud is reported within 14 days, so the 14-day read sees most of it. <a class="ref" href="#b13">B13</a></li>
+<li>Digital goods is about 3% of authorizations, the rest of card-not-present about 35%, and card-present about 62%. <a class="ref" href="#b7">B7</a> <a class="ref" href="#b22">B22</a></li>
+<li>The authorization event stream carries every field the 34 windows need; Phase 1 checks this first. <span class="add">Added</span></li>
+<li>The 12 merchant and account lookups change slowly enough to refresh daily, as the batch job does today. <span class="add">Added</span></li>
+</ul>
+</section>
+
+<section id="notes">
+<h2>Notes on structure</h2>
+<p>Where this plan interprets the brief rather than restating it:</p>
+<ul class="plain">
+<li>Phases are numbered because the brief fixes their order; 4a and 4b are its own two segments. <a class="ref" href="#b7">B7</a></li>
+<li>The 14-day read gates every step that changes decisions, not only the canary. <a class="ref" href="#b13">B13</a></li>
+<li>Phase 5 waits for the last 60-day read: retiring the job ends the holdout, and with it the control that read needs. <a class="ref" href="#b8">B8</a> <a class="ref" href="#b13">B13</a></li>
+<li>Each phase has one owning role; “With” lists the roles whose work it needs. <a class="ref" href="#b9">B9</a></li>
+<li>The brief’s four undecided points are Q1–Q4. Q5–Q7 came up while drafting and are kept apart from them.</li>
+<li>Anything marked <span class="add">Added</span> can be struck without contradicting the brief, and none of it is agreed.</li>
+</ul>
+</section>
+
+</main>
+<footer><p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html-plan" target="_blank" rel="noopener">html-plan</a> skill from effective-html (MIT) · HTML Server gallery</p></footer>
+<script>
+(function () {
+  var d = document;
+  function idOf(href) { var id = href.slice(1); try { id = decodeURIComponent(id); } catch (e) {} return id; }
+
+  // Open the source brief when a link points inside it. The browser (or the frame's own
+  // link handler) still does the scrolling, so nothing here calls preventDefault.
+  function reveal(id) {
+    var el = id && d.getElementById(id);
+    for (var x = el && el.closest('details'); x; x = x.parentElement && x.parentElement.closest('details')) x.open = true;
+    return el;
+  }
+  d.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (!a) return;
+    hide();
+    reveal(idOf(a.getAttribute('href')));
+  });
+  addEventListener('hashchange', function () { reveal(idOf(location.hash)); });
+  var start = location.hash && reveal(idOf(location.hash));
+  if (start && start.closest('details')) start.scrollIntoView();
+
+  // Preview a cited source line on hover or keyboard focus; Escape dismisses it.
+  var tip = d.createElement('div'), cur = null, timer = 0;
+  tip.className = 'tip'; tip.id = 'tip'; tip.setAttribute('role', 'tooltip'); tip.hidden = true;
+  d.body.appendChild(tip);
+  function show(a) {
+    var line = d.getElementById(idOf(a.getAttribute('href')));
+    var text = line && line.querySelector('.bt');
+    if (!text) return;
+    clearTimeout(timer);
+    var grp = line.closest('[data-s]'), head = d.createElement('b'), body = d.createElement('span');
+    head.textContent = a.textContent + (grp ? ' · ' + grp.getAttribute('data-s') : '');
+    body.textContent = text.textContent;
+    tip.textContent = ''; tip.appendChild(head); tip.appendChild(d.createTextNode(' ')); tip.appendChild(body);
+    tip.style.left = '0px'; tip.style.top = '0px'; tip.hidden = false;
+    if (cur && cur !== a) cur.removeAttribute('aria-describedby');
+    cur = a; a.setAttribute('aria-describedby', 'tip');
+    var r = a.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight, vw = d.documentElement.clientWidth;
+    var left = Math.max(8, Math.min(r.left, vw - w - 8)), top = r.bottom + 6;
+    if (top + h > innerHeight && r.top - h - 6 > 0) top = r.top - h - 6;
+    tip.style.left = (left + scrollX) + 'px'; tip.style.top = (top + scrollY) + 'px';
+  }
+  function hide() { clearTimeout(timer); tip.hidden = true; if (cur) { cur.removeAttribute('aria-describedby'); cur = null; } }
+  d.addEventListener('mouseover', function (e) {
+    var a = e.target.closest && e.target.closest('a.ref');
+    if (a) { show(a); return; }
+    if (tip.contains(e.target)) { clearTimeout(timer); return; }
+    if (cur && d.activeElement !== cur) { clearTimeout(timer); timer = setTimeout(hide, 250); }
+  });
+  d.documentElement.addEventListener('mouseleave', function () { if (cur && d.activeElement !== cur) hide(); });
+  d.addEventListener('focusin', function (e) { var a = e.target.closest && e.target.closest('a.ref'); if (a) show(a); else hide(); });
+  d.addEventListener('focusout', function (e) { if (e.target === cur) hide(); });
+  d.addEventListener('keydown', function (e) { if (e.key === 'Escape' && cur) hide(); });
+
+  // Wide tables scroll inside their own box; make that box reachable by keyboard only when it scrolls.
+  function scrollables() {
+    d.querySelectorAll('.tw').forEach(function (w) {
+      if (w.scrollWidth > w.clientWidth + 1) w.tabIndex = 0; else w.removeAttribute('tabindex');
+    });
+  }
+  scrollables();
+  addEventListener('resize', scrollables);
+})();
+</script>
+</body>
+</html>

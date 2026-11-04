@@ -52,8 +52,8 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 /* Quartz's frame, on every page the server draws itself: the left sidebar, the page,
    an optional right sidebar (notes), the footer under the page. Breakpoints are Quartz's:
    three columns from 1200px, two from 800px, one below. */
-.page { display: grid; grid-template-columns: var(--side) minmax(0, 1fr); column-gap: 5px; min-height: 100vh; }
-.page:has(> .sidebar.right) { grid-template-columns: var(--side) minmax(0, 1fr) var(--side); }
+.page { display: grid; grid-template-columns: var(--left, var(--side)) minmax(0, 1fr); column-gap: 5px; min-height: 100vh; }
+.page:has(> .sidebar.right) { grid-template-columns: var(--left, var(--side)) minmax(0, 1fr) var(--side); }
 .page > .sidebar.left { grid-column: 1; grid-row: 1 / span 3; }
 .page > main { grid-column: 2; grid-row: 1; min-width: 0; }
 .page > .sidebar.right { grid-column: 3; grid-row: 1 / span 3; }
@@ -69,6 +69,19 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 .icon-btn .moon { display: none; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .icon-btn .sun { display: none; } :root:not([data-theme="light"]) .icon-btn .moon { display: block; } }
 :root[data-theme="dark"] .icon-btn .sun { display: none; } :root[data-theme="dark"] .icon-btn .moon { display: block; }
+/* Hiding the sidebar (its choice kept like light/dark): the page takes its column, leaving room
+   for the button, which stays in the same place either way, and an HTML page in the frame gets the
+   whole width (notes keep their reading width). On a phone the sidebar is above the page, so it
+   always shows. */
+.sidebar-toggle { position: fixed; top: 1.25rem; left: 1.25rem; z-index: 5; border-radius: 7px; background: var(--bg); color: var(--mute); }
+.sidebar-toggle:hover, .sidebar-toggle:focus-visible { color: var(--fg); background: var(--accent-soft); }
+@media (min-width: 801px) {
+  :root[data-sidebar="hidden"] { --left: 0px; }
+  :root[data-sidebar="hidden"] .page { padding-left: 3.5rem; }
+  :root[data-sidebar="hidden"] .page > .sidebar.left { display: none; }
+  :root[data-sidebar="hidden"] .page > main.framed { max-width: none; }
+}
+@media (max-width: 800px) { .sidebar-toggle { display: none; } }
 .side-row { display: flex; align-items: center; gap: .5rem; }
 .side-row .side-search, .side-row .grow { flex: 1; }
 .page-title { white-space: nowrap; }
@@ -105,8 +118,11 @@ details[open] > summary > .chev { rotate: 90deg; }
 .tree > li:not(.folder) { padding-left: 1.15rem; }
 .tree .folder > details > summary > span, .tree .folder > details > summary > a { font-weight: 600; color: var(--fg); opacity: 1; }
 .tree .folder > details > summary .chev { margin-left: 0; opacity: .5; }
+.skills .tree .ext { font-size: .85rem; opacity: .65; }
+.skills-from { margin: .5rem 0 0; font-size: .8rem; color: var(--mute); }
+.skills-from a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 @media (max-width: 1200px) {
-  .page:has(> .sidebar.right) { grid-template-columns: var(--side) minmax(0, 1fr); }
+  .page:has(> .sidebar.right) { grid-template-columns: var(--left, var(--side)) minmax(0, 1fr); }
   .page > .sidebar.right { grid-column: 2; grid-row: 2; position: static; height: auto; padding: 0 2.5rem 1rem 1rem;
     flex-direction: row; flex-wrap: wrap; overflow: visible; }
   .page > .sidebar.right > * { flex: 1 1 16rem; }

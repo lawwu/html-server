@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model card — Songbird call classifier</title>
+<meta name="description" content="A model card for Songbird, a fictional classifier that names twelve common North American songbirds in five-second field recordings: intended use, training data, per-species precision and recall, the pairs it confuses, how noise hurts it, limitations and ethics.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  color-scheme:light;
+  --paper:#f2f5f4;--plate:#e7eceb;--ink:#1d2427;--pencil:#59666a;--rule:#c9d3d1;--grid:#d3dbd9;
+  --egg:#2e8a83;--egg-ink:#1c6b66;--cardinal:#b4233a;--trace:#1d2427;--season:rgba(29,36,39,.05);--shade:rgba(29,36,39,.28);
+  --sans:"Avenir Next Condensed","Bahnschrift Condensed",Bahnschrift,"Roboto Condensed","Arial Narrow","Liberation Sans Narrow",sans-serif;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Sitka Text","TeX Gyre Pagella","URW Palladio L",Georgia,serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;--paper:#0f1417;--plate:#172024;--ink:#e1e8e6;--pencil:#97a4a5;--rule:#2c383c;--grid:#243034;
+  --egg:#5fbfb4;--egg-ink:#8ed5cc;--cardinal:#f28b97;--trace:#e8f0ee;--season:rgba(225,232,230,.045);--shade:rgba(225,232,230,.2);
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;--paper:#0f1417;--plate:#172024;--ink:#e1e8e6;--pencil:#97a4a5;--rule:#2c383c;--grid:#243034;
+  --egg:#5fbfb4;--egg-ink:#8ed5cc;--cardinal:#f28b97;--trace:#e8f0ee;--season:rgba(225,232,230,.045);--shade:rgba(225,232,230,.2);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 var(--serif);font-kerning:normal}
+.page{max-width:68rem;margin:0 auto;padding:2.5rem 1rem 2.5rem}
+p{margin:0 0 1rem;text-wrap:pretty}
+a{color:inherit;text-decoration-color:var(--pencil);text-underline-offset:.16em}
+a:hover{text-decoration-color:var(--ink)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sans,h2,h3,h4,.eyebrow,.specs,dt,th,legend,.code,.plate-no,.out-h,.scores,.tally,.note b,.steps li::before,.shares,.pair-rates,summary{font-family:var(--sans);font-stretch:condensed}
+.u{text-transform:none}
+abbr[title]{text-decoration:none}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.defs{position:absolute;width:0;height:0}
+
+/* masthead: a species account for a model */
+.mast{display:grid;gap:1.75rem 3rem;align-items:end;margin-bottom:.5rem}
+@media (min-width:60rem){.mast{grid-template-columns:minmax(0,1fr) 17rem}}
+.eyebrow{font-weight:600;font-size:.8rem;letter-spacing:.16em;text-transform:uppercase;color:var(--pencil);margin:0 0 .5rem}
+h1{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .9rem;margin:0 0 .7rem;font-weight:400}
+.h1-name{font:700 clamp(2.9rem,8.5vw,4.4rem)/.92 var(--sans);font-stretch:condensed;text-transform:uppercase;letter-spacing:.02em}
+.h1-bin{font:italic 400 clamp(1.45rem,3.6vw,2.1rem)/1.15 var(--serif);color:var(--pencil)}
+.specs{display:flex;flex-wrap:wrap;gap:.15rem 0;font-weight:500;font-size:.92rem;line-height:1.45;letter-spacing:.05em;text-transform:uppercase;margin:0 0 1.2rem;font-variant-numeric:tabular-nums}
+.specs span:not(:last-child)::after{content:"·";margin:0 .55em;color:var(--pencil)}
+@media (max-width:40rem){.specs{display:grid;grid-template-columns:1fr 1fr;gap:.2rem 1rem}.specs span::after{content:none!important}}
+.lead{font-size:1.2rem;line-height:1.5;max-width:54ch;margin:0}
+.databox{margin:0;border-top:2px solid var(--ink);border-bottom:1px solid var(--ink);font-size:.92rem}
+.databox div{display:grid;grid-template-columns:6.6rem 1fr;gap:.75rem;padding:.42rem 0;border-top:1px solid var(--rule)}
+.databox div:first-child{border-top:0}
+.databox dt{font-weight:600;font-size:.72rem;line-height:1.75;letter-spacing:.1em;text-transform:uppercase;color:var(--pencil)}
+.databox dd{margin:0;line-height:1.4}
+
+/* sections, prose column, margin notes */
+section{display:flow-root}
+h2{font-weight:700;font-size:1.85rem;line-height:1.1;letter-spacing:.01em;margin:3.6rem 0 1rem;text-wrap:balance}
+h3{font-weight:600;font-size:1.25rem;line-height:1.25;margin:2.2rem 0 .55rem;text-wrap:balance}
+section>p,section>ul,section>ol,section>dl,section>h3{max-width:62ch}
+.note{max-width:62ch;margin:0 0 1rem;padding-left:.8rem;border-left:2px solid var(--rule);font-size:.875rem;line-height:1.5;color:var(--pencil)}
+.note b{display:block;font-weight:600;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink)}
+@media (min-width:68rem){.note{float:right;clear:right;width:15.5rem;margin:.25rem 0 1.5rem 2rem;padding:.55rem 0 0;border-left:0;border-top:1px solid var(--rule)}}
+.code{font-weight:700;letter-spacing:.06em;font-variant-numeric:tabular-nums}
+.facts{margin:0 0 1rem;display:grid;gap:.7rem}
+.facts div{display:grid;gap:.1rem .9rem}
+@media (min-width:36rem){.facts div{grid-template-columns:7.5rem 1fr}}
+.facts dt{font-weight:600;font-size:.76rem;line-height:1.9;letter-spacing:.1em;text-transform:uppercase;color:var(--pencil)}
+.facts dd{margin:0}
+.two{display:grid;gap:0 2.5rem;max-width:62rem}
+@media (min-width:48rem){.two{grid-template-columns:1fr 1fr}}
+.two ul{margin:0;padding:0;list-style:none;display:grid;gap:.6rem}
+.two li{padding-left:1rem;text-indent:-1rem}
+.two li::before{content:"–";display:inline-block;width:1rem;text-indent:0;color:var(--pencil)}
+.two b{font-weight:700}
+.cond{font-size:.95rem;color:var(--pencil);margin-top:1.4rem}
+.cond b{font:600 .74rem var(--sans);font-stretch:condensed;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);margin-right:.4rem}
+
+/* plates */
+figure{margin:0}
+.plate{clear:both;margin:2.4rem 0;padding:1rem;background:var(--plate);border:1px solid var(--rule)}
+.plate figcaption{font-size:.9rem;line-height:1.5;color:var(--pencil);margin-top:1rem;max-width:78ch}
+.plate-no{font-weight:700;font-size:.76rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);margin-right:.55rem}
+.trace path{fill:none;stroke:var(--trace);stroke-linecap:round;stroke-linejoin:round}
+.gl line,.gl path{stroke:var(--grid);stroke-width:1;fill:none}
+.ax{font:500 11px var(--sans);font-stretch:condensed;fill:var(--pencil);font-variant-numeric:tabular-nums}
+.nzr{fill:var(--trace)}
+.nz{opacity:0;transition:opacity .35s ease}
+.p1[data-noise="wind"] .nz-wind,.p1[data-noise="traffic"] .nz-traffic,.p1[data-noise="rain"] .nz-rain,
+.p1[data-noise="stream"] .nz-stream,.p1[data-noise="insects"] .nz-insects{opacity:1}
+.box{fill:none;stroke:var(--ink);stroke-width:1;stroke-dasharray:4 3}
+.boxl{font:700 11.5px var(--sans);font-stretch:condensed;letter-spacing:.06em;fill:var(--ink);paint-order:stroke;stroke:var(--plate);stroke-width:4px;stroke-linejoin:round}
+
+/* plate 1: the window, the noise control, the model's verdict */
+.noise{border:0;margin:0 0 1rem;padding:0;display:flex;flex-wrap:wrap;gap:.4rem;min-width:0}
+.noise legend{padding:0;margin:0 0 .55rem;font-weight:600;font-size:.76rem;letter-spacing:.12em;text-transform:uppercase}
+.noise legend span{color:var(--pencil);letter-spacing:.06em}
+.noise label{position:relative;display:block}
+.noise input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.noise label span{display:block;font:600 .98rem/1 var(--sans);font-stretch:condensed;padding:.55rem .85rem;border:1px solid var(--rule);background:var(--paper);color:var(--ink)}
+.noise label:hover span{border-color:var(--pencil)}
+.noise input:checked+span{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+.noise input:focus-visible+span{outline:2px solid var(--ink);outline-offset:2px}
+.p1-grid{display:grid;gap:1.1rem 1.4rem}
+@media (min-width:56rem){.p1-grid{grid-template-columns:minmax(0,1fr) 18.5rem}}
+.sono{align-self:start;min-height:196px;background:var(--paper);border:1px solid var(--rule)}
+.sono svg{display:block}
+.out-h{display:flex;justify-content:space-between;align-items:baseline;gap:.6rem;margin:0 0 .45rem;padding-bottom:.4rem;border-bottom:1px solid var(--rule);font-weight:600;font-size:.74rem;letter-spacing:.1em;text-transform:uppercase}
+.out-h span:last-child{color:var(--pencil);letter-spacing:.04em;text-transform:none;font-size:.85rem;font-weight:500}
+.scores{list-style:none;margin:0;padding:0;display:grid;gap:.12rem;font-size:.92rem;line-height:1.25;font-variant-numeric:tabular-nums}
+.scores li{display:grid;grid-template-columns:3.7rem 1fr 2.1rem 4.7rem;align-items:center;gap:.5rem;color:var(--pencil)}
+.scores .c{font-weight:600;letter-spacing:.05em;white-space:nowrap}
+.scores .pres .c::before{content:"";display:inline-block;width:.42rem;height:.42rem;margin:0 .3rem 0 -.72rem;border-radius:50%;background:var(--ink);vertical-align:.1em}
+.scores .c{padding-left:.72rem}
+.scores .bar{position:relative;height:.55rem;background:var(--paper);box-shadow:inset 0 0 0 1px var(--rule)}
+.scores .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--pencil);opacity:.4;transition:width .3s ease}
+.scores .bar::after{content:"";position:absolute;left:50%;top:-.2rem;bottom:-.2rem;width:1px;background:var(--ink)}
+.scores .v{text-align:right}
+.scores .hit{color:var(--ink)}
+.scores .hit .bar i{background:var(--egg);opacity:1}
+.scores .hit .v{color:var(--egg-ink);font-weight:700}
+.scores .t{font-weight:600;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase}
+.t.found{color:var(--egg-ink)}
+.t.missed,.t.fa{color:var(--cardinal)}
+.tally{margin:.6rem 0 0;padding-top:.45rem;border-top:1px solid var(--rule);font-weight:600;font-size:.9rem;letter-spacing:.03em}
+.status{margin:1rem 0 0;max-width:70ch;min-height:3em;font-size:.98rem;line-height:1.5}
+
+/* plate 2: the twelve species */
+.key{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.3rem 1rem}
+@media (min-width:56rem){.key{grid-template-columns:repeat(4,minmax(0,1fr));gap:1.5rem 1.4rem}}
+.key li{display:grid;align-content:start;gap:.1rem;min-width:0}
+.key .code{font-size:1.02rem}
+.key .cn{font-size:.95rem;line-height:1.25}
+.key .lat{font-style:italic;font-size:.84rem;line-height:1.25;color:var(--pencil)}
+.key .voice{margin-top:.25rem;font-size:.84rem;line-height:1.35;color:var(--pencil)}
+.glyph{display:block;margin:.4rem 0 .3rem}
+.glyph svg{display:block;width:100%;height:auto;background:var(--paper);box-shadow:0 0 0 1px var(--rule)}
+
+/* plate 3: checklist bar graph */
+.scroll{overflow-x:auto}
+.pheno{border-collapse:collapse;table-layout:fixed;width:100%;min-width:19rem;font-size:.86rem;line-height:1;font-variant-numeric:tabular-nums}
+.pheno th,.pheno td{padding:0;height:1.65rem}
+.pheno thead th{height:auto;padding:0 0 .45rem;font-weight:600;font-size:.72rem;letter-spacing:.04em;color:var(--pencil);text-align:center}
+.pheno thead th:first-child{width:3.5rem}
+.pheno thead th.n{width:3.6rem}
+.pheno tbody th{padding-right:.5rem;text-align:left;font-weight:700;letter-spacing:.06em}
+.pheno td.m{position:relative}
+.pheno td.m::before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px dotted var(--pencil);opacity:.55}
+.pheno td.s{background:var(--season)}
+.pheno td.m i{position:relative;display:block;background:var(--ink)}
+.pheno td.n{padding-left:.6rem;text-align:right}
+.pheno thead th.n{text-align:right}
+
+/* small tables and lists */
+.shares{list-style:none;margin:0 0 1rem;padding:0;display:grid;gap:.4rem;max-width:38rem;font-size:.98rem;line-height:1.2;font-variant-numeric:tabular-nums}
+.shares li{display:grid;grid-template-columns:minmax(8.5rem,14rem) 1fr 2.4rem;gap:.7rem;align-items:center}
+.shares i{display:block;height:.6rem;background:var(--ink)}
+.shares b{text-align:right;font-weight:600}
+.steps{list-style:none;counter-reset:s;margin:0 0 1rem;padding:0;display:grid;gap:.7rem}
+.steps li{display:grid;grid-template-columns:1.6rem 1fr;gap:.4rem}
+.steps li::before{counter-increment:s;content:counter(s);font-weight:700;font-size:1.05rem;line-height:1.55;color:var(--pencil)}
+.tcap{font-size:.9rem;line-height:1.5;color:var(--pencil);margin:1.7rem 0 .6rem}
+.tbl{overflow-x:auto;margin:0 0 1.4rem;max-width:58rem;background:linear-gradient(to left,var(--paper) 1.1rem,transparent 2rem) right/2rem 100% no-repeat local,radial-gradient(farthest-side at 100% 50%,var(--shade),transparent) right/.7rem 100% no-repeat scroll}
+.tbl.narrow{max-width:34rem}
+.data{border-collapse:collapse;width:100%;font:500 .98rem/1.3 var(--sans);font-stretch:condensed;font-variant-numeric:tabular-nums}
+.data th,.data td{padding:.42rem .65rem;text-align:right;border-bottom:1px solid var(--rule);white-space:nowrap}
+.data thead th{font-weight:600;font-size:.72rem;line-height:1.25;letter-spacing:.09em;text-transform:uppercase;color:var(--pencil);border-bottom:1.5px solid var(--ink);vertical-align:bottom}
+.data th:first-child,.data td:first-child{text-align:left;padding-left:0}
+.data tbody th{font-weight:600;white-space:normal}
+.codes tbody th{font-weight:700;letter-spacing:.06em;white-space:nowrap}
+@media (max-width:40rem){.data thead th{white-space:normal}.data th,.data td{padding-left:.45rem;padding-right:.45rem}
+.data.codes .cn{display:block;margin:.1rem 0 0;font-size:.8rem;line-height:1.2;white-space:normal}.codes tbody th{white-space:normal;min-width:8rem}
+.codes tbody th,.codes thead th:first-child,.codes tfoot th{position:sticky;left:0;z-index:1;background:var(--paper);padding-right:.8rem}}
+.data .cn{font:400 .92rem var(--serif);letter-spacing:0;color:var(--pencil);margin-left:.45rem}
+.data tfoot th,.data tfoot td{border-top:1.5px solid var(--ink);border-bottom:0;font-weight:700}
+.data .low{color:var(--cardinal);font-weight:700}
+.data .grp th{padding-top:.9rem;font-weight:600;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--pencil)}
+.tnote{font-size:.85rem;color:var(--pencil);margin:-.6rem 0 1.4rem;max-width:62ch}
+
+/* plate 4: similar species */
+.pairs{display:grid;gap:1.4rem 1.6rem}
+@media (min-width:56rem){.pairs{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.pair{display:grid;align-content:start;gap:.35rem;min-width:0}
+.pair h4{margin:0 0 .2rem;font-weight:600;font-size:1.1rem;line-height:1.25}
+.pair-row{display:grid;grid-template-columns:3.2rem 1fr;gap:.5rem;align-items:center}
+.pair-row .glyph{margin:0}
+.pair-rates{display:grid;gap:.1rem;margin:.35rem 0 0;font-size:.9rem;font-variant-numeric:tabular-nums}
+.pair-rates b{color:var(--cardinal);font-weight:700}
+.pair p{margin:.2rem 0 0;font-size:.9rem;line-height:1.45;color:var(--pencil)}
+.lim{margin:0 0 1rem;padding:0;list-style:none;display:grid;gap:1rem}
+.lim b{font-weight:700}
+.lim span{display:block;color:var(--pencil);font-size:.95rem}
+.lim span::before{content:"→ " / ""}
+
+/* footer */
+footer{margin-top:4rem;padding-top:1rem;border-top:1px solid var(--rule);font-size:.86rem;color:var(--pencil)}
+footer p{margin:0 0 .7rem;max-width:78ch}
+details{margin:0 0 .9rem}
+summary{cursor:pointer;width:max-content;max-width:100%;font-weight:600;font-size:.76rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+.dn{display:grid;gap:.6rem;margin-top:.8rem;max-width:62ch}
+.dn p{margin:0}
+.sw{display:flex;flex-wrap:wrap;gap:.5rem 1.1rem;margin:0;padding:0;list-style:none}
+.sw li{display:flex;align-items:center;gap:.4rem}
+.sw i{width:1.1rem;height:1.1rem;box-shadow:inset 0 0 0 1px var(--rule)}
+@media (max-width:30rem){body{font-size:16.5px}.page{padding-top:1.75rem}.plate{padding:.75rem;margin-left:-.25rem;margin-right:-.25rem}.scores li{grid-template-columns:3.7rem 1fr 2.1rem 4.5rem}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<svg class="defs" aria-hidden="true" focusable="false"><defs><filter id="soft" x="-2%" y="-6%" width="104%" height="112%"><feGaussianBlur stdDeviation=".45 .8"/></filter></defs></svg>
+<div class="page">
+
+<header class="mast">
+  <div>
+    <p class="eyebrow">Model card</p>
+    <h1><span class="h1-name">Songbird</span> <span class="h1-bin">call classifier</span></h1>
+    <p class="specs"><span>5-second windows</span><span>32 <span class="u">kHz</span> mono</span><span>12 species</span><span>4.0 M parameters</span><span>Macro F1 0.87</span></p>
+    <p class="lead">Songbird listens to five-second slices of a field recording and says which of twelve common songbirds of eastern and central North America are singing or calling in each. It exists to get people through hours of dawn-chorus audio quickly: a first pass that someone checks, not a record that stands on its own.</p>
+  </div>
+  <dl class="databox">
+    <div><dt>Version</dt><dd>2.1.0, released 14 Oct 2026</dd></div>
+    <div><dt>Card updated</dt><dd>28 Oct 2026</dd></div>
+    <div><dt>Model type</dt><dd>Multi-label audio classifier</dd></div>
+    <div><dt>Maintainers</dt><dd>Songbird volunteer project</dd></div>
+    <div><dt>License</dt><dd>MIT</dd></div>
+    <div><dt>Status</dt><dd>Fictional: a design example, every number invented</dd></div>
+  </dl>
+</header>
+
+<main>
+<figure class="plate p1" id="p1" data-noise="none" aria-labelledby="p1-cap">
+  <fieldset class="noise">
+    <legend>Mix field noise into this window <span>(at 5 <span class="u">dB</span> SNR)</span></legend>
+    <label><input type="radio" name="noise" value="none" checked><span>None</span></label>
+    <label><input type="radio" name="noise" value="wind"><span>Wind</span></label>
+    <label><input type="radio" name="noise" value="traffic"><span>Traffic</span></label>
+    <label><input type="radio" name="noise" value="rain"><span>Rain</span></label>
+    <label><input type="radio" name="noise" value="stream"><span>Stream</span></label>
+    <label><input type="radio" name="noise" value="insects"><span>Insect chorus</span></label>
+  </fieldset>
+  <div class="p1-grid">
+    <div class="sono" id="sono" role="img" aria-label="Sonogram, 0 to 5 seconds and 0 to 10 kilohertz. A Northern Cardinal sings five loud whistles that slur down from about 4 to 2 kilohertz, from 0.2 to 2 seconds. A Chipping Sparrow gives a dry, rapid trill between 4 and 7 kilohertz from 2.1 to 3.5 seconds. A faint Tufted Titmouse sings three two-note phrases near 3 kilohertz from 3.7 seconds to the end."></div>
+    <div class="out">
+      <p class="out-h"><span>Model output</span><span>score · reports a species at 0.50</span></p>
+      <ul class="scores" id="scores"></ul>
+      <p class="tally" id="tally"></p>
+    </div>
+  </div>
+  <p class="status" id="status" aria-live="polite"></p>
+  <figcaption id="p1-cap"><span class="plate-no">Plate 1</span>One window from a held-out site, 9 May 2024, 05:42, as the model receives it. Dashed boxes mark what two annotators heard; a dot marks those species in the output list. The model scores the whole window, not each sound. Shown 0–10 kHz on a linear scale; the model itself sees 0.15–15 kHz on a mel scale.</figcaption>
+</figure>
+
+<section aria-labelledby="h-details">
+<h2 id="h-details">Model details</h2>
+<aside class="note"><b>Window</b>One five-second slice of a recording. Every count on this card is a count of windows, not of birds.</aside>
+<dl class="facts">
+  <div><dt>Input</dt><dd>Mono audio resampled to 32 kHz and cut into 5.0-second windows. Long recordings are scanned in 2.5-second steps, so every moment is heard twice.</dd></div>
+  <div><dt>Features</dt><dd>Log-mel spectrogram: 128 bands from 150 Hz to 15 kHz, 32 ms frames every 10 ms, so each window becomes a 500 × 128 image.</dd></div>
+  <div><dt>Network</dt><dd>EfficientNet-B0 convolutional network, 4.0 M parameters. The backbone was pretrained on general environmental sound, then fine-tuned for 40 epochs.</dd></div>
+  <div><dt>Outputs</dt><dd>Thirteen independent scores from 0 to 1: one for each species in Plate 2 and one for “none of these”. Several species can pass the threshold in the same window.</dd></div>
+  <div><dt>Threshold</dt><dd>0.50 for every species by default. Scores are calibrated on the validation sites: windows scored about 0.8 held the species about 80% of the time (expected calibration error 0.03).</dd></div>
+  <div><dt>Augmentation</dt><dd>Background noise mixed in at 0–20 dB SNR, random time shifts, and time and frequency masking.</dd></div>
+  <div><dt>Size, speed</dt><dd>16 MB at float32, 4.2 MB at int8. About 30 ms per window on a laptop CPU, so an hour of audio takes roughly 45 seconds.</dd></div>
+</dl>
+<aside class="note"><b>Banding codes</b>The four-letter abbreviations bird banders and surveyors use, built from the common name: NOCA is NOrthern CArdinal.</aside>
+<figure class="plate" aria-labelledby="p2-cap">
+  <ul class="key" id="key"></ul>
+  <figcaption id="p2-cap"><span class="plate-no">Plate 2</span>The twelve species Songbird knows, keyed by the banding codes used throughout this card. Each strip is a schematic sonogram of a typical song, all drawn to one scale (2.5 seconds by 0–10 kHz) so look-alikes can be compared. Individual birds and regions vary.</figcaption>
+</figure>
+</section>
+
+<section aria-labelledby="h-use">
+<h2 id="h-use">Intended use</h2>
+<p>Songbird is for people who collect more audio than they can listen to: monitoring coordinators, field ecologists, educators and birders. Its output is a list of candidate detections for a person to confirm.</p>
+<div class="two">
+  <div>
+    <h3>Use it for</h3>
+    <ul>
+      <li><b>Sorting long recordings.</b> First-pass labels for audio from autonomous recorders and phones, so listening time goes to the windows that matter.</li>
+      <li><b>Tracking common species at known sites</b> from season to season, with a person confirming a sample of detections.</li>
+      <li><b>Learning by ear.</b> Helping new birders check what they heard in their own recordings.</li>
+    </ul>
+  </div>
+  <div>
+    <h3>Do not use it for</h3>
+    <ul>
+      <li><b>Species outside the twelve,</b> or documenting a rare bird for a records committee.</li>
+      <li><b>Counting birds or declaring one absent.</b> It reports presence per window: ten windows may be one bird, and silence is not absence.</li>
+      <li><b>Regulatory or legal decisions</b> such as environmental review, permits or enforcement.</li>
+      <li><b>Western North America</b> without first checking it against local recordings.</li>
+      <li><b>Triggering playback or lures.</b> Playing songs at birds can disrupt breeding.</li>
+      <li><b>Monitoring people.</b> Recorders pick up voices; see the ethical considerations below.</li>
+    </ul>
+  </div>
+</div>
+<p class="cond"><b>Validated for</b>Eastern and central United States and southern Canada · April to July · SNR of 10 dB or better · up to three of the twelve species in a window.</p>
+</section>
+
+<section aria-labelledby="h-data">
+<h2 id="h-data">Training data</h2>
+<p>1,312 hours of labelled audio, or 944,640 windows, from two sources: 21,300 recordings that 1,140 volunteer recordists contributed to a field-recording archive between 2014 and 2025, each having opted in to machine-learning use; and autonomous recorders at 61 monitoring sites, 2019–2025. 902 of those hours contain at least one of the twelve species. The other 410 hours teach “none of these”: wind, rain, streams, roads, insects, frogs, and 40 other bird species, so the class means none of the twelve, not no birds.</p>
+<figure class="plate" aria-labelledby="p3-cap">
+  <div class="scroll"><table class="pheno" id="pheno">
+    <caption class="vh">Labelled hours per species by month</caption>
+    <thead><tr><th scope="col"><span class="vh">Species</span></th><th scope="col"><abbr title="January">J</abbr></th><th scope="col"><abbr title="February">F</abbr></th><th scope="col"><abbr title="March">M</abbr></th><th scope="col"><abbr title="April">A</abbr></th><th scope="col"><abbr title="May">M</abbr></th><th scope="col"><abbr title="June">J</abbr></th><th scope="col"><abbr title="July">J</abbr></th><th scope="col"><abbr title="August">A</abbr></th><th scope="col"><abbr title="September">S</abbr></th><th scope="col"><abbr title="October">O</abbr></th><th scope="col"><abbr title="November">N</abbr></th><th scope="col"><abbr title="December">D</abbr></th><th scope="col" class="n">Hours</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <figcaption id="p3-cap"><span class="plate-no">Plate 3</span>Hours of labelled audio per species, by month, drawn like a birding checklist’s bar graph: the thicker the bar, the more hours (thickest, AMRO in May, 33 h). Shaded months, April to July, hold 61% of species-labelled hours. A window with two species counts for both, so the rows add up to 1,047 hours, more than the 902 that hold any of the twelve.</figcaption>
+</figure>
+<p>Most species were recorded when they sing hardest, in spring and early summer. Carolina Wren, which sings all year, is the only one recorded evenly through the seasons; Dark-eyed Junco, a winter visitor across much of the East, is weighted to the cold months instead.</p>
+<h3>Where it was recorded</h3>
+<ul class="shares" aria-label="Share of labelled audio by region">
+  <li><span>Northeast</span><i style="width:85%"></i><b>34%</b></li>
+  <li><span>Great Lakes and Upper Midwest</span><i style="width:67.5%"></i><b>27%</b></li>
+  <li><span>Southeast and Mid-Atlantic</span><i style="width:52.5%"></i><b>21%</b></li>
+  <li><span>Southern Ontario and Quebec</span><i style="width:27.5%"></i><b>11%</b></li>
+  <li><span>Great Plains</span><i style="width:12.5%"></i><b>5%</b></li>
+  <li><span>West, Rockies to Pacific</span><i style="width:5%"></i><b>2%</b></li>
+</ul>
+<h3>How the labels were made</h3>
+<ol class="steps">
+  <li><span>Each recordist listed the species they heard in each file.</span></li>
+  <li><span>Files were cut into five-second windows. Two trained annotators independently marked every species they could hear in each window, listening while watching the sonogram (agreement before review: Cohen’s κ 0.86).</span></li>
+  <li><span>A third annotator settled the 4.6% of windows where the two disagreed; 1.2% stayed ambiguous and were dropped.</span></li>
+  <li><span>Audit: 2,000 random windows were labelled again six months later and 97.1% matched. Most mismatches were a faint, distant second species that one pass missed.</span></li>
+</ol>
+<p>Windows with human speech were removed (found automatically, then checked by hand: 0.8% of the audio), as were recordings the archive flags as sensitive species.</p>
+<h3>How it was split</h3>
+<p>By place and by person, never by clip. Each monitoring site went wholly to training (41 sites), validation (6) or test (14), and volunteer recordings were split by recordist, so no site or recordist in the test set was heard in training.</p>
+</section>
+
+<section aria-labelledby="h-eval">
+<h2 id="h-eval">Evaluation</h2>
+<aside class="note"><b>Precision and recall</b>Precision: of the windows the model called NOCA, the share that held one. Recall: of the windows that held a NOCA, the share it found. F1 balances the two.</aside>
+<p>The test set is 24,000 windows (33 hours) from the 14 held-out sites and 120 held-out recordists, April 2023 to July 2025, labelled the same way as the training data; 13,860 of them hold at least one of the twelve species. All results use the default 0.50 threshold.</p>
+<p class="tcap" id="t1"><span class="plate-no">Table 1</span>Results per species, best F1 first. Red: F1 below 0.80.</p>
+<div class="tbl"><table class="data codes" aria-labelledby="t1">
+  <thead><tr><th scope="col">Species</th><th scope="col">Train hours</th><th scope="col">Test windows</th><th scope="col">Precision</th><th scope="col">Recall</th><th scope="col">F1</th><th scope="col">Most often mistaken for</th></tr></thead>
+  <tbody>
+    <tr><th scope="row">NOCA<span class="cn">Northern Cardinal</span></th><td>136</td><td>2,650</td><td>0.95</td><td>0.94</td><td>0.94</td><td>TUTI 2.4%</td></tr>
+    <tr><th scope="row">RWBL<span class="cn">Red-winged Blackbird</span></th><td>117</td><td>2,130</td><td>0.94</td><td>0.92</td><td>0.93</td><td>—</td></tr>
+    <tr><th scope="row">BCCH<span class="cn">Black-capped Chickadee</span></th><td>92</td><td>1,720</td><td>0.96</td><td>0.90</td><td>0.93</td><td>—</td></tr>
+    <tr><th scope="row">AMRO<span class="cn">American Robin</span></th><td>148</td><td>2,810</td><td>0.93</td><td>0.91</td><td>0.92</td><td>RBGR 3.6%</td></tr>
+    <tr><th scope="row">CARW<span class="cn">Carolina Wren</span></th><td>96</td><td>1,880</td><td>0.92</td><td>0.93</td><td>0.92</td><td>TUTI 2.0%</td></tr>
+    <tr><th scope="row">WTSP<span class="cn">White-throated Sparrow</span></th><td>63</td><td>1,150</td><td>0.97</td><td>0.86</td><td>0.91</td><td>—</td></tr>
+    <tr><th scope="row">SOSP<span class="cn">Song Sparrow</span></th><td>121</td><td>2,240</td><td>0.90</td><td>0.88</td><td>0.89</td><td>—</td></tr>
+    <tr><th scope="row">TUTI<span class="cn">Tufted Titmouse</span></th><td>74</td><td>1,390</td><td>0.86</td><td>0.84</td><td>0.85</td><td>NOCA 7.1%</td></tr>
+    <tr><th scope="row">GRCA<span class="cn">Gray Catbird</span></th><td>69</td><td>1,260</td><td>0.85</td><td>0.80</td><td>0.82</td><td>CARW 3.3%</td></tr>
+    <tr><th scope="row">CHSP<span class="cn">Chipping Sparrow</span></th><td>57</td><td>1,080</td><td>0.81</td><td>0.77</td><td class="low">0.79</td><td>DEJU 9.6%</td></tr>
+    <tr><th scope="row">DEJU<span class="cn">Dark-eyed Junco</span></th><td>41</td><td>760</td><td>0.78</td><td>0.74</td><td class="low">0.76</td><td>CHSP 13.2%</td></tr>
+    <tr><th scope="row">RBGR<span class="cn">Rose-breasted Grosbeak</span></th><td>33</td><td>610</td><td>0.76</td><td>0.71</td><td class="low">0.73</td><td>AMRO 12.8%</td></tr>
+  </tbody>
+  <tfoot><tr><th scope="row">Macro average</th><td>1,047</td><td>19,680</td><td>0.89</td><td>0.85</td><td>0.87</td><td></td></tr></tfoot>
+</table></div>
+<p class="tnote">Hours and windows count a window once for each species in it. A dash means no single confusion above 2% of that species’ windows.</p>
+<p>The three weakest species, RBGR, DEJU and CHSP, have the least training audio, and each has a look-alike among the twelve. Little data alone is not fatal: WTSP has less audio than GRCA yet scores 0.91, because its long, pure whistles followed by triplets are unlike anything else in the set.</p>
+
+<h3 id="h-similar">Similar species: the pairs it confuses</h3>
+<figure class="plate" aria-labelledby="p4-cap">
+  <div class="pairs">
+    <div class="pair">
+      <h4>Robin-like phrases</h4>
+      <div class="pair-row"><span class="code">RBGR</span><span class="glyph" data-song="RBGR"></span></div>
+      <div class="pair-row"><span class="code">AMRO</span><span class="glyph" data-song="AMRO"></span></div>
+      <p class="pair-rates"><span>RBGR called AMRO in <b>12.8%</b> of windows</span><span>AMRO called RBGR in <b>3.6%</b></span></p>
+      <p>Grosbeak phrases run together, sweeter and faster; a robin pauses between short groups of notes.</p>
+    </div>
+    <div class="pair">
+      <h4>Trills on one pitch</h4>
+      <div class="pair-row"><span class="code">CHSP</span><span class="glyph" data-song="CHSP"></span></div>
+      <div class="pair-row"><span class="code">DEJU</span><span class="glyph" data-song="DEJU"></span></div>
+      <p class="pair-rates"><span>CHSP called DEJU in <b>9.6%</b> of windows</span><span>DEJU called CHSP in <b>13.2%</b></span></p>
+      <p>The sparrow’s trill is dry and too fast to count; the junco’s is slower and more musical.</p>
+    </div>
+    <div class="pair">
+      <h4>Repeated whistles</h4>
+      <div class="pair-row"><span class="code">TUTI</span><span class="glyph" data-song="TUTI"></span></div>
+      <div class="pair-row"><span class="code">NOCA</span><span class="glyph" data-song="NOCA"></span></div>
+      <p class="pair-rates"><span>TUTI called NOCA in <b>7.1%</b> of windows</span><span>NOCA called TUTI in <b>2.4%</b></span></p>
+      <p>The titmouse repeats one two-note whistle at an even pitch; each cardinal note is a single slur sweeping down through a wider range.</p>
+    </div>
+  </div>
+  <figcaption id="p4-cap"><span class="plate-no">Plate 4</span>Three look-alike pairs, drawn to the scale of Plate 2. Each rate is the share of one species’ test windows that the model gave the other’s name.</figcaption>
+</figure>
+<p>Base rates decide who pays for a confusion. Only 3.6% of robin windows are called grosbeak, but robins outnumber grosbeaks 4.6 to 1 in the test set, so those 101 windows are 74% of the grosbeak’s false alarms. Without them its precision would be 0.92 rather than 0.76.</p>
+<p>Songbird also has no way to say “a bird I don’t know”. In 300 windows of Northern Mockingbird, which imitates other species, 64% were given one of the twelve names, most often CARW (23%), NOCA (14%) or GRCA (11%). In 240 windows of Carolina Chickadee recorded where its range meets the Black-capped Chickadee’s, 58% were called BCCH.</p>
+
+<h3 id="h-noise">Noise</h3>
+<aside class="note"><b>SNR</b>Signal-to-noise ratio: how far the loudest labelled song stands above the background, in decibels. At 0 dB, song and noise are equally loud.</aside>
+<p>To isolate noise, 2,400 test windows recorded in quiet conditions (SNR 20 dB or better, macro recall 0.93 as recorded) were mixed with field recordings of five kinds of noise at three levels. Low rumble does less harm than its loudness suggests, because wind and traffic sit below most songs. The insect chorus, with most of its energy between 4.5 and 6.5 kHz, does the most, because it lands on the trills: at 5 dB it cuts CHSP’s recall to 0.34. Plate 1 shows one window under each.</p>
+<p class="tcap" id="t2"><span class="plate-no">Table 2</span>Macro recall after mixing in noise, by noise level. Red: below 0.60.</p>
+<div class="tbl narrow"><table class="data" aria-labelledby="t2">
+  <thead><tr><th scope="col">Noise added</th><th scope="col">10 <span class="u">dB</span> SNR</th><th scope="col">5 <span class="u">dB</span></th><th scope="col">0 <span class="u">dB</span></th></tr></thead>
+  <tbody>
+    <tr><th scope="row">Wind</th><td>0.90</td><td>0.86</td><td>0.77</td></tr>
+    <tr><th scope="row">Traffic</th><td>0.89</td><td>0.83</td><td>0.71</td></tr>
+    <tr><th scope="row">Rain</th><td>0.86</td><td>0.78</td><td>0.64</td></tr>
+    <tr><th scope="row">Stream</th><td>0.83</td><td>0.72</td><td class="low">0.53</td></tr>
+    <tr><th scope="row">Insect chorus</th><td>0.80</td><td>0.66</td><td class="low">0.47</td></tr>
+  </tbody>
+</table></div>
+
+<h3 id="h-factors">Other conditions</h3>
+<p>Across the whole test set, recall depends most on how loud the bird is against its background, then on season and on how many of the twelve sing at once.</p>
+<p class="tcap" id="t3"><span class="plate-no">Table 3</span>Macro recall by condition, over the 13,860 test windows that hold at least one species.</p>
+<div class="tbl narrow"><table class="data" aria-labelledby="t3">
+  <thead><tr><th scope="col">Condition</th><th scope="col">Share of windows</th><th scope="col">Macro recall</th></tr></thead>
+  <tbody>
+    <tr class="grp"><th scope="rowgroup" colspan="3">Estimated SNR</th></tr>
+    <tr><th scope="row">20 dB or more</th><td>31%</td><td>0.93</td></tr>
+    <tr><th scope="row">10 to 20 dB</th><td>38%</td><td>0.88</td></tr>
+    <tr><th scope="row">0 to 10 dB</th><td>22%</td><td>0.80</td></tr>
+    <tr><th scope="row">Below 0 dB</th><td>9%</td><td class="low">0.56</td></tr>
+    <tr class="grp"><th scope="rowgroup" colspan="3">Season</th></tr>
+    <tr><th scope="row">April to July, mostly song</th><td>74%</td><td>0.88</td></tr>
+    <tr><th scope="row">August to March, mostly calls</th><td>26%</td><td>0.76</td></tr>
+    <tr class="grp"><th scope="rowgroup" colspan="3">Species singing in the window</th></tr>
+    <tr><th scope="row">One</th><td>72%</td><td>0.88</td></tr>
+    <tr><th scope="row">Two or three</th><td>25%</td><td>0.80</td></tr>
+    <tr><th scope="row">Four or more</th><td>3%</td><td>0.69</td></tr>
+    <tr class="grp"><th scope="rowgroup" colspan="3">Recorder</th></tr>
+    <tr><th scope="row">Autonomous recorder</th><td>83%</td><td>0.86</td></tr>
+    <tr><th scope="row">Phone</th><td>17%</td><td>0.80</td></tr>
+  </tbody>
+</table></div>
+<p>Region was checked separately, outside the test set. On 1,900 windows from six Pacific Northwest sites, the five species that also live there (AMRO, SOSP, RWBL, DEJU, CHSP) reached a macro recall of 0.72, against 0.84 for the same five in the East. Song Sparrow fell furthest, from 0.88 to 0.61; its songs vary strongly from region to region.</p>
+</section>
+
+<section aria-labelledby="h-limits">
+<h2 id="h-limits">Limitations and recommendations</h2>
+<ul class="lim">
+  <li><b>A closed world of twelve.</b> Every sound is pushed toward one of the twelve names or “none of these”; a look-alike from outside the set usually gets a wrong name rather than a flag.<span>Where Carolina Chickadees, mockingbirds or thrashers are common, confirm BCCH, CARW, NOCA and GRCA detections by ear.</span></li>
+  <li><b>Mostly eastern, mostly near people.</b> 93% of the audio comes from the Northeast, the Great Lakes, the Southeast and southern Canada, much of it from parks and preserves near towns where volunteers live. Farmland, large forests and the West are thin, and errors will concentrate there.<span>Before relying on it somewhere new, label about 200 local windows and compare.</span></li>
+  <li><b>Songs more than calls.</b> 61% of species-labelled audio is from April to July; outside those months, when most species call rather than sing, macro recall falls from 0.88 to 0.76.<span>Treat autumn and winter results as indicative only.</span></li>
+  <li><b>Songs change.</b> Over the past two decades White-throated Sparrows have been adopting a new song ending that spread east across Canada, and training data that ends in 2025 will fall behind changes like it.<span>Re-check recall every year against fresh labelled windows.</span></li>
+  <li><b>Faint birds are under-labelled.</b> Annotators sometimes miss a faint second species, the audit’s most common error. Recall here is measured against what annotators heard, so it overstates how many of all birds present the model finds, and some “false alarms” are probably real.<span>For occupancy studies, estimate detection probability directly rather than borrowing these figures.</span></li>
+  <li><b>Dense choruses.</b> With four or more of the twelve in one window, the peak minutes around sunrise, macro recall drops to 0.69.<span>Expect missed species at the height of the chorus; later windows from the same morning help.</span></li>
+</ul>
+</section>
+
+<section aria-labelledby="h-ethics">
+<h2 id="h-ethics">Ethical considerations</h2>
+<ul class="lim">
+  <li><b>Where sensitive species live.</b> A detection log pairs a species, a time and a recorder’s location, and the audio behind it can hold species the model cannot name, including some whose nest sites are kept private to protect them. The released training metadata rounds locations to 0.1° and leaves out recordings the archive flags as sensitive.<span>Generalize coordinates to roughly 10 km before sharing detections or audio, and follow regional rules for sensitive species.</span></li>
+  <li><b>People’s voices.</b> Recorders in parks and yards pick up conversations. Speech was removed from the training data, but a deployment will record it again.<span>Run the model on the device or delete raw audio after processing, keep recorders away from places where people expect privacy, and post notice where the law requires it.</span></li>
+  <li><b>Disturbing birds.</b> Testing the model by playing recordings at birds can disrupt territorial and nesting birds.<span>Test on recordings, never on live birds.</span></li>
+  <li><b>Consent and credit.</b> Volunteer recordings were used only where the recordist opted in to machine-learning use. Recordists are credited by the name they chose in the dataset release and can withdraw recordings from the next version.</li>
+  <li><b>Quiet over-reliance.</b> A fast, mostly-right model can gradually replace expert listening without anyone deciding it should.<span>Keep a person confirming a random 5% of detections and every detection of RBGR, DEJU and CHSP; conservation decisions should never rest on Songbird’s output alone.</span></li>
+</ul>
+</section>
+</main>
+
+<footer>
+  <p>Songbird, its data and every number on this card are invented for a design example; the birds and their songs are real.</p>
+  <details>
+    <summary>Design notes</summary>
+    <div class="dn">
+      <ul class="sw" aria-label="Palette">
+        <li><i style="background:var(--paper)"></i>Sonograph paper</li><li><i style="background:var(--plate)"></i>Plate stock</li><li><i style="background:var(--ink)"></i>Graphite</li><li><i style="background:var(--pencil)"></i>Pencil</li><li><i style="background:var(--egg)"></i>Robin’s egg: only what the model says</li><li><i style="background:var(--cardinal)"></i>Cardinal: only misses and confusions</li>
+      </ul>
+      <p>Dark mode is “pre-dawn”, when the chorus starts: the same six roles on a blue-black ground, traces glowing pale. Type pairs a condensed grotesque, in capitals for names, codes and numbers (the instrument’s voice), with an old-style book serif for prose and Latin names (the naturalist’s voice). Both are system faces.</p>
+      <p>Layout: a field-guide species account for a model, with a name and measurements line, prose in a narrow column, plates breaking wider and definitions in the margin.</p>
+      <p>What the audit moved: cream paper and forest green became cool sonograph grey, with the accent reserved for model output; a bird illustration as the hero became the sonogram the model actually hears; rounded metric cards became a datasheet keyed by banding codes; a plain bar chart of hours became a checklist bar graph by month.</p>
+    </div>
+  </details>
+  <p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/design-artifact" target="_blank" rel="noopener">design-artifact</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+
+<script>
+(function(){
+'use strict';
+var NS='http://www.w3.org/2000/svg';
+function $(id){return document.getElementById(id);}
+function el(tag,a,p){var e=document.createElementNS(NS,tag);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+function h(tag,cls,txt,p){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;if(p)p.appendChild(e);return e;}
+function rng(s){return function(){s=s*16807%2147483647;return (s-1)/2147483646;};}
+
+/* A note: [start s, duration s, start kHz, end kHz, bend kHz, width, amplitude, harmonic] */
+function N(t,d,f0,f1,b,w,a,hm){return [t,d,f0,f1,b||0,w||1.6,a==null?1:a,hm?1:0];}
+function rep(n,t0,p,fn){var o=[],r;for(var i=0;i<n;i++){r=fn(t0+i*p,i);if(Array.isArray(r[0]))o.push.apply(o,r);else o.push(r);}return o;}
+var SONG={
+  AMRO:function(){return [N(.1,.1,2.5,3.2,.25,1.7,1,1),N(.24,.08,3.3,2.5,.15,1.7,.9,1),N(.36,.11,2.6,3.4,.3,1.7,1,1),
+    N(.86,.1,3.1,2.3,.3,1.7,1,1),N(1,.08,2.4,3,.2,1.7,.9,1),N(1.12,.12,2.9,3.6,.25,1.7,1,1),
+    N(1.63,.1,3.3,2.6,.2,1.7,1,1),N(1.77,.11,2.5,3.1,.25,1.7,.9,1),N(1.91,.09,3.1,2.4,.15,1.7,1,1)];},
+  RBGR:function(){return rep(11,.1,.18,function(t,i){return N(t,.14,i%2?3.6:2.2,i%2?2.4:3.5,.35,1.8,.95,1);});},
+  CHSP:function(){return rep(34,.2,.062,function(t){return N(t,.03,6.7,4.4,0,1.25,.9);});},
+  DEJU:function(){return rep(16,.22,.125,function(t){return N(t,.075,5.5,3.7,.3,1.6,.95,1);});},
+  NOCA:function(){return rep(5,.12,.44,function(t){return N(t,.3,4.3,1.8,-.6,2.1,1,1);});},
+  TUTI:function(){return rep(4,.18,.55,function(t){return [N(t,.1,3.7,3.3,.1,1.8,1,1),N(t+.17,.14,2.8,2.55,0,1.9,1,1)];});},
+  CARW:function(){return rep(5,.1,.42,function(t){return [N(t,.08,2.4,4.8,.3,2,1,1),N(t+.11,.08,5,2.6,-.3,2,1,1),N(t+.22,.13,3.2,2.7,.2,2.1,1,1)];});},
+  BCCH:function(){return [N(.15,.42,4.05,3.92,0,1.8,1,1),N(.62,.45,3.42,3.34,0,1.8,1,1),N(1.35,.42,4.05,3.92,0,1.8,1,1),N(1.82,.45,3.42,3.34,0,1.8,1,1)];},
+  WTSP:function(){return [N(.08,.48,3.3,3.28,0,1.8,1,1),N(.62,.5,4.45,4.4,0,1.8,1,1)].concat(rep(3,1.22,.4,function(t){return [N(t,.1,4.3,4.2,0,1.6,1),N(t+.13,.1,4,3.95,0,1.6,1),N(t+.26,.1,3.75,3.7,0,1.6,1)];}));},
+  SOSP:function(){return [N(.1,.07,3.5,3.3,0,1.8,1,1),N(.25,.07,3.5,3.3,0,1.8,1,1),N(.4,.07,3.5,3.3,0,1.8,1,1)]
+    .concat(rep(16,.6,.02,function(t){return N(t,.006,7.8,2.4,0,1,.7);}),rep(7,1,.085,function(t){return N(t,.05,5.6,3.8,0,1.5,.9);}),
+    [N(1.68,.1,2.8,3.7,.2,1.7,1,1),N(1.85,.09,4.3,3.1,0,1.7,1,1),N(2.02,.2,3.4,3.2,0,1.8,1,1)]);},
+  RWBL:function(){return [N(.15,.06,3.4,2.2,0,2.6,.9),N(.3,.06,4.1,2.6,0,2.6,.9),N(.46,.09,2.9,3.7,.2,2.2,1,1)]
+    .concat(rep(46,.66,.02,function(t){return N(t,.007,6.4,2.7,0,1.1,.8);}));},
+  GRCA:function(){var r=rng(11);return rep(15,.08,.15,function(t){var f=1.7+r()*4.2;return N(t+r()*.03,.05+r()*.07,f,f+(r()-.5)*2.4,(r()-.5)*.8,1.7,.7+r()*.3,r()<.4);});}
+};
+
+function trace(g,notes,sx,sy,fmax,ws){
+  notes.forEach(function(n){
+    one(n[2],n[3],n[4],n[6],1);
+    if(n[7]&&Math.max(n[2],n[3])*2<fmax)one(n[2]*2,n[3]*2,n[4]*2,n[6]*.32,.8);
+    function one(f0,f1,b,a,wm){
+      var x0=sx(n[0]),x1=sx(n[0]+n[1]),xm=(x0+x1)/2,ym=sy((f0+f1)/2+2*b);
+      el('path',{d:'M'+x0.toFixed(1)+' '+sy(f0).toFixed(1)+'Q'+xm.toFixed(1)+' '+ym.toFixed(1)+' '+x1.toFixed(1)+' '+sy(f1).toFixed(1),
+        'stroke-width':(n[5]*wm*ws).toFixed(2),opacity:a.toFixed(2)},g);
+    }
+  });
+}
+
+/* Small sonogram strips: 2.5 s by 0-10 kHz, one shared scale */
+function glyph(code){
+  var W=250,H=80,s=el('svg',{viewBox:'0 0 '+W+' '+H,'aria-hidden':'true',focusable:'false'});
+  var g=el('g',{class:'gl'},s);
+  for(var f=2;f<10;f+=2)el('line',{x1:0,x2:W,y1:H-f*8,y2:H-f*8},g);
+  trace(el('g',{class:'trace',filter:'url(#soft)'},s),SONG[code](),function(t){return t*100;},function(f){return H-f*8;},10,1);
+  return s;
+}
+var KEY=[
+  ['AMRO','American Robin','Turdus migratorius','Caroling phrases: cheerily, cheer-up, cheerio.'],
+  ['RBGR','Rose-breasted Grosbeak','Pheucticus ludovicianus','Like a robin, but sweeter, faster and unbroken.'],
+  ['CHSP','Chipping Sparrow','Spizella passerina','A dry, rapid trill on one pitch.'],
+  ['DEJU','Dark-eyed Junco','Junco hyemalis','A slower, more musical trill.'],
+  ['NOCA','Northern Cardinal','Cardinalis cardinalis','Loud slurred whistles: cheer, cheer, cheer.'],
+  ['TUTI','Tufted Titmouse','Baeolophus bicolor','A clear two-note whistle: peter, peter, peter.'],
+  ['CARW','Carolina Wren','Thryothorus ludovicianus','Loud, rolling teakettle, teakettle, teakettle.'],
+  ['BCCH','Black-capped Chickadee','Poecile atricapillus','Two clear whistles, the second lower: fee-bee.'],
+  ['WTSP','White-throated Sparrow','Zonotrichia albicollis','Pure whistles: oh sweet Canada, Canada.'],
+  ['SOSP','Song Sparrow','Melospiza melodia','A few clear notes, a buzz, then a trill.'],
+  ['RWBL','Red-winged Blackbird','Agelaius phoeniceus','A gurgling conk-la-ree ending in a harsh trill.'],
+  ['GRCA','Gray Catbird','Dumetella carolinensis','A long jumble of squeaks and mews, rarely repeated.']
+];
+var key=$('key');
+KEY.forEach(function(k){
+  var li=h('li','',null,key);
+  h('span','code',k[0],li);h('span','glyph',null,li).appendChild(glyph(k[0]));
+  h('span','cn',k[1],li);h('span','lat',k[2],li);h('span','voice',k[3],li);
+});
+Array.prototype.forEach.call(document.querySelectorAll('.pair .glyph'),function(e){e.appendChild(glyph(e.getAttribute('data-song')));});
+
+/* Plate 3: hours by month (Jan-Dec); thickest cell 33 h = 17 px */
+var MONTHS={AMRO:[3,3,10,26,33,30,20,7,7,3,3,3],NOCA:[5,8,13,21,24,21,16,8,5,5,5,5],SOSP:[3,5,12,19,24,21,14,7,7,5,2,2],
+  RWBL:[1,3,14,24,27,22,13,5,3,3,1,1],CARW:[7,7,8,10,9,9,8,8,8,8,7,7],BCCH:[6,9,11,13,13,11,5,4,5,5,5,5],
+  TUTI:[4,7,10,11,11,9,6,3,3,3,3,4],GRCA:[0,0,0,2,19,19,13,8,6,2,0,0],WTSP:[4,4,6,9,9,7,3,1,3,8,6,3],
+  CHSP:[0,0,2,11,14,13,9,4,3,1,0,0],DEJU:[5,5,6,5,2,1,2,1,1,3,5,5],RBGR:[0,0,0,1,12,11,6,2,1,0,0,0]};
+var MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+var tb=$('pheno').tBodies[0];
+Object.keys(MONTHS).forEach(function(c){
+  var tr=h('tr','',null,tb),th=h('th','code',c,tr),tot=0;th.scope='row';
+  MONTHS[c].forEach(function(v,m){
+    var td=h('td','m'+(m>2&&m<7?' s':''),null,tr);tot+=v;td.title=MN[m]+': '+v+' h';
+    if(v){var i=h('i','',null,td);i.style.height=Math.max(1,Math.round(v/33*17))+'px';}
+    h('span','vh',MN[m]+' '+v+' hours',td);
+  });
+  h('td','n',tot+' h',tr);
+});
+
+/* Plate 1: the window */
+var HERO=[].concat(
+  rep(5,.25,.36,function(t){return N(t,.27,4.2,1.8,-.55,2.2,1,1);}),
+  rep(23,2.1,.062,function(t){return N(t,.03,6.6,4.3,0,1.3,.8);}),
+  rep(3,3.75,.45,function(t){return [N(t,.09,3.6,3.3,.1,1.6,.5,1),N(t+.15,.13,2.75,2.55,0,1.7,.5,1)];})
+);
+var BOXES=[['NOCA',.12,2.02,1.45,4.6],['CHSP',2.03,3.56,3.95,7.05],['TUTI',3.66,4.99,2.25,3.95]];
+/* id, turbulence frequency (time, frequency), octaves, alpha gain, alpha offset, band stops [kHz, strength], layer opacity */
+var NOISE=[
+  ['floor','0.6 0.8',1,2.4,1.05,[[0,.9],[1.5,.6],[4,.32],[10,.2]],.6],
+  ['wind','0.02 0.1',2,2.6,.72,[[0,1],[.7,.95],[1.4,0]],.9],
+  ['traffic','0.006 0.35',2,2.8,.85,[[0,1],[1.9,.95],[3.1,0]],.85],
+  ['rain','0.75 0.004',1,4.2,2.3,[[0,.95],[6,.75],[10,.4]],.95],
+  ['stream','0.7 0.7',1,2.5,.6,[[0,1],[3,.8],[10,.5]],.75],
+  ['insects','0.95 0.03',1,3,.72,[[4.1,0],[4.5,1],[6.5,1],[6.9,0]],.9]
+];
+var heroW=0;
+function hero(){
+  var box=$('sono'),W=Math.floor(box.clientWidth);
+  if(!W||W===heroW)return;heroW=W;
+  var H=Math.round(Math.min(326,Math.max(196,W*.46))),L=27,R=8,T=8,B=21,pw=W-L-R,ph=H-T-B,F=10;
+  function sx(t){return L+t*pw/5;} function sy(f){return T+(F-f)*ph/F;}
+  var s=el('svg',{viewBox:'0 0 '+W+' '+H,width:W,height:H,'aria-hidden':'true',focusable:'false'}),d=el('defs',{},s);
+  el('feGaussianBlur',{stdDeviation:'.5 .9'},el('filter',{id:'h-soft',x:L,y:T,width:pw,height:ph,filterUnits:'userSpaceOnUse'},d));
+  var g=el('g',{class:'gl'},s),i,t;
+  for(i=0;i<=F;i+=2){el('line',{x1:L,x2:W-R,y1:sy(i),y2:sy(i)},g);t=el('text',{x:L-6,y:sy(i)+3.5,'text-anchor':'end',class:'ax'},s);t.textContent=i;}
+  for(i=0;i<=5;i++){el('line',{x1:sx(i),x2:sx(i),y1:sy(F),y2:sy(0)+4},g);t=el('text',{x:sx(i),y:H-5,'text-anchor':i===5?'end':i?'middle':'start',class:'ax'},s);t.textContent=i===5?'5 s':i;}
+  t=el('text',{x:L+5,y:T+12,class:'ax'},s);t.textContent='kHz';
+  function layer(n){
+    var id='h-'+n[0],f=el('filter',{id:id+'f',x:L,y:T,width:pw,height:ph,filterUnits:'userSpaceOnUse'},d);
+    el('feTurbulence',{type:'fractalNoise',baseFrequency:n[1],numOctaves:n[2],seed:n[0].length*7,result:'t'},f);
+    el('feColorMatrix',{in:'t',type:'matrix',values:'0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 '+n[3]+' 0 0 0 '+(-n[4]),result:'a'},f);
+    el('feComposite',{in:'SourceGraphic',in2:'a',operator:'in'},f);
+    var lg=el('linearGradient',{id:id+'g',x1:0,y1:1,x2:0,y2:0},d);
+    n[5].forEach(function(p){el('stop',{offset:p[0]/F,'stop-color':'#fff','stop-opacity':p[1]},lg);});
+    el('rect',{x:L,y:T,width:pw,height:ph,fill:'url(#'+id+'g)'},el('mask',{id:id+'m',maskUnits:'userSpaceOnUse',x:L,y:T,width:pw,height:ph},d));
+    var lay=el('g',{class:n[0]==='floor'?'':'nz nz-'+n[0],mask:'url(#'+id+'m)'},s);
+    el('rect',{x:L,y:T,width:pw,height:ph,class:'nzr',filter:'url(#'+id+'f)',opacity:n[6]},lay);
+  }
+  layer(NOISE[0]);
+  trace(el('g',{class:'trace',filter:'url(#h-soft)'},s),HERO,sx,sy,F,1);
+  NOISE.slice(1).forEach(layer);
+  BOXES.forEach(function(b){
+    el('rect',{class:'box',x:sx(b[1]),y:sy(b[4]),width:sx(b[2])-sx(b[1]),height:sy(b[3])-sy(b[4])},s);
+    t=el('text',{class:'boxl',x:sx(b[1])+3,y:sy(b[4])-5},s);t.textContent=b[0];
+  });
+  box.replaceChildren?box.replaceChildren(s):(box.innerHTML='',box.appendChild(s));
+}
+
+var CODES=['NOCA','CHSP','TUTI','DEJU','CARW','AMRO','SOSP','GRCA','RBGR','BCCH','RWBL','WTSP','NONE'];
+var PRESENT={NOCA:1,CHSP:1,TUTI:1};
+var OUT={
+  none:[.98,.89,.74,.18,.06,.03,.04,.03,.02,.02,.02,.01,.01],
+  wind:[.96,.86,.55,.17,.07,.03,.04,.03,.02,.02,.02,.01,.02],
+  traffic:[.94,.87,.38,.16,.08,.04,.05,.04,.03,.02,.03,.01,.03],
+  rain:[.93,.71,.46,.21,.09,.05,.06,.04,.03,.03,.04,.02,.04],
+  stream:[.90,.58,.29,.27,.11,.06,.08,.06,.04,.05,.05,.03,.07],
+  insects:[.95,.31,.61,.52,.07,.03,.05,.04,.02,.04,.03,.03,.03]
+};
+var MSG={
+  none:'As recorded. All three singers are found. The sparrow’s trill also earns 0.18 for Dark-eyed Junco, its look-alike, well under the threshold.',
+  wind:'Wind rumble stays below about 1 kHz, under every song here. The faint titmouse slips to 0.55 but is still found.',
+  traffic:'Road noise fills the band below about 2.5 kHz and buries the low note of each faint “peter”. The titmouse is missed.',
+  rain:'Each raindrop is a click across every frequency at once. The faint titmouse falls to 0.46 and is missed.',
+  stream:'Running water raises the floor at every frequency. The cardinal and the sparrow are still found; the titmouse is missed.',
+  insects:'An insect chorus between 4.5 and 6.5 kHz lands on the sparrow’s trill: Chipping Sparrow is missed and its look-alike, Dark-eyed Junco, is reported instead. The titmouse, below the band, is still found.'
+};
+var list=$('scores'),rows=CODES.map(function(c){
+  var li=h('li',PRESENT[c]?'pres':'',null,list);
+  var code=h('span','c',c,li);if(c==='NONE')code.title='none of the twelve';
+  var bar=h('span','bar',null,li);bar.setAttribute('aria-hidden','true');
+  return {li:li,c:c,i:h('i','',null,bar),v:h('span','v','',li),t:h('span','t','',li)};
+});
+function show(k){
+  $('p1').setAttribute('data-noise',k);
+  var found=0,fa=0;
+  rows.forEach(function(r,j){
+    var s=OUT[k][j],pres=!!PRESENT[r.c],hit=s>=.5,tag=pres?(hit?'found':'missed'):(hit?'fa':'');
+    r.li.className=(pres?'pres':'')+(hit?' hit':'');
+    r.i.style.width=(s*100)+'%';r.v.textContent=s.toFixed(2);
+    r.t.className='t '+tag;r.t.textContent=tag==='fa'?'false alarm':tag;
+    if(pres&&hit)found++;if(!pres&&hit)fa++;
+  });
+  $('tally').textContent=found+' of 3 singers found · '+fa+' false alarm'+(fa===1?'':'s');
+  $('status').textContent=MSG[k];
+}
+Array.prototype.forEach.call(document.querySelectorAll('input[name="noise"]'),function(inp){
+  inp.addEventListener('change',function(){if(inp.checked)show(inp.value);});
+});
+var checked=document.querySelector('input[name="noise"]:checked');
+show(checked?checked.value:'none');
+hero();
+if(window.ResizeObserver)new ResizeObserver(function(){hero();}).observe($('sono'));
+else window.addEventListener('resize',hero);
+})();
+</script>
+</body>
+</html>

@@ -6,6 +6,29 @@ import { extractText, metaContent, scriptText } from './text.js';
 
 export const EXAMPLE_FILE_RE = /^[A-Za-z0-9][\w.-]*\.html$/;
 
+// The skills in plannotator/effective-html (MIT), what each is for, and the gallery's two examples
+// of each: one on data, data science or machine learning, one on Claude Code (built from its
+// docs). The sidebar lists them under Skills; the examples' category is effective-html.
+export const SKILLS_REPO = 'https://github.com/plannotator/effective-html';
+export const SKILLS = [
+  { name: 'html', use: 'Reports, explainers, data stories and small tools',
+    examples: [['ab-test-readout.html', 'A/B test readout'], ['claude-code-settings-precedence.html', 'Claude Code settings precedence']] },
+  { name: 'big-pics-little-words', use: 'Explain a subject with big pictures and few words',
+    examples: [['precision-recall-threshold.html', 'Precision and recall'], ['claude-code-context-window.html', "Claude Code's context window"]] },
+  { name: 'one-pager', use: 'One page that shares an idea early, or recaps work',
+    examples: [['churn-model-v3-recap.html', 'Churn model v3 recap'], ['claude-code-team-setup-one-pager.html', 'Claude Code team setup']] },
+  { name: 'design-artifact', use: 'A visual direction drawn from the subject itself',
+    examples: [['model-card-birdsong-classifier.html', 'Birdsong model card'], ['claude-code-pocket-reference.html', 'Claude Code pocket reference']] },
+  { name: 'html-wireframe', use: 'Low-fidelity layouts that test structure and flow',
+    examples: [['model-monitoring-wireframes.html', 'Model monitoring'], ['claude-code-permissions-wireframes.html', 'Claude Code permissions']] },
+  { name: 'html-prototype', use: 'Working prototypes with real states and keyboard support',
+    examples: [['review-labeling-prototype.html', 'Review labeling queue'], ['claude-code-permission-prompt-prototype.html', 'Claude Code permission prompts']] },
+  { name: 'html-plan', use: 'Plans and rollouts that keep their source commitments',
+    examples: [['realtime-fraud-scoring-rollout-plan.html', 'Real-time fraud scoring'], ['claude-code-rollout-plan.html', 'Claude Code team rollout']] },
+  { name: 'html-diagram', use: 'Architecture, sequence, process and state diagrams',
+    examples: [['rag-pipeline-diagram.html', 'RAG pipeline'], ['claude-code-hooks-lifecycle.html', 'Claude Code hooks']] },
+];
+
 let cache = null;
 
 /** [{ slug, url, title, description, category, size, updated_at, body }], newest first; read once. */

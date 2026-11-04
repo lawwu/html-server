@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rolling out Claude Code — a team plan</title>
+<meta name="description" content="A six-phase plan for rolling Claude Code out to a fictional 40-engineer team, from a five-person pilot to org-wide policy, approved MCP servers, PR help in GitHub Actions and a monthly cost number. Owners, dependencies, checks, risks, rollback and open questions trace to a short source brief and the official docs.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+--paper:#fbfcfb;--panel:#eff3f1;--ink:#16201c;--ink-2:#4a5751;--rule:#d3ddd8;
+--accent:#136a5f;--accent-soft:#dcefe9;--open:#8d5a00;--open-soft:#fbf0d9;
+--sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+:root:not([data-theme="light"]){--paper:#111614;--panel:#19211e;--ink:#e3eae6;--ink-2:#a1afa9;--rule:#2c3733;--accent:#6ccdbd;--accent-soft:#173430;--open:#eab45a;--open-soft:#33270f;color-scheme:dark}
+}
+:root[data-theme="dark"]{--paper:#111614;--panel:#19211e;--ink:#e3eae6;--ink-2:#a1afa9;--rule:#2c3733;--accent:#6ccdbd;--accent-soft:#173430;--open:#eab45a;--open-soft:#33270f;color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+body{margin:0;background:var(--paper);color:var(--ink);font:1rem/1.6 var(--sans)}
+.wrap{max-width:64rem;margin:0 auto;padding:2.25rem 1rem 3rem}
+@media (min-width:40rem){.wrap{padding:3rem 1.5rem 4rem}}
+h1,h2,h3{margin:0;line-height:1.2;text-wrap:balance}
+h1{font-size:clamp(1.85rem,1.2rem + 2.6vw,2.6rem);font-weight:700;letter-spacing:-.02em}
+h2{font-size:1.4rem;font-weight:700;letter-spacing:-.01em}
+p,ul,ol,dl{margin:0}
+p,li{text-wrap:pretty}
+a{color:var(--accent);text-underline-offset:.16em;text-decoration-thickness:1px}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+code{font:.86em/1.4 var(--mono);background:var(--panel);padding:.06em .3em;border-radius:3px;overflow-wrap:anywhere}
+.skip{position:absolute;left:1rem;top:-3rem;background:var(--ink);color:var(--paper);padding:.5rem .75rem;border-radius:3px;z-index:2}
+.skip:focus{top:.75rem}
+.eyebrow,.label,.meta dt,th{font:600 .72rem/1.45 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2)}
+.eyebrow{color:var(--accent)}
+.masthead{display:grid;gap:.75rem;padding-bottom:1.5rem;border-bottom:1px solid var(--rule)}
+.dek{font-size:1.125rem;color:var(--ink-2);max-width:62ch}
+.byline{font:.8rem/1.5 var(--mono);color:var(--ink-2)}
+.toc{display:grid;gap:.45rem;padding:1.1rem 0;border-bottom:1px solid var(--rule);font-size:.92rem}
+.toc div{display:flex;flex-wrap:wrap;gap:.2rem .9rem;align-items:baseline}
+.toc .label{min-width:5.5rem}
+section{margin-top:2.75rem}
+.sec-h{display:grid;gap:.4rem;margin-bottom:1rem}
+.sec-h p{color:var(--ink-2);max-width:68ch}
+.prose{max-width:68ch}
+.ref{font:600 .72rem/1 var(--mono);text-decoration:none;padding:.2em .42em;border:1px solid var(--rule);border-radius:3px;color:var(--ink-2);white-space:nowrap;display:inline-block;vertical-align:.06em}
+a.ref:hover{border-color:var(--accent);color:var(--accent)}
+.ref.q{border-style:dashed;border-color:var(--open);color:var(--open)}
+.refs{display:inline-flex;flex-wrap:wrap;gap:.3rem;vertical-align:baseline}
+details.source{border:1px solid var(--rule);border-radius:4px;background:var(--panel)}
+details.source>summary{cursor:pointer;list-style:none;display:flex;flex-wrap:wrap;gap:.25rem 1rem;align-items:baseline;padding:.85rem 1rem}
+details.source>summary::-webkit-details-marker{display:none}
+details.source>summary::before{content:"+";font:700 1.05rem/1 var(--mono);color:var(--accent);width:1ch}
+details.source[open]>summary::before{content:"\2212"}
+.sum-title{font-weight:650}
+.sum-meta{font:.78rem/1.5 var(--mono);color:var(--ink-2)}
+.sum-meta .act{color:var(--accent);text-decoration:underline;text-underline-offset:.16em}
+details.source:not([open]) .when-open,details.source[open] .when-closed{display:none}
+.src-note{padding:0 1rem .5rem 2.6rem;font-size:.9rem;color:var(--ink-2);max-width:72ch}
+.src-list{list-style:none;padding:0 .75rem .75rem}
+.src-list li,.idlist li{display:grid;grid-template-columns:2.6rem 1fr;gap:.15rem .5rem;padding:.6rem .25rem;border-top:1px solid var(--rule);scroll-margin:5rem}
+.src-list p{max-width:70ch}
+.used{grid-column:2;font-size:.8rem;color:var(--ink-2)}
+.used a{font-family:var(--mono);font-size:.95em}
+.sid{font:700 .78rem/1.75 var(--mono);color:var(--accent)}
+.idlist{list-style:none;padding:0;border-bottom:1px solid var(--rule)}
+.idlist li>div{display:flex;flex-wrap:wrap;gap:.25rem .6rem;align-items:baseline}
+.qlist .sid{color:var(--open)}
+.qlist h3{font-size:1rem;font-weight:650;line-height:1.45}
+.qlist p{max-width:72ch;margin-top:.3rem}
+.facts{display:flex;flex-wrap:wrap;gap:.2rem 1.1rem;margin-top:.45rem;font-size:.85rem;color:var(--ink-2)}
+.facts b{font:600 .7rem/1.6 var(--mono);letter-spacing:.06em;text-transform:uppercase;margin-right:.3rem}
+.is-target,li:target,tr:target{background:var(--accent-soft);border-radius:3px}
+.qlist li.is-target,.qlist li:target{background:var(--open-soft)}
+.table{width:100%;border-collapse:collapse;font-size:.95rem}
+.table th,.table td{text-align:left;vertical-align:top;padding:.6rem .9rem .6rem 0;border-bottom:1px solid var(--rule)}
+.table thead th{border-bottom:2px solid var(--ink)}
+.table td:first-child{font-weight:600}
+.table ul{padding-left:1.1rem}
+.table li+li{margin-top:.3rem}
+@media (max-width:40rem){
+.stack thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.stack,.stack tbody,.stack tr,.stack td{display:block;width:100%}
+.stack tr{padding:.7rem 0;border-bottom:1px solid var(--rule)}
+.stack td{border:0;padding:.15rem 0}
+.stack td::before{content:attr(data-label);display:block;font:600 .66rem/1.6 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2)}
+}
+.phase{margin-top:3rem;padding-top:1.1rem;border-top:2px solid var(--ink);scroll-margin:1rem}
+.phase-h{display:flex;flex-wrap:wrap;gap:.3rem .9rem;align-items:baseline}
+.pid{font:700 1.45rem/1 var(--mono);color:var(--accent)}
+.goal{margin-top:.5rem;color:var(--ink-2);max-width:68ch}
+.meta{display:grid;grid-template-columns:7.5rem 1fr;gap:.4rem 1rem;margin:1.1rem 0 1.25rem;font-size:.95rem}
+.meta dt{padding-top:.2rem}
+.meta dd{margin:0}
+@media (max-width:30rem){.meta{grid-template-columns:1fr;gap:.1rem}.meta dd{margin-bottom:.45rem}}
+.cols{display:grid;gap:1.4rem 2.25rem}
+@media (min-width:56rem){.cols{grid-template-columns:1.15fr 1fr}}
+.steps{padding-left:1.3rem;margin-top:.5rem}
+.steps li+li{margin-top:.5rem}
+.checks{list-style:none;padding:0;margin-top:.5rem}
+.checks li{display:grid;grid-template-columns:2rem 1fr;gap:.2rem;padding:.35rem 0;border-top:1px solid var(--rule)}
+.checks li:first-child{border-top:0}
+.cid{font:600 .74rem/1.85 var(--mono);color:var(--accent)}
+.after{display:grid;gap:.55rem;margin-top:1.25rem;font-size:.95rem;max-width:72ch}
+.after .label{margin-right:.4rem}
+.code{margin:1rem 0 0}
+.code figcaption{font-size:.85rem;color:var(--ink-2);margin-bottom:.35rem;max-width:68ch}
+pre{margin:0;font:.8rem/1.55 var(--mono);background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:.8rem .95rem;overflow-x:auto;tab-size:2}
+pre:focus-visible{outline-offset:1px}
+@media (max-width:30rem){pre{font-size:.72rem;padding:.7rem .75rem}}
+.nw{white-space:nowrap}
+.bullets{padding-left:1.2rem;max-width:72ch}
+.bullets li+li{margin-top:.45rem}
+.foot{margin-top:3.5rem;padding-top:1.25rem;border-top:2px solid var(--ink);display:grid;gap:.85rem;font-size:.92rem}
+.foot>p{max-width:72ch;color:var(--ink-2)}
+.docs{list-style:none;padding:0;columns:1;column-gap:2rem}
+@media (min-width:40rem){.docs{columns:2}}
+@media (min-width:56rem){.docs{columns:3}}
+.docs li{break-inside:avoid;padding:.15rem 0}
+.credit{padding-top:.85rem;border-top:1px solid var(--rule)}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the plan</a>
+<div class="wrap">
+<header class="masthead">
+<p class="eyebrow">Rollout plan · fictional team of 40 engineers</p>
+<h1>Rolling out Claude Code — a team plan</h1>
+<p class="dek">Six phases take the team from five pilot volunteers to an org-wide policy, approved MCP servers, <code>@claude</code> on pull requests and a monthly cost number. Every commitment points back to a line of the source brief (S1–S14); product behavior comes from the Claude Code docs.</p>
+<p class="byline">Docs read November 2026 · No dates beyond the pilot’s two weeks · Owners are roles, not people</p>
+</header>
+
+<nav class="toc" aria-label="Contents">
+<div><span class="label">Brief</span><a href="#source">Source brief</a><a href="#decisions">Decisions</a><a href="#questions">Open questions</a><a href="#choices">Plan choices</a><a href="#owners">Owners</a><a href="#sequence">Sequence</a></div>
+<div><span class="label">Phases</span><a href="#p1">P1 Pilot</a><a href="#p2">P2 Repo settings</a><a href="#p3">P3 Org policy</a><a href="#p4">P4 MCP</a><a href="#p5">P5 PR help</a><a href="#p6">P6 Reporting</a></div>
+<div><span class="label">Then</span><a href="#risks">Risks</a><a href="#rollback">Rollback</a><a href="#docs">Docs used</a></div>
+</nav>
+
+<main id="main">
+
+<section id="source" aria-labelledby="source-h">
+<div class="sec-h">
+<h2 id="source-h">Source brief</h2>
+<p>The memo this plan has to preserve, written for this example. Chips such as <a class="ref" href="#s4">S4</a> link back to a line, and each line lists where it went.</p>
+</div>
+<details class="source" id="source-brief">
+<summary><span class="sum-title">Memo from the director of engineering</span><span class="sum-meta">14 lines · <span class="act when-closed">show</span><span class="act when-open">hide</span></span></summary>
+<p class="src-note">IDs are added for tracing; the wording is the memo’s.</p>
+<ol class="src-list">
+<li id="s1"><span class="sid">S1</span><p>We’re rolling Claude Code out to all 40 engineers. Finance approved a Claude for Teams seat for each.</p><p class="used">Went to <a href="#d1">D1</a> <a href="#p1">P1</a> <a href="#p3">P3</a> <a href="#q4">Q4</a></p></li>
+<li id="s2"><span class="sid">S2</span><p>Start with a pilot: five volunteers from different squads, two weeks, before anyone else gets a seat.</p><p class="used">Went to <a href="#d2">D2</a> <a href="#p1">P1</a> <a href="#a2">A2</a></p></li>
+<li id="s3"><span class="sid">S3</span><p>After the pilot, every active repo gets the same shared project settings and a CLAUDE.md, reviewed like any other code.</p><p class="used">Went to <a href="#d3">D3</a> <a href="#p2">P2</a></p></li>
+<li id="s4"><span class="sid">S4</span><p>Some rules can’t be optional: nobody reads .env files or the secrets folder, and nobody runs with permission checks bypassed.</p><p class="used">Went to <a href="#d4">D4</a> <a href="#p1">P1</a> <a href="#p2">P2</a> <a href="#p3">P3</a> <a href="#p5">P5</a> <a href="#r1">R1</a> <a href="#r4">R4</a></p></li>
+<li id="s5"><span class="sid">S5</span><p>MCP: approved servers only. Start with the issue tracker and the internal docs search; anything else goes through security review.</p><p class="used">Went to <a href="#d5">D5</a> <a href="#p4">P4</a> <a href="#r2">R2</a></p></li>
+<li id="s6"><span class="sid">S6</span><p>We want @claude on pull requests. Two repos first, then the rest.</p><p class="used">Went to <a href="#d6">D6</a> <a href="#p5">P5</a></p></li>
+<li id="s7"><span class="sid">S7</span><p>Finance wants cost per engineer each month, and I want to know whether people actually use it.</p><p class="used">Went to <a href="#d7">D7</a> <a href="#p1">P1</a> <a href="#p6">P6</a> <a href="#r3">R3</a> <a href="#q5">Q5</a></p></li>
+<li id="s8"><span class="sid">S8</span><p>Usage data is for running the rollout, not for performance reviews.</p><p class="used">Went to <a href="#d8">D8</a> <a href="#p3">P3</a> <a href="#p6">P6</a> <a href="#q5">Q5</a></p></li>
+<li id="s9"><span class="sid">S9</span><p>What worries me: secrets ending up in prompts or logs, prompt injection through issues, PR comments and web pages, and a surprise bill.</p><p class="used">Went to <a href="#r1">R1</a> <a href="#r2">R2</a> <a href="#r3">R3</a> <a href="#p4">P4</a> <a href="#p5">P5</a> <a href="#q5">Q5</a></p></li>
+<li id="s10"><span class="sid">S10</span><p>Every step needs a way back that doesn’t stop people working.</p><p class="used">Went to <a href="#d9">D9</a>, the rollback line of every phase, <a href="#rollback">Rollback</a> <a href="#r5">R5</a></p></li>
+<li id="s11"><span class="sid">S11</span><p>Security hasn’t decided on auto mode, or whether to require the sandbox.</p><p class="used">Went to <a href="#q1">Q1</a> <a href="#p1">P1</a> <a href="#p3">P3</a></p></li>
+<li id="s12"><span class="sid">S12</span><p>Not sure whether CI usage should bill to a separate API account.</p><p class="used">Went to <a href="#q2">Q2</a> <a href="#p5">P5</a></p></li>
+<li id="s13"><span class="sid">S13</span><p>Laptops are mostly Macs that IT manages; a handful of Linux desktops aren’t managed.</p><p class="used">Went to <a href="#a3">A3</a> <a href="#q3">Q3</a> <a href="#r4">R4</a> <a href="#p3">P3</a></p></li>
+<li id="s14"><span class="sid">S14</span><p>Platform team runs this. Security engineering signs off on guardrails and MCP. Squad tech leads own their repos. Finance gets the monthly number.</p><p class="used">Went to <a href="#d10">D10</a> <a href="#owners">Owners</a> <a href="#p3">P3</a> <a href="#p4">P4</a> <a href="#p6">P6</a></p></li>
+</ol>
+</details>
+</section>
+
+<section id="decisions" aria-labelledby="decisions-h">
+<div class="sec-h">
+<h2 id="decisions-h">Decisions from the brief</h2>
+<p>Settled in the source. The plan carries them out and doesn’t reopen them.</p>
+</div>
+<ul class="idlist">
+<li id="d1"><span class="sid">D1</span><div><span>Claude for Teams, one seat per engineer: 40 seats.</span><span class="refs"><a class="ref" href="#s1">S1</a></span></div></li>
+<li id="d2"><span class="sid">D2</span><div><span>Pilot first: five volunteers from different squads for two weeks; nobody else gets a seat until it ends.</span><span class="refs"><a class="ref" href="#s2">S2</a></span></div></li>
+<li id="d3"><span class="sid">D3</span><div><span>Every active repo commits a shared <code>.claude/settings.json</code> and a <code>CLAUDE.md</code> through normal code review.</span><span class="refs"><a class="ref" href="#s3">S3</a></span></div></li>
+<li id="d4"><span class="sid">D4</span><div><span>Reading <code>.env</code> files and <code>secrets/</code>, and running in bypass mode, are blocked for everyone by policy, not by personal choice.</span><span class="refs"><a class="ref" href="#s4">S4</a></span></div></li>
+<li id="d5"><span class="sid">D5</span><div><span>MCP is allowlist-only: the issue tracker and internal docs search to start; additions need security review.</span><span class="refs"><a class="ref" href="#s5">S5</a></span></div></li>
+<li id="d6"><span class="sid">D6</span><div><span><code>@claude</code> on pull requests through GitHub Actions, two repos first.</span><span class="refs"><a class="ref" href="#s6">S6</a></span></div></li>
+<li id="d7"><span class="sid">D7</span><div><span>Finance gets a cost per engineer each month; adoption is tracked.</span><span class="refs"><a class="ref" href="#s7">S7</a></span></div></li>
+<li id="d8"><span class="sid">D8</span><div><span>Usage data runs the rollout and is never used in performance reviews.</span><span class="refs"><a class="ref" href="#s8">S8</a></span></div></li>
+<li id="d9"><span class="sid">D9</span><div><span>Every phase ships with a rollback that leaves normal work running.</span><span class="refs"><a class="ref" href="#s10">S10</a></span></div></li>
+<li id="d10"><span class="sid">D10</span><div><span>The platform team runs the rollout; security signs off guardrails and MCP; tech leads own their repos; finance receives the number.</span><span class="refs"><a class="ref" href="#s14">S14</a></span></div></li>
+</ul>
+</section>
+
+<section id="questions" aria-labelledby="questions-h">
+<div class="sec-h">
+<h2 id="questions-h">Open questions</h2>
+<p>Not decided, and not decided here. Each names an owner and the phase it blocks; the notes are what the docs say, not an answer.</p>
+</div>
+<ul class="idlist qlist">
+<li id="q1"><span class="sid">Q1</span><div>
+<h3>Keep auto mode as the starting mode, and require the sandbox?</h3>
+<p>With Claude Code v2.1.283 or later, terminal and VS Code sessions start in auto mode, which Team plans allow by default; <code>permissions.disableAutoMode: "disable"</code> turns it off. The docs say auto mode cuts prompts but doesn’t guarantee safety. The sandbox is off by default, runs on macOS, Linux and WSL2 but not native Windows, and needs <code>bubblewrap</code> and <code>socat</code> on Linux.</p>
+<p class="facts"><span><b>Owner</b>Security engineer</span><span><b>Blocks</b><a href="#p3">P3</a></span><span><b>Evidence</b>P1 sandbox log</span><span><b>From</b><a class="ref" href="#s11">S11</a></span></p>
+</div></li>
+<li id="q2"><span class="sid">Q2</span><div>
+<h3>Which credential pays for CI?</h3>
+<p>For a secret shared across repositories, the docs recommend a Claude Console API key over an OAuth token, which is tied to the subscription of whoever generated it; workload identity federation avoids storing a long-lived key at all. Both bill per token, outside the seat allowance; an OAuth token would draw on its owner’s subscription instead. A Console key belongs to a separate organization, so P3’s policy doesn’t reach those runs.</p>
+<p class="facts"><span><b>Owner</b>Director of engineering with finance partner</span><span><b>Blocks</b><a href="#p5">P5</a></span><span><b>From</b><a class="ref" href="#s12">S12</a></span></p>
+</div></li>
+<li id="q3"><span class="sid">Q3</span><div>
+<h3>Also deliver the policy through MDM on the Macs?</h3>
+<p>The docs call endpoint-managed settings the stronger option on MDM-enrolled devices, and say login restrictions (<code>forceLoginMethod</code>, <code>forceLoginOrgUUID</code>) have to come from device management, because server-managed settings only arrive after someone signs in to the organization. When both deliver a policy, Claude Code uses the server-managed one by default. The Linux desktops would stay on server-managed settings.</p>
+<p class="facts"><span><b>Owner</b>Security engineer with IT</span><span><b>Blocks</b>nothing; revisit after <a href="#p3">P3</a></span><span><b>From</b><a class="ref" href="#s13">S13</a> <a class="ref" href="#r4">R4</a></span></p>
+</div></li>
+<li id="q4"><span class="sid">Q4</span><div>
+<h3>Standard or Premium seats, and turn on usage credits?</h3>
+<p>Each seat’s allowance depends on its tier, is shared with Claude chat, and resets on a rolling five-hour window and a weekly window. Usage credits let people keep working past it, under spend limits set for the organization, a group or a member. Raised by the docs, not the brief.</p>
+<p class="facts"><span><b>Owner</b>Platform lead with finance partner</span><span><b>Blocks</b>inviting the other 35 (<a href="#p3">P3</a>)</span><span><b>Evidence</b>P1 limit log</span><span><b>From</b>docs, <a class="ref" href="#s1">S1</a></span></p>
+</div></li>
+<li id="q5"><span class="sid">Q5</span><div>
+<h3>Add OpenTelemetry export?</h3>
+<p>The spend report updates daily. OpenTelemetry streams per-user tokens and estimated cost to our own stack in near real time, which allows alerts on spikes, but with a claude.ai sign-in it carries <code>user.email</code>. Repo settings files can’t turn it on, so it would go in the managed policy.</p>
+<p class="facts"><span><b>Owner</b>Platform lead</span><span><b>Blocks</b>nothing</span><span><b>From</b><a class="ref" href="#s7">S7</a> <a class="ref" href="#s8">S8</a> <a class="ref" href="#s9">S9</a></span></p>
+</div></li>
+<li id="q6"><span class="sid">Q6</span><div>
+<h3>Accept the Claude GitHub App’s permission set?</h3>
+<p>The app has one permission set for every Claude feature that uses GitHub, and GitHub doesn’t allow accepting part of it. A custom app with only Contents, Issues and Pull requests covers the Action alone; the contribution metrics in P6 need the official app. Raised by the docs, not the brief.</p>
+<p class="facts"><span><b>Owner</b>Security engineer</span><span><b>Blocks</b><a href="#p5">P5</a></span><span><b>From</b>docs</span></p>
+</div></li>
+</ul>
+</section>
+
+<section id="choices" aria-labelledby="choices-h">
+<div class="sec-h">
+<h2 id="choices-h">Introduced by this plan</h2>
+<p>Assumptions and structural choices that aren’t in the brief. Each can be overturned without touching a decision above.</p>
+</div>
+<ul class="idlist">
+<li id="a1"><span class="sid">A1</span><div><span>Phases are gated by their checks, not by dates; the brief’s only duration is the pilot’s two weeks. Each phase owner runs the checks; security signs off P3 and P4.</span><span class="refs"><a class="ref" href="#s2">S2</a> <a class="ref" href="#s14">S14</a></span></div></li>
+<li id="a2"><span class="sid">A2</span><div><span>The other 35 seats open only after P3’s checks pass and Q4 is answered, reading S2 together with S4.</span><span class="refs"><a class="ref" href="#s2">S2</a> <a class="ref" href="#s4">S4</a></span></div></li>
+<li id="a3"><span class="sid">A3</span><div><span>Policy goes through server-managed settings in the claude.ai console: Teams includes it, it reaches the unmanaged Linux desktops, and it needs no device tooling. MDM is Q3.</span><span class="refs"><a class="ref" href="#s13">S13</a></span></div></li>
+<li id="a4"><span class="sid">A4</span><div><span><code>allowManagedPermissionRulesOnly</code> stays off, so the repo rules from P2 keep applying alongside the policy.</span><span class="refs"><a class="ref" href="#s3">S3</a></span></div></li>
+<li id="a5"><span class="sid">A5</span><div><span>P5 doesn’t wait for P3 or P4: a CI run signed in with a Console API key, the docs’ choice for a shared secret, doesn’t receive the org’s managed settings, so the workflow carries its own limits.</span><span class="refs"><a class="ref" href="#s6">S6</a></span></div></li>
+<li id="a6"><span class="sid">A6</span><div><span>The pilot runs on product defaults plus the S4 rules in each volunteer’s own user settings.</span><span class="refs"><a class="ref" href="#s4">S4</a> <a class="ref" href="#s11">S11</a></span></div></li>
+<li id="a7"><span class="sid">A7</span><div><span>The two approved MCP servers are remote HTTPS servers; their example.com addresses are placeholders.</span><span class="refs"><a class="ref" href="#s5">S5</a></span></div></li>
+</ul>
+</section>
+
+<section id="owners" aria-labelledby="owners-h">
+<div class="sec-h">
+<h2 id="owners-h">Owners by role</h2>
+<p>From S14, plus the two roles the docs require: an Owner in the Claude organization and a GitHub organization admin.</p>
+</div>
+<table class="table stack">
+<thead><tr><th scope="col">Role</th><th scope="col">Responsible for</th><th scope="col">Where</th></tr></thead>
+<tbody>
+<tr><td data-label="Role">Director of engineering</td><td data-label="Responsible for">Sponsor and author of the brief; decides Q2 with finance; one of the two people who see per-user analytics</td><td data-label="Where">Q2, P6</td></tr>
+<tr><td data-label="Role">Platform lead</td><td data-label="Responsible for">Runs the rollout. Holds the Owner role in the Claude organization, which the docs require for server-managed settings and analytics settings</td><td data-label="Where">P1, P3, P6 owner; Q4, Q5</td></tr>
+<tr><td data-label="Role">Security engineer</td><td data-label="Responsible for">Signs off guardrails and MCP; owns the security questions and risks</td><td data-label="Where">P3 sign-off, P4 owner; Q1, Q3, Q6; R1, R2, R4</td></tr>
+<tr><td data-label="Role">Squad tech leads</td><td data-label="Responsible for">Their repos’ shared settings and CLAUDE.md; nominate pilot volunteers; the first two Actions repos</td><td data-label="Where">P2, P5 owner</td></tr>
+<tr><td data-label="Role">Pilot volunteers (5)</td><td data-label="Responsible for">Two weeks of normal work with Claude Code, and the pilot log</td><td data-label="Where">P1</td></tr>
+<tr><td data-label="Role">GitHub org admin</td><td data-label="Responsible for">Installs the Claude GitHub App and adds the org-level Actions secret</td><td data-label="Where">P5, P6</td></tr>
+<tr><td data-label="Role">Finance partner</td><td data-label="Responsible for">Receives the monthly number; decides Q2 and Q4 with others</td><td data-label="Where">P6; Q2, Q4</td></tr>
+<tr><td data-label="Role">IT (Mac fleet)</td><td data-label="Responsible for">Only involved if Q3 chooses MDM delivery</td><td data-label="Where">Q3</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="sequence" aria-labelledby="sequence-h">
+<div class="sec-h">
+<h2 id="sequence-h">Sequence and dependencies</h2>
+<p>Phases are numbered in the brief’s order. This table shows what actually blocks what: P5 can run alongside P3 and P4 (A5).</p>
+</div>
+<table class="table stack">
+<thead><tr><th scope="col">Phase</th><th scope="col">Starts when</th><th scope="col">Waits on</th><th scope="col">Unblocks</th></tr></thead>
+<tbody>
+<tr><td data-label="Phase"><a href="#p1">P1</a> Pilot</td><td data-label="Starts when">Teams plan active; five volunteers named</td><td data-label="Waits on">—</td><td data-label="Unblocks">P2; P6’s baseline; evidence for Q1 and Q4</td></tr>
+<tr><td data-label="Phase"><a href="#p2">P2</a> Repo settings</td><td data-label="Starts when">P1 write-up delivered</td><td data-label="Waits on">—</td><td data-label="Unblocks">P3; P5 in its two repos</td></tr>
+<tr><td data-label="Phase"><a href="#p3">P3</a> Org policy</td><td data-label="Starts when">P2 merged in the pilot repos</td><td data-label="Waits on"><a class="ref q" href="#q1">Q1</a> before saving; <a class="ref q" href="#q4">Q4</a> before inviting the 35</td><td data-label="Unblocks">P4; seats for all 40</td></tr>
+<tr><td data-label="Phase"><a href="#p4">P4</a> MCP allowlist</td><td data-label="Starts when">P3 checks pass; every client on v2.1.259 or later</td><td data-label="Waits on">—</td><td data-label="Unblocks">—</td></tr>
+<tr><td data-label="Phase"><a href="#p5">P5</a> PR help</td><td data-label="Starts when">P2 merged in the two chosen repos</td><td data-label="Waits on"><a class="ref q" href="#q2">Q2</a> <a class="ref q" href="#q6">Q6</a></td><td data-label="Unblocks">P6 (GitHub App, CI spend)</td></tr>
+<tr><td data-label="Phase"><a href="#p6">P6</a> Reporting</td><td data-label="Starts when">P5’s GitHub App installed; P1 baseline in hand</td><td data-label="Waits on"><a class="ref q" href="#q5">Q5</a>, not blocking</td><td data-label="Unblocks">Steady state</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="phase" id="p1" aria-labelledby="p1-h">
+<div class="phase-h"><span class="pid">P1</span><h2 id="p1-h">Pilot with five volunteers</h2></div>
+<p class="goal">Learn what the team needs before anyone else gets a seat, and take the usage baseline the cost docs recommend measuring with a small pilot first.</p>
+<dl class="meta">
+<dt>Owner</dt><dd>Platform lead</dd>
+<dt>With</dt><dd>Five volunteers from different squads, nominated by tech leads; security engineer reads the write-up</dd>
+<dt>Needs</dt><dd>Teams plan active and five seats</dd>
+<dt>Traces</dt><dd><span class="refs"><a class="ref" href="#s1">S1</a> <a class="ref" href="#s2">S2</a> <a class="ref" href="#s4">S4</a> <a class="ref" href="#s7">S7</a> <a class="ref" href="#s11">S11</a></span></dd>
+</dl>
+<div class="cols">
+<div>
+<h3 class="label">Steps</h3>
+<ol class="steps">
+<li>Invite the five from the admin dashboard. Each installs with the native installer, which updates itself in the background, and signs in with the claude.ai account the admin invited.</li>
+<li>Before the first session, each volunteer adds the S4 rules to <code>~/.claude/settings.json</code>: deny rules for <code>Read(./.env)</code>, <code>Read(./.env.*)</code> and <code>Read(./secrets/**)</code>, plus <code>permissions.disableBypassPermissionsMode: "disable"</code>. The docs note both work from a user’s own settings; P3 makes them policy.</li>
+<li>Work as usual for two weeks on product defaults. On v2.1.283 or later, terminal and VS Code sessions start in auto mode, where a classifier reviews actions instead of prompting.</li>
+<li>In week two, one macOS and one Linux volunteer turn on <code>/sandbox</code> and log what it breaks. Evidence for <a class="ref q" href="#q1">Q1</a>.</li>
+<li>Everyone keeps a short log: any session or weekly limit message (<a class="ref q" href="#q4">Q4</a>); commands approved with “Yes, and don’t ask again”, which Claude Code saves to <code>.claude/settings.local.json</code> (P2’s allow list); MCP servers connected, from <code>/mcp</code> (P4’s inventory); anything odd, reported with <code>/feedback</code>.</li>
+<li>Each volunteer drafts a <code>CLAUDE.md</code> for their repo with <code>/init</code> and keeps it on a branch until P2.</li>
+</ol>
+</div>
+<div>
+<h3 class="label">Acceptance checks</h3>
+<ul class="checks">
+<li><span class="cid">C1</span><span>All five run <code>claude doctor</code> on day one and it reports no errors.</span></li>
+<li><span class="cid">C2</span><span>The analytics dashboard at <code>claude.ai/analytics/claude-code</code> shows daily active users and sessions for all five across the two weeks. That is the baseline.</span></li>
+<li><span class="cid">C3</span><span>Write-up delivered: allow-rule candidates, CLAUDE.md drafts, MCP inventory, sandbox breakages, limit messages.</span></li>
+<li><span class="cid">C4</span><span>The security engineer has read it, and Q1 and Q4 have the evidence they asked for.</span></li>
+</ul>
+</div>
+</div>
+<div class="after">
+<p><span class="label">Rollback</span>Take Claude Code access off the five seats in the admin console. Nothing shared changed during the pilot, so nobody else notices.</p>
+<p><span class="label">Docs</span><a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">Advanced setup</a> · <a href="https://code.claude.com/docs/en/permissions" target="_blank" rel="noopener">Configure permissions</a> · <a href="https://code.claude.com/docs/en/permission-modes" target="_blank" rel="noopener">Permission modes</a> · <a href="https://code.claude.com/docs/en/sandboxing" target="_blank" rel="noopener">Sandboxing</a> · <a href="https://code.claude.com/docs/en/analytics" target="_blank" rel="noopener">Analytics</a> · <a href="https://code.claude.com/docs/en/costs" target="_blank" rel="noopener">Costs</a></p>
+</div>
+</section>
+
+<section class="phase" id="p2" aria-labelledby="p2-h">
+<div class="phase-h"><span class="pid">P2</span><h2 id="p2-h">Shared project settings and CLAUDE.md</h2></div>
+<p class="goal">Give every active repo the same starting rules and project context, reviewed like code.</p>
+<dl class="meta">
+<dt>Owner</dt><dd>Squad tech leads, each for their own repos</dd>
+<dt>With</dt><dd>Platform lead writes the template; security engineer reviews the deny rules</dd>
+<dt>Needs</dt><dd>P1 write-up</dd>
+<dt>Traces</dt><dd><span class="refs"><a class="ref" href="#s3">S3</a> <a class="ref" href="#s4">S4</a> <a class="ref" href="#s14">S14</a></span></dd>
+</dl>
+<div class="cols">
+<div>
+<h3 class="label">Steps</h3>
+<ol class="steps">
+<li>The platform lead turns the pilot’s allow-rule candidates into a template <code>.claude/settings.json</code>: <code>permissions.allow</code> for each repo’s own build, test and lint commands, plus the S4 deny rules so they hold before P3 lands.</li>
+<li>Each tech lead opens a PR with <code>.claude/settings.json</code> and a <code>CLAUDE.md</code>, starting from the pilot draft or <code>/init</code>. It goes through normal review.</li>
+<li>Keep each <code>CLAUDE.md</code> under 200 lines, the docs’ target, with checkable instructions: build and test commands, conventions, layout. Personal preferences go in <code>CLAUDE.local.md</code> or <code>~/.claude/CLAUDE.md</code>.</li>
+<li>Tell engineers two things from the docs: committed allow rules apply only after each person accepts the workspace trust dialog, while deny and ask rules apply at once; and <code>CLAUDE.md</code> is guidance Claude reads, not enforcement. Enforcement lives in settings.</li>
+</ol>
+</div>
+<div>
+<h3 class="label">Acceptance checks</h3>
+<ul class="checks">
+<li><span class="cid">C1</span><span>Every active repo has both files, merged through a reviewed PR.</span></li>
+<li><span class="cid">C2</span><span>In a fresh clone, after accepting the trust dialog, <code>/permissions</code> lists the project rules with <code>.claude/settings.json</code> as their source.</span></li>
+<li><span class="cid">C3</span><span><code>/context all</code> lists the repo’s <code>CLAUDE.md</code> under Memory files.</span></li>
+<li><span class="cid">C4</span><span>No shared <code>CLAUDE.md</code> runs over 200 lines, and git tracks no <code>.claude/settings.local.json</code> or <code>CLAUDE.local.md</code>.</span></li>
+</ul>
+</div>
+</div>
+<div class="after">
+<p><span class="label">Rollback</span>Revert the PR. Claude Code watches settings files and reloads them in running sessions; personal overrides in <code>.claude/settings.local.json</code> are untouched.</p>
+<p><span class="label">Docs</span><a href="https://code.claude.com/docs/en/settings" target="_blank" rel="noopener">Settings</a> · <a href="https://code.claude.com/docs/en/settings-example" target="_blank" rel="noopener">Example settings files</a> · <a href="https://code.claude.com/docs/en/permissions" target="_blank" rel="noopener">Configure permissions</a> · <a href="https://code.claude.com/docs/en/memory" target="_blank" rel="noopener">CLAUDE.md and memory</a></p>
+</div>
+</section>
+
+<section class="phase" id="p3" aria-labelledby="p3-h">
+<div class="phase-h"><span class="pid">P3</span><h2 id="p3-h">Org-wide managed settings, then seats for everyone</h2></div>
+<p class="goal">Turn the S4 rules into policy, confirm it reaches both kinds of machine, then open seats to the other 35.</p>
+<dl class="meta">
+<dt>Owner</dt><dd>Platform lead, as an Owner of the Claude organization</dd>
+<dt>With</dt><dd>Security engineer signs off</dd>
+<dt>Needs</dt><dd>P2 merged in the pilot repos, so the policy is tested against real repo rules</dd>
+<dt>Waits on</dt><dd><a class="ref q" href="#q1">Q1</a> before saving; <a class="ref q" href="#q4">Q4</a> before inviting the 35</dd>
+<dt>Traces</dt><dd><span class="refs"><a class="ref" href="#s1">S1</a> <a class="ref" href="#s2">S2</a> <a class="ref" href="#s4">S4</a> <a class="ref" href="#s8">S8</a> <a class="ref" href="#s11">S11</a> <a class="ref" href="#s13">S13</a> <a class="ref" href="#s14">S14</a></span></dd>
+</dl>
+<div class="cols">
+<div>
+<h3 class="label">Steps</h3>
+<ol class="steps">
+<li>Write the policy below and add whatever Q1 decides: <code>permissions.disableAutoMode</code>, a <code>sandbox</code> block, or neither. The security engineer signs off.</li>
+<li>Leave <code>allowManagedPermissionRulesOnly</code> unset: it would make Claude Code ignore the repo rules from P2. Leave <code>DISABLE_TELEMETRY</code> unset too: it stops the data behind the analytics dashboard P6 reads.</li>
+<li>Validate the JSON as a <code class="nw">managed-settings.json</code> file on one test machine and read <code>claude doctor</code> for dropped entries. Then paste it into claude.ai at Organization settings › Claude Code › Managed settings. Clients pick it up at next start or on the hourly refresh.</li>
+<li>Run C1–C4 on one Mac and one Linux desktop, then invite the other 35 and point them at the Quickstart and Common workflows pages.</li>
+</ol>
+</div>
+<div>
+<h3 class="label">Acceptance checks</h3>
+<ul class="checks">
+<li><span class="cid">C1</span><span>On a Mac and a Linux desktop, <code>/status</code> shows <code>Enterprise managed settings (remote)</code> on its Setting sources line.</span></li>
+<li><span class="cid">C2</span><span><code>claude doctor</code> reports the delivered settings loaded on its Managed settings (remote) line (v2.1.248 or later).</span></li>
+<li><span class="cid">C3</span><span>In a scratch repo, Claude’s read of <code>.env</code> is blocked and <code>/permissions</code> lists the managed deny rules.</span></li>
+<li><span class="cid">C4</span><span><code>claude <span class="nw">--dangerously-skip-permissions</span></code> doesn’t give a bypass-mode session.</span></li>
+<li><span class="cid">C5</span><span>All 40 can sign in. Nobody sees “You haven’t been added to your organization yet”, which the docs say means the seat lacks Claude Code access.</span></li>
+</ul>
+</div>
+</div>
+<figure class="code">
+<figcaption>Policy v1, as pasted into the console. Server-managed settings apply to everyone in the organization; per-group policy isn’t supported yet.</figcaption>
+<pre tabindex="0" aria-label="Managed settings JSON for P3">{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)"
+    ],
+    "disableBypassPermissionsMode": "disable"
+  },
+  "companyAnnouncements": [
+    "Claude Code policy, and how usage data is used: see the internal rollout page."
+  ]
+}</pre>
+</figure>
+<div class="after">
+<p><span class="label">Rollback</span>Edit or clear the JSON in the console. Clients apply the change at next start or within the hour; a cached copy stays in force until the next successful fetch, and a few keys, such as <code>model</code>, wait for a relaunch. Pausing invitations stops the seat expansion.</p>
+<p><span class="label">Docs</span><a href="https://code.claude.com/docs/en/admin-setup" target="_blank" rel="noopener">Set up for your organization</a> · <a href="https://code.claude.com/docs/en/server-managed-settings" target="_blank" rel="noopener">Server-managed settings</a> · <a href="https://code.claude.com/docs/en/managed-settings" target="_blank" rel="noopener">Deploy managed settings</a> · <a href="https://code.claude.com/docs/en/permissions" target="_blank" rel="noopener">Configure permissions</a></p>
+</div>
+</section>
+
+<section class="phase" id="p4" aria-labelledby="p4-h">
+<div class="phase-h"><span class="pid">P4</span><h2 id="p4-h">Approved MCP servers only</h2></div>
+<p class="goal">Give everyone the two approved servers and block the rest, without surprising anyone.</p>
+<dl class="meta">
+<dt>Owner</dt><dd>Security engineer</dd>
+<dt>With</dt><dd>Platform lead edits the policy</dd>
+<dt>Needs</dt><dd>P3 checks passed; P1’s MCP inventory; every client on v2.1.259 or later, since earlier versions ignore <code>managedMcpServers</code></dd>
+<dt>Traces</dt><dd><span class="refs"><a class="ref" href="#s5">S5</a> <a class="ref" href="#s9">S9</a> <a class="ref" href="#s14">S14</a></span></dd>
+</dl>
+<div class="cols">
+<div>
+<h3 class="label">Steps</h3>
+<ol class="steps">
+<li>Security reviews the issue-tracker and docs-search servers. The docs say Anthropic doesn’t security-audit MCP servers, and that servers fetching external content add prompt-injection risk.</li>
+<li>Add the keys below to the P3 policy. <code>managedMcpServers</code> hands both servers to every user; the allowlist repeats their URLs so a hand-added copy is admitted too; <code>allowManagedMcpServersOnly</code> stops anyone widening it. Match by URL: a <code>serverName</code> entry isn’t a security control.</li>
+<li>Before saving, announce which servers from the P1 inventory will stop loading. Blocked servers simply vanish from <code>/mcp</code>, and an allowlist of URLs only blocks every stdio server.</li>
+<li>Publish how to ask for a new server: security review first, then a URL entry in the policy.</li>
+</ol>
+</div>
+<div>
+<h3 class="label">Acceptance checks</h3>
+<ul class="checks">
+<li><span class="cid">C1</span><span>On a test machine, <code>/mcp</code> lists both servers under Managed MCPs without anyone adding them.</span></li>
+<li><span class="cid">C2</span><span><code>claude mcp add</code> for an unlisted server fails with “not allowed by enterprise policy”.</span></li>
+<li><span class="cid">C3</span><span>The announcement went out before the change, naming the servers that stop loading.</span></li>
+</ul>
+</div>
+</div>
+<figure class="code">
+<figcaption>Keys added to the policy. Addresses are placeholders (A7).</figcaption>
+<pre tabindex="0" aria-label="Managed settings JSON added in P4">{
+  "managedMcpServers": {
+    "issues": { "type": "http", "url": "https://issues.example.com/mcp" },
+    "docs-search": { "type": "http", "url": "https://docs-search.example.com/mcp" }
+  },
+  "allowedMcpServers": [
+    { "serverUrl": "https://issues.example.com/mcp" },
+    { "serverUrl": "https://docs-search.example.com/mcp" }
+  ],
+  "allowManagedMcpServersOnly": true
+}</pre>
+</figure>
+<div class="after">
+<p><span class="label">Rollback</span>Remove the three keys and save. Validate every edit first: a malformed <code>allowedMcpServers</code> is enforced as an empty allowlist, which blocks every server users added.</p>
+<p><span class="label">Docs</span><a href="https://code.claude.com/docs/en/mcp" target="_blank" rel="noopener">MCP</a> · <a href="https://code.claude.com/docs/en/managed-mcp" target="_blank" rel="noopener">Control MCP server access</a> · <a href="https://code.claude.com/docs/en/settings-example" target="_blank" rel="noopener">Example settings files</a> · <a href="https://code.claude.com/docs/en/security" target="_blank" rel="noopener">Security</a></p>
+</div>
+</section>
+
+<section class="phase" id="p5" aria-labelledby="p5-h">
+<div class="phase-h"><span class="pid">P5</span><h2 id="p5-h">@claude on pull requests, through GitHub Actions</h2></div>
+<p class="goal">Let engineers ask Claude for help on a PR in two repos, under limits of its own, then extend to the rest.</p>
+<dl class="meta">
+<dt>Owner</dt><dd>Tech leads of the first two repos</dd>
+<dt>With</dt><dd>GitHub org admin (app and secret); platform lead (workflow); security engineer (Q6)</dd>
+<dt>Needs</dt><dd>P2 merged in those two repos: Claude follows the repo’s CLAUDE.md in Actions runs too</dd>
+<dt>Waits on</dt><dd><a class="ref q" href="#q2">Q2</a> <a class="ref q" href="#q6">Q6</a></dd>
+<dt>Traces</dt><dd><span class="refs"><a class="ref" href="#s4">S4</a> <a class="ref" href="#s6">S6</a> <a class="ref" href="#s9">S9</a> <a class="ref" href="#s12">S12</a></span></dd>
+</dl>
+<div class="cols">
+<div>
+<h3 class="label">Steps</h3>
+<ol class="steps">
+<li>The GitHub org admin installs the Claude GitHub App once, at the organization level, for the two selected repositories.</li>
+<li>Store the credential Q2 picks as an organization-level Actions secret. If it’s a Console API key, give it its own Console workspace with a spend limit.</li>
+<li>Add <code>.github/workflows/claude.yml</code> from the action’s examples through a reviewed PR, with the excerpt below plus a job timeout and a concurrency limit. Org policy doesn’t reach a run signed in with a Console key, so the workflow repeats the S4 deny rules itself.</li>
+<li>Keep the default trigger rules: only users with write access start a run, and bots are rejected unless listed in <code>allowed_bots</code>.</li>
+<li>When both repos pass C1–C4, add the workflow to the rest, or define it once as a reusable workflow.</li>
+</ol>
+</div>
+<div>
+<h3 class="label">Acceptance checks</h3>
+<ul class="checks">
+<li><span class="cid">C1</span><span><code>@claude</code> in a comment on a test PR in each repo gets a reply comment that Claude updates as it works.</span></li>
+<li><span class="cid">C2</span><span>Claude’s pushes trigger the repo’s usual CI. The workflow doesn’t pass the default <code>GITHUB_TOKEN</code>: GitHub doesn’t trigger workflows on commits made with it.</span></li>
+<li><span class="cid">C3</span><span>Workflow review: the key comes from <code>secrets</code>, never the repo; <code class="nw">--max-turns</code>, timeout and concurrency are set; <code>allowed_non_write_users</code> isn’t.</span></li>
+<li><span class="cid">C4</span><span>If Q2 picks a Console key, the first runs’ spend shows on the Console Cost page, under the workspace limit.</span></li>
+</ul>
+</div>
+</div>
+<figure class="code">
+<figcaption>The action step of <code>claude.yml</code>. The turn limit is a starting value; tune it from the first two repos.</figcaption>
+<pre tabindex="0" aria-label="GitHub Actions step for P5">- uses: anthropics/claude-code-action@v1
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    claude_args: "--max-turns 10"
+    settings: '{"permissions":{"deny":["Read(./.env)","Read(./.env.*)","Read(./secrets/**)"]}}'</pre>
+</figure>
+<div class="after">
+<p><span class="label">Rollback</span>Delete the workflow files and runs stop. Delete the secret and also the key in the Console, because deleting a secret leaves the key valid. Uninstall the app only if nothing else uses it; P6’s contribution metrics do.</p>
+<p><span class="label">Docs</span><a href="https://code.claude.com/docs/en/github-actions" target="_blank" rel="noopener">GitHub Actions</a> · <a href="https://code.claude.com/docs/en/server-managed-settings" target="_blank" rel="noopener">Server-managed settings</a> · <a href="https://code.claude.com/docs/en/costs" target="_blank" rel="noopener">Costs</a></p>
+</div>
+</section>
+
+<section class="phase" id="p6" aria-labelledby="p6-h">
+<div class="phase-h"><span class="pid">P6</span><h2 id="p6-h">Usage and cost reporting</h2></div>
+<p class="goal">Give finance a monthly cost per engineer and the director an honest adoption picture, without turning either into a scoreboard.</p>
+<dl class="meta">
+<dt>Owner</dt><dd>Platform lead</dd>
+<dt>With</dt><dd>Finance partner; director of engineering</dd>
+<dt>Needs</dt><dd>P1 baseline; the Claude GitHub App from P5, which contribution metrics require; the Owner role for analytics settings</dd>
+<dt>Waits on</dt><dd><a class="ref q" href="#q5">Q5</a>, not blocking</dd>
+<dt>Traces</dt><dd><span class="refs"><a class="ref" href="#s7">S7</a> <a class="ref" href="#s8">S8</a> <a class="ref" href="#s9">S9</a> <a class="ref" href="#s14">S14</a></span></dd>
+</dl>
+<div class="cols">
+<div>
+<h3 class="label">Steps</h3>
+<ol class="steps">
+<li>Turn on Claude Code analytics and GitHub analytics at <code>claude.ai/admin-settings/claude-code</code> and pick the GitHub organization. Contribution metrics are in public beta and cover github.com repos.</li>
+<li>Tell engineers first: merged PRs with Claude-assisted lines get a <code>claude-code-assisted</code> label, and only Owners and Admins can see the dashboard. Keep those roles to the platform lead and the director.</li>
+<li>Each month, send finance one cost per engineer built from four parts: seat cost; usage-credit spend from the spend report CSV, if usage credits are on (Q4); CI spend from the Console; GitHub Actions minutes. On Teams, usage inside the seat allowance isn’t metered in dollars.</li>
+<li>Compare each month with the P1 baseline. For CI, watch the two causes the docs give for unexpectedly high API spend: long sessions never cleared, and Opus left as the default model.</li>
+</ol>
+</div>
+<div>
+<h3 class="label">Acceptance checks</h3>
+<ul class="checks">
+<li><span class="cid">C1</span><span>Contribution metrics appear in the dashboard; the docs say data typically arrives within 24 hours.</span></li>
+<li><span class="cid">C2</span><span>The first monthly report reaches finance with all four parts shown.</span></li>
+<li><span class="cid">C3</span><span>Only the two named roles can open the dashboard.</span></li>
+</ul>
+</div>
+</div>
+<div class="after">
+<p><span class="label">Rollback</span>Reporting changes nothing engineers use. If usage credits were turned on, turning them off makes the seat allowance the ceiling again.</p>
+<p><span class="label">Docs</span><a href="https://code.claude.com/docs/en/analytics" target="_blank" rel="noopener">Analytics</a> · <a href="https://code.claude.com/docs/en/costs" target="_blank" rel="noopener">Costs</a> · <a href="https://code.claude.com/docs/en/monitoring-usage" target="_blank" rel="noopener">Monitoring</a></p>
+</div>
+</section>
+
+<section id="risks" aria-labelledby="risks-h">
+<div class="sec-h">
+<h2 id="risks-h">Risks and mitigations</h2>
+<p>The three risks named in S9, plus two the docs raise. No likelihood scores: the brief gives no basis for them.</p>
+</div>
+<table class="table stack">
+<thead><tr><th scope="col">Risk</th><th scope="col">Mitigations</th><th scope="col">Owner · from</th></tr></thead>
+<tbody>
+<tr id="r1"><td data-label="Risk">R1 · Secrets reach prompts, transcripts or logs</td><td data-label="Mitigations"><ul>
+<li>Deny rules for <code>.env</code>, <code>.env.*</code> and <code>secrets/</code> from day one: user settings in P1, repo files in P2, policy in P3, the workflow in P5.</li>
+<li>Deny rules cover Claude’s file tools and commands that name the file, not <code class="nw">grep -r</code> over a folder or a script that opens files. The sandbox closes that gap at the OS level (Q1).</li>
+<li><code>.claudeignore</code> has no effect; move any entries into Read deny rules.</li>
+<li>OpenTelemetry collects no prompt text or tool arguments unless <code>OTEL_LOG_USER_PROMPTS</code> or <code>OTEL_LOG_TOOL_DETAILS</code> is set; keep both off (Q5).</li>
+<li>Transcripts sit in plaintext under <code>~/.claude/projects/</code> for 30 days by default; <code>cleanupPeriodDays</code> shortens that.</li>
+</ul></td><td data-label="Owner · from">Security engineer · <a class="ref" href="#s4">S4</a> <a class="ref" href="#s9">S9</a></td></tr>
+<tr id="r2"><td data-label="Risk">R2 · Prompt injection through issues, PR comments, web pages or MCP results</td><td data-label="Mitigations"><ul>
+<li>Approved MCP servers only (P4).</li>
+<li>In Actions, only users with write access trigger runs and bots are rejected; each run gets a turn limit and the deny rules (P5).</li>
+<li><code>curl</code> and <code>wget</code> aren’t auto-approved, and for most fetches WebFetch gives Claude a separate model call’s answer about the page rather than the raw page.</li>
+<li>Auto mode’s classifier blocks actions that look driven by hostile content; the sandbox’s network allowlist still holds if an injection gets past Claude (both Q1).</li>
+<li>People review Claude’s changes before merging and report odd behavior with <code>/feedback</code>.</li>
+</ul></td><td data-label="Owner · from">Security engineer · <a class="ref" href="#s5">S5</a> <a class="ref" href="#s9">S9</a></td></tr>
+<tr id="r3"><td data-label="Risk">R3 · A surprise bill</td><td data-label="Mitigations"><ul>
+<li>On Teams the seat allowance is the default ceiling. Usage credits stay off until Q4, then run under organization, group or member spend limits.</li>
+<li>CI runs on its own Console workspace with a spend limit, plus a turn limit, job timeout and concurrency limit (P5).</li>
+<li>P1 baseline and monthly comparison (P6). For scale, the docs report about $13 per developer per active day across enterprise deployments, $150–250 a month, and under $30 per active day for 90% of users: a reference, not a forecast.</li>
+</ul></td><td data-label="Owner · from">Platform lead with finance partner · <a class="ref" href="#s7">S7</a> <a class="ref" href="#s9">S9</a></td></tr>
+<tr id="r4"><td data-label="Risk">R4 · Policy missing or bypassed on some machines</td><td data-label="Mitigations"><ul>
+<li>The docs call server-managed settings a client-side control, not a security boundary: on unmanaged devices a user can bypass them without admin rights, versions that predate them don’t fetch them, and a third-party provider variable or custom <code>ANTHROPIC_BASE_URL</code> skips the fetch.</li>
+<li>Spot-check <code>/status</code> during P3; Q3 decides on MDM for the Macs.</li>
+</ul></td><td data-label="Owner · from">Security engineer · <a class="ref" href="#s4">S4</a> <a class="ref" href="#s13">S13</a></td></tr>
+<tr id="r5"><td data-label="Risk">R5 · One bad policy edit reaches everyone at once</td><td data-label="Mitigations"><ul>
+<li>Server-managed settings apply to the whole organization. Keep the policy JSON in a reviewed repo, validate each change with <code>claude doctor</code> on a test machine, then paste it into the console.</li>
+</ul></td><td data-label="Owner · from">Platform lead · <a class="ref" href="#s10">S10</a></td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="rollback" aria-labelledby="rollback-h">
+<div class="sec-h">
+<h2 id="rollback-h">Rollback</h2>
+<p>Each phase above ends with its own rollback line. These rules hold across all of them. <a class="ref" href="#s10">S10</a></p>
+</div>
+<ul class="bullets">
+<li><strong>Undo in reverse.</strong> P4’s keys live inside P3’s policy, so clearing the policy removes both. P5 and P6 can be undone on their own.</li>
+<li><strong>Full stop.</strong> Taking Claude Code access off seats in the admin console stops interactive use; deleting the workflow files stops CI.</li>
+<li><strong>What lingers.</strong> Clients keep a cached copy of server-managed settings until their next successful fetch. A deleted GitHub secret leaves its API key valid until the key is deleted in the Console. Transcripts stay on laptops for up to 30 days by default. Approvals saved with “Yes, and don’t ask again” stay in each person’s <code>.claude/settings.local.json</code>.</li>
+</ul>
+</section>
+
+</main>
+
+<footer class="foot" id="docs">
+<h2>Docs pages used</h2>
+<p>Product behavior in this plan comes from these pages of the official Claude Code documentation, read in November 2026. Details change between versions; check the page before acting on one.</p>
+<ul class="docs">
+<li><a href="https://code.claude.com/docs/en/admin-setup" target="_blank" rel="noopener">Set up Claude Code for your organization</a></li>
+<li><a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">Advanced setup</a></li>
+<li><a href="https://code.claude.com/docs/en/authentication" target="_blank" rel="noopener">Authentication</a></li>
+<li><a href="https://code.claude.com/docs/en/permissions" target="_blank" rel="noopener">Configure permissions</a></li>
+<li><a href="https://code.claude.com/docs/en/permission-modes" target="_blank" rel="noopener">Choose a permission mode</a></li>
+<li><a href="https://code.claude.com/docs/en/settings" target="_blank" rel="noopener">Settings files and precedence</a></li>
+<li><a href="https://code.claude.com/docs/en/settings-example" target="_blank" rel="noopener">Example settings files</a></li>
+<li><a href="https://code.claude.com/docs/en/managed-settings" target="_blank" rel="noopener">Deploy managed settings</a></li>
+<li><a href="https://code.claude.com/docs/en/server-managed-settings" target="_blank" rel="noopener">Configure server-managed settings</a></li>
+<li><a href="https://code.claude.com/docs/en/memory" target="_blank" rel="noopener">How Claude remembers your project</a></li>
+<li><a href="https://code.claude.com/docs/en/security" target="_blank" rel="noopener">Security</a></li>
+<li><a href="https://code.claude.com/docs/en/sandboxing" target="_blank" rel="noopener">Configure the sandboxed Bash tool</a></li>
+<li><a href="https://code.claude.com/docs/en/data-usage" target="_blank" rel="noopener">Data usage</a></li>
+<li><a href="https://code.claude.com/docs/en/mcp" target="_blank" rel="noopener">Connect Claude Code to tools via MCP</a></li>
+<li><a href="https://code.claude.com/docs/en/managed-mcp" target="_blank" rel="noopener">Control MCP server access for your organization</a></li>
+<li><a href="https://code.claude.com/docs/en/github-actions" target="_blank" rel="noopener">Claude Code GitHub Actions</a></li>
+<li><a href="https://code.claude.com/docs/en/costs" target="_blank" rel="noopener">Manage costs effectively</a></li>
+<li><a href="https://code.claude.com/docs/en/monitoring-usage" target="_blank" rel="noopener">Monitoring</a></li>
+<li><a href="https://code.claude.com/docs/en/analytics" target="_blank" rel="noopener">Track team usage with analytics</a></li>
+</ul>
+<p>The team, its repos and the MCP server addresses are fictional.</p>
+<p class="credit">Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html-plan" target="_blank" rel="noopener">html-plan</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+<script>
+(function(){
+var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+var last=null;
+function reveal(id,focus){
+var el=id?document.getElementById(id):null;
+if(!el)return false;
+var d=el.closest("details");
+if(d&&!d.open)d.open=true;
+var mark=el.tagName==="LI"||el.tagName==="TR";
+if(last)last.classList.remove("is-target");
+if(mark){el.classList.add("is-target");last=el;}
+el.scrollIntoView({block:mark?"center":"start",behavior:reduce?"auto":"smooth"});
+if(focus){if(!el.hasAttribute("tabindex"))el.setAttribute("tabindex","-1");el.focus({preventScroll:true});}
+return true;
+}
+document.addEventListener("click",function(e){
+if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+var a=e.target.closest&&e.target.closest('a[href^="#"]');
+if(!a)return;
+if(reveal(decodeURIComponent(a.getAttribute("href").slice(1)),true))e.preventDefault();
+});
+function fromHash(){if(location.hash)reveal(decodeURIComponent(location.hash.slice(1)),false);}
+window.addEventListener("hashchange",fromHash);
+fromHash();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code settings — which file wins?</title>
+<meta name="description" content="Set the model, an env variable and permission rules across Claude Code's five settings levels and see which file wins. Then run tool calls against the pooled allow, ask and deny rules to see how they combine.">
+<meta name="category" content="effective-html">
+<style>
+:root{color-scheme:light;
+--paper:#edf1f2;--sheet:#fbfcfc;--code:#e2e9eb;--ink:#10222d;--ink-2:#465a64;--ink-3:#5f727b;--rule:#c8d3d8;--ctl:#93a6ae;
+--l1:#0a3a4a;--l2:#175b6f;--l3:#2b7a90;--l4:#7db4c4;--l5:#b8d8e1;--o1:#fff;--o2:#fff;--o3:#fff;--o4:#0b1e26;--o5:#0b1e26;
+--mark:#ffe07a;--mark-ink:#2a2100;--mark-edge:#d4ad22;
+--allow:#1f6e45;--allow-bg:#ddf0e5;--allow-b:#8cc6a4;--ask:#8a5800;--ask-bg:#faebcf;--ask-b:#dfb874;--deny:#a8261d;--deny-bg:#f7deda;--deny-b:#e09a92;
+--focus:#c2410c;--link:#175b6f;
+--display:Charter,"Bitstream Charter","Sitka Text",Cambria,"Iowan Old Style",Georgia,serif;
+--sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;
+--paper:#0e1519;--sheet:#152027;--code:#1b2930;--ink:#e3ecef;--ink-2:#a2b5bd;--ink-3:#8399a2;--rule:#2b3c44;--ctl:#4f6670;
+--l1:#bfe6ef;--l2:#8ccbda;--l3:#5aa9bc;--l4:#2f6d7e;--l5:#24505d;--o1:#0b1a1f;--o2:#0b1a1f;--o3:#0b1a1f;--o4:#eaf4f6;--o5:#eaf4f6;
+--mark:#e9c84e;--mark-ink:#1f1800;--mark-edge:#e9c84e;
+--allow:#7fd6a4;--allow-bg:#12301f;--allow-b:#2f6b49;--ask:#f0c35a;--ask-bg:#33270b;--ask-b:#7a5d1c;--deny:#ff968b;--deny-bg:#3a1714;--deny-b:#7d342d;
+--focus:#ff9f68;--link:#8ccbda}}
+:root[data-theme="dark"]{color-scheme:dark;
+--paper:#0e1519;--sheet:#152027;--code:#1b2930;--ink:#e3ecef;--ink-2:#a2b5bd;--ink-3:#8399a2;--rule:#2b3c44;--ctl:#4f6670;
+--l1:#bfe6ef;--l2:#8ccbda;--l3:#5aa9bc;--l4:#2f6d7e;--l5:#24505d;--o1:#0b1a1f;--o2:#0b1a1f;--o3:#0b1a1f;--o4:#eaf4f6;--o5:#eaf4f6;
+--mark:#e9c84e;--mark-ink:#1f1800;--mark-edge:#e9c84e;
+--allow:#7fd6a4;--allow-bg:#12301f;--allow-b:#2f6b49;--ask:#f0c35a;--ask-bg:#33270b;--ask-b:#7a5d1c;--deny:#ff968b;--deny-bg:#3a1714;--deny-b:#7d342d;
+--focus:#ff9f68;--link:#8ccbda}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--sans)}
+[hidden]{display:none!important}
+.wrap{max-width:74rem;margin:0 auto;padding:2.25rem 16px 2.5rem}
+@media (min-width:720px){.wrap{padding:3.25rem 2rem 3rem}}
+code,pre,select,input{font-family:var(--mono)}
+code{font-size:.88em;background:var(--code);padding:.06em .32em;border-radius:3px;white-space:nowrap}
+code.w{white-space:normal;overflow-wrap:anywhere}
+a{color:var(--link);text-underline-offset:.15em}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.kicker{font:600 .74rem/1.2 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2);margin:0 0 1rem}
+h1{font:700 clamp(2.15rem,6.4vw,3.6rem)/1.03 var(--display);letter-spacing:-.018em;margin:0 0 1.1rem;text-wrap:balance}
+h1 em{display:block;font-style:italic;font-weight:600;color:var(--l2)}
+.lead{font-size:1.14rem;line-height:1.55;max-width:62ch;margin:0 0 .7rem}
+.aside{color:var(--ink-2);max-width:62ch;margin:0}
+.resolver{margin-top:2.6rem}
+.bar{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.6rem 1rem}
+.bar h2{font:700 1.45rem/1.2 var(--display);margin:0}
+.acts{display:flex;gap:.5rem}
+.btn{font:600 .84rem/1.2 var(--sans);border:1px solid var(--ink);background:var(--ink);color:var(--paper);border-radius:6px;padding:.42rem .8rem;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.sm{padding:.34rem .7rem}
+.tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem;margin:1rem 0 1.1rem}
+.tab{font:inherit;text-align:left;background:var(--sheet);color:var(--ink);border:1px solid var(--rule);border-radius:8px;padding:.6rem .75rem;cursor:pointer;display:flex;flex-direction:column;gap:.2rem;min-width:0}
+.tab b{font:700 1rem/1.2 var(--mono)}
+.tab span{font-size:.8rem;line-height:1.3;color:var(--ink-2)}
+.tab[aria-selected="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.tab[aria-selected="true"] span{color:var(--paper);opacity:.85}
+@media (max-width:479px){.tab{padding:.5rem}.tab b{font-size:.8rem}.tab span{font-size:.72rem}}
+.board{display:grid;gap:1.4rem;align-items:start}
+@media (min-width:980px){.board{grid-template-columns:minmax(0,1.38fr) minmax(0,1fr)}}
+.left,.right{display:grid;gap:.75rem;min-width:0}
+.term{background:var(--code);border-radius:8px;padding:.6rem .85rem .7rem}
+.term-h{margin:0 0 .3rem;font:600 .7rem/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+.term-h span{text-transform:none;letter-spacing:0;font-weight:500}
+.term pre{margin:0;font-size:.84rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.pr{color:var(--ink-3);user-select:none}
+.cap{margin:.2rem 0 0;font-size:.9rem;color:var(--ink-2)}
+.lanes{display:grid;gap:.5rem}
+.lanes:empty{display:none}
+.stack{list-style:none;margin:0;padding:0;border:1px solid var(--rule);border-radius:10px;background:var(--sheet);overflow:hidden}
+.lvl,.lane{display:grid;grid-template-columns:2.4rem minmax(0,1fr)}
+.lvl+.lvl{border-top:1px solid var(--rule)}
+.spine{display:flex;justify-content:center;padding-top:.8rem;font:700 1rem/1 var(--mono)}
+.lvl[data-l="managed"] .spine{background:var(--l1);color:var(--o1)}
+.lvl[data-l="cli"] .spine{background:var(--l2);color:var(--o2)}
+.lvl[data-l="local"] .spine{background:var(--l3);color:var(--o3)}
+.lvl[data-l="project"] .spine{background:var(--l4);color:var(--o4)}
+.lvl[data-l="user"] .spine{background:var(--l5);color:var(--o5)}
+.lane{border:1.5px dashed var(--ctl);border-radius:10px}
+.lane .spine{color:var(--ink-3);font-size:.9rem;border-right:1.5px dashed var(--ctl)}
+.body{padding:.75rem .9rem .85rem;display:grid;gap:.55rem;min-width:0}
+@media (min-width:640px){.body{grid-template-columns:minmax(0,14rem) minmax(0,1fr);gap:1rem;align-items:start}}
+.lname{font:700 1rem/1.25 var(--sans);margin:0}
+.lane .lname code{font-size:.86rem}
+.otag{display:inline-block;font:600 .64rem/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-left:.15rem;vertical-align:.12em}
+.path{display:block;margin-top:.15rem;font-size:.76rem;line-height:1.35;color:var(--ink-2);background:none;padding:0;white-space:normal;overflow-wrap:anywhere}
+.who{font-size:.8rem;line-height:1.4;color:var(--ink-2);margin:.3rem 0 0}
+.slot{display:grid;gap:.5rem;min-width:0}
+.field{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .55rem}
+.field label{font-size:.8rem;color:var(--ink-2);flex-basis:100%}
+.field label .k{font-family:var(--mono)}
+select,input{font-size:.86rem;color:var(--ink);background:var(--sheet);border:1px solid var(--ctl);border-radius:6px;padding:.36rem .45rem;max-width:100%}
+.field select{min-width:11.5rem}
+.field.win select{background:var(--mark);color:var(--mark-ink);border-color:var(--mark-edge);font-weight:700}
+.field.over select,.field.ign select{color:var(--ink-2)}
+.st{font:600 .72rem/1 var(--sans);padding:.3rem .5rem;border-radius:999px;border:1px solid var(--rule);color:var(--ink-2);white-space:nowrap}
+.st.win{background:var(--mark);color:var(--mark-ink);border-color:var(--mark-edge)}
+.st.over{background:var(--code);border-color:transparent}
+.st.ign{border-style:dashed;color:var(--deny);border-color:var(--deny-b)}
+.hint{margin:0;font-size:.78rem;line-height:1.4;color:var(--ink-2)}
+.rstat{margin:0;font:600 .74rem/1.3 var(--sans);color:var(--ink-2)}
+.rl{display:grid;gap:.35rem}
+.rr{display:grid;grid-template-columns:2.9rem minmax(0,1fr);gap:.5rem;align-items:start}
+.rk{font:700 .7rem/1.9 var(--mono);text-transform:uppercase;letter-spacing:.06em}
+.rk.allow{color:var(--allow)}.rk.ask{color:var(--ask)}.rk.deny{color:var(--deny)}
+.chips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:.3rem;min-width:0}
+.chip{display:inline-flex;align-items:center;gap:.15rem;max-width:100%;font:.78rem/1.25 var(--mono);border:1px solid;border-radius:4px;padding:.12rem .1rem .12rem .4rem}
+.chip>span{overflow-wrap:anywhere}
+.chip.allow{background:var(--allow-bg);border-color:var(--allow-b)}
+.chip.ask{background:var(--ask-bg);border-color:var(--ask-b)}
+.chip.deny{background:var(--deny-bg);border-color:var(--deny-b)}
+.chip.ghost{background:transparent;border-style:dashed}
+.chip.ghost>span{opacity:.7}
+.chip em{font:italic .7rem var(--sans);color:var(--ink-2);margin-left:.25rem;white-space:nowrap}
+.chip button{font:600 .95rem/1 var(--sans);border:0;background:transparent;color:var(--ink-2);cursor:pointer;padding:.12rem .32rem;border-radius:3px}
+.chip button:hover{background:var(--code);color:var(--ink)}
+.none{font-size:.78rem;line-height:1.9;color:var(--ink-3)}
+.tgl{display:flex;gap:.5rem;align-items:flex-start;font-size:.8rem;line-height:1.35;cursor:pointer}
+.tgl input{margin:.12rem 0 0;accent-color:var(--l2);width:1rem;height:1rem;flex:none}
+.add{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center}
+.add input{flex:1 1 6rem;min-width:0}
+.msg{flex-basis:100%;font-size:.76rem;color:var(--ink-2);margin:0;overflow-wrap:anywhere}
+.msg.err{color:var(--deny)}
+.msg:empty{display:none}
+.panel{background:var(--sheet);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.05rem 1.1rem;min-width:0}
+.eyebrow{font:600 .7rem/1.3 var(--mono);letter-spacing:.11em;text-transform:uppercase;color:var(--ink-2);margin:0 0 .4rem}
+.big{font:700 1.55rem/1.2 var(--mono);margin:0;overflow-wrap:anywhere}
+.big.sm{font-size:1.15rem}
+.big .hl{background:var(--mark);color:var(--mark-ink);padding:0 .22em;border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.unit{font:500 .85rem var(--sans);color:var(--ink-2)}
+.from{margin:.4rem 0 0;font-size:.88rem}
+.why{margin:.45rem 0 0;font-size:.88rem;line-height:1.5}
+.why p{margin:.4rem 0 0}
+.warn{color:var(--deny)}
+.ev+.ev{margin-top:1rem;padding-top:.9rem;border-top:1px solid var(--rule)}
+.evk{margin:0 0 .3rem;font-size:.82rem}
+.fine{margin:.9rem 0 0;font-size:.8rem;color:var(--ink-2)}
+.tg{display:inline-block;font:700 .66rem/1 var(--mono);padding:.22rem .35rem;border-radius:3px;white-space:nowrap;vertical-align:.08em}
+.t1{background:var(--l1);color:var(--o1)}.t2{background:var(--l2);color:var(--o2)}.t3{background:var(--l3);color:var(--o3)}.t4{background:var(--l4);color:var(--o4)}.t5{background:var(--l5);color:var(--o5)}
+.ph{font:700 1.05rem/1.3 var(--sans);margin:0}
+.sub{margin:.2rem 0 .7rem;font-size:.84rem;color:var(--ink-2)}
+.blame{background:var(--code);border-radius:8px;padding:.55rem 0;overflow-x:auto;font:.78rem/1.75 var(--mono)}
+.bl{display:flex;align-items:baseline;gap:.6rem;padding:0 .7rem 0 .5rem}
+.bl .tg{width:5.6rem;text-align:left;flex:none}
+.bl .tg:empty{background:none}
+.cw{flex:1 1 auto;min-width:0}
+.bl code{display:block;background:none;padding:0 0 0 calc(var(--i,0)*2ch + 2ch);text-indent:-2ch;font-size:1em;white-space:pre-wrap;overflow-wrap:anywhere}
+.bl.ghost code{opacity:.55}
+.nt{display:block;padding-left:calc(var(--i,0)*2ch + 2ch);font:italic .74rem/1.4 var(--sans);color:var(--ink-2)}
+@media (max-width:560px){.bl .tg{width:1.5rem;text-align:center}.bl .tn{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}
+.probes{border:0;margin:.3rem 0 0;padding:0;display:grid;gap:.35rem}
+.probe{display:grid;grid-template-columns:auto 2.9rem minmax(0,1fr) auto;align-items:center;gap:.5rem;padding:.45rem .6rem;border:1px solid var(--rule);border-radius:7px;cursor:pointer;background:var(--sheet)}
+.probe.sel{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.probe input{margin:0;accent-color:var(--l2);width:1rem;height:1rem}
+.tool{font:700 .66rem/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.inp{font:.84rem/1.3 var(--mono);overflow-wrap:anywhere}
+.oc{font:700 .7rem/1 var(--sans);padding:.3rem .5rem;border-radius:999px;white-space:nowrap;border:1px solid}
+.oc.allow{background:var(--allow-bg);color:var(--allow);border-color:var(--allow-b)}
+.oc.ask{background:var(--ask-bg);color:var(--ask);border-color:var(--ask-b)}
+.oc.deny{background:var(--deny-bg);color:var(--deny);border-color:var(--deny-b)}
+.trace{list-style:none;margin:1rem 0 0;padding:0;display:grid;gap:.4rem;counter-reset:s}
+.trace li{display:grid;grid-template-columns:1.1rem 2.9rem minmax(0,1fr);gap:.45rem;align-items:baseline;font-size:.84rem;line-height:1.5}
+.trace li::before{counter-increment:s;content:counter(s);font:700 .76rem var(--mono);color:var(--ink-3)}
+.trace li.after{opacity:.6}
+.trace code{font-size:.84em}
+.stop{font:700 .66rem/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink);border-bottom:2px solid var(--mark-edge)}
+.skip{font:italic .74rem var(--sans);color:var(--ink-2)}
+.res{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font:700 1.15rem/1.25 var(--sans);margin:.9rem 0 0}
+.res .dot{width:.75rem;height:.75rem;border-radius:50%;background:currentColor;flex:none}
+.res.allow{color:var(--allow)}.res.ask{color:var(--ask)}.res.deny{color:var(--deny)}
+.fb{font:500 .78rem var(--sans);color:var(--ink-2)}
+.prompt{margin:.75rem 0 0;padding:.6rem .75rem;border:1px solid var(--ask-b);border-radius:6px;font:.78rem/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.prompt b{color:var(--ask)}
+.notes{margin-top:3.6rem;display:grid;gap:2.2rem 3.2rem}
+@media (min-width:900px){.notes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.notes h2{font:700 1.45rem/1.2 var(--display);margin:0 0 .6rem;text-wrap:balance}
+.notes h3{font:700 1rem/1.3 var(--sans);margin:1.15rem 0 .25rem}
+.notes p,.notes li{max-width:62ch;font-size:.97rem}
+.notes p{margin:.5rem 0 0}
+.notes ol,.notes ul{margin:.5rem 0 0;padding-left:1.3rem}
+.notes li{margin:.5rem 0 0}
+footer{margin-top:3.6rem;padding-top:1.3rem;border-top:1px solid var(--rule);font-size:.86rem;color:var(--ink-2)}
+footer h2{font:700 1rem/1.3 var(--sans);color:var(--ink);margin:0}
+footer p{margin:.5rem 0 0;max-width:70ch}
+footer ul{margin:.5rem 0 0;padding-left:1.1rem;columns:2 15rem;column-gap:2rem}
+footer li{margin:.15rem 0}
+.sig{margin-top:1.1rem!important}
+@media (prefers-reduced-motion:no-preference){.field select,.st,.chip,.probe,.oc,.tab{transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <p class="kicker">Claude Code · settings precedence</p>
+  <h1>Claude Code settings — <em>which file wins?</em></h1>
+  <p class="lead">Claude Code reads settings from up to five levels, from your organization's managed policy down to your own <code>~/.claude/settings.json</code>. When two of them set the same key, the higher one wins. Permission rules don't fight that way: every level's <code>allow</code>, <code>ask</code> and <code>deny</code> rules are pooled, then checked deny first.</p>
+  <p class="aside">Run <code>/status</code> and Claude Code lists the files it loaded, not which one supplied each key. The tool below does that part, for a made-up repo called <code>ledgerline-api</code>.</p>
+</header>
+
+<section class="resolver" aria-labelledby="try-h">
+  <div class="bar">
+    <h2 id="try-h">Pick a key, then change any file</h2>
+    <div class="acts"><button type="button" class="btn ghost" id="reset">Reset example</button><button type="button" class="btn ghost" id="clear">Clear all</button></div>
+  </div>
+  <div class="tabs" id="tabs" role="tablist" aria-label="Setting to resolve">
+    <button type="button" class="tab" role="tab" id="tab-model" data-tab="model" aria-selected="true" aria-controls="board"><b>model</b><span>one value · highest level wins</span></button>
+    <button type="button" class="tab" role="tab" id="tab-env" data-tab="env" aria-selected="false" aria-controls="board" tabindex="-1"><b>env</b><span>per variable · highest level wins</span></button>
+    <button type="button" class="tab" role="tab" id="tab-permissions" data-tab="permissions" aria-selected="false" aria-controls="board" tabindex="-1"><b>permissions</b><span>pooled · deny → ask → allow</span></button>
+  </div>
+  <div class="board" id="board" role="tabpanel" aria-labelledby="tab-model">
+    <div class="left">
+      <div class="term"><p class="term-h">Terminal · <span>~/code/ledgerline-api</span></p><pre id="launch"><span class="pr">$</span> claude</pre></div>
+      <p class="cap" id="cap">Highest level first.</p>
+      <div class="lanes" id="lanes-top"></div>
+      <ol class="stack" id="stack">
+        <li class="lvl" data-l="managed"><div class="spine" aria-hidden="true">1</div><div class="body"><div><h3 class="lname">Managed<span class="sr">, level 1 of 5, highest</span></h3><code class="path">/Library/<wbr>Application Support/<wbr>ClaudeCode/<wbr>managed-settings.json</code><p class="who">Your organization, by file, MDM or the claude.ai admin console. Nothing in your files or <code>--settings</code> overrides it.</p></div><div class="slot" id="slot-managed"></div></div></li>
+        <li class="lvl" data-l="cli"><div class="spine" aria-hidden="true">2</div><div class="body"><div><h3 class="lname">Command line<span class="sr">, level 2 of 5</span></h3><code class="path">claude --settings '&lt;json&gt;'</code><p class="who">One session only; nothing is written to a file.</p></div><div class="slot" id="slot-cli"></div></div></li>
+        <li class="lvl" data-l="local"><div class="spine" aria-hidden="true">3</div><div class="body"><div><h3 class="lname">Project local<span class="sr">, level 3 of 5</span></h3><code class="path">ledgerline-api/<wbr>.claude/<wbr>settings.local.json</code><p class="who">You, in this project only. Kept out of git when Claude Code creates it.</p></div><div class="slot" id="slot-local"></div></div></li>
+        <li class="lvl" data-l="project"><div class="spine" aria-hidden="true">4</div><div class="body"><div><h3 class="lname">Shared project<span class="sr">, level 4 of 5</span></h3><code class="path">ledgerline-api/<wbr>.claude/<wbr>settings.json</code><p class="who">Everyone who works in the repo, once you commit it.</p></div><div class="slot" id="slot-project"></div></div></li>
+        <li class="lvl" data-l="user"><div class="spine" aria-hidden="true">5</div><div class="body"><div><h3 class="lname">User<span class="sr">, level 5 of 5, lowest</span></h3><code class="path">~/.claude/<wbr>settings.json</code><p class="who">You, in every project on this machine.</p></div><div class="slot" id="slot-user"></div></div></li>
+      </ol>
+      <div class="lanes" id="lanes-bot"></div>
+      <noscript><p class="cap">Turn on JavaScript to change values. The notes below still apply.</p></noscript>
+    </div>
+    <div class="right">
+      <div class="panel" id="verdict" aria-live="polite"></div>
+      <div class="panel" id="probe" hidden></div>
+      <div class="panel">
+        <h3 class="ph">Effective settings, blame view</h3>
+        <p class="sub">The merged result, tagged with the level each value came from.</p>
+        <div class="blame" id="blame" tabindex="0" role="region" aria-label="Effective settings with the source of each value"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="notes" aria-label="How Claude Code combines settings">
+  <div>
+    <h2>How the stack resolves</h2>
+    <p>Claude Code reads your user, project and local files, your organization's managed settings and anything you pass with <code>--settings</code>, and uses the value from the highest level that sets a key: managed, then command line, project local, shared project, user. Managed settings arrive as a <code>managed-settings.json</code> file (on macOS in <code class="w">/Library/<wbr>Application Support/<wbr>ClaudeCode/</code>), an MDM policy, or server-managed settings from the claude.ai admin console.</p>
+    <h3>Single values</h3>
+    <p><code>model</code> holds one value, so the highest file that sets it wins outright. <code>/model</code> saves your pick to <code>~/.claude/settings.json</code>, the lowest file, so a <code>model</code> in project, local or managed settings, or one passed with <code>--settings</code>, outranks it again at the next launch.</p>
+    <h3><code>env</code>, one variable at a time</h3>
+    <p>An <code>env</code> block follows the same levels per variable, and a file's value replaces the same variable exported in your shell, except when the Claude Desktop app or a self-hosted runner builds the launch environment. Project and local files can't set some variables at all, such as <code>CLAUDE_CONFIG_DIR</code> and telemetry switches like <code>CLAUDE_CODE_ENABLE_TELEMETRY</code>.</p>
+    <h3>Lists merge</h3>
+    <p>When several files set a list such as <code>permissions.allow</code>, Claude Code combines them, so each file adds entries without removing another file's. Four model keys follow their own rules: <code>fallbackModel</code>, <code>modelPicker</code>, <code>availableModels</code> and <code>modelSettings</code>.</p>
+  </div>
+  <div>
+    <h2>How permission rules combine</h2>
+    <ol>
+      <li><strong>Pool.</strong> Allow, ask and deny rules from every level are combined, unless managed settings set <code>allowManagedPermissionRulesOnly</code>. Then only managed rules count, and <code>--allowedTools</code> is ignored too.</li>
+      <li><strong>Wait for trust.</strong> <code>allow</code> rules in a committed <code>.claude/settings.json</code> apply only after you accept the workspace trust dialog. Its <code>deny</code> and <code>ask</code> rules apply right away, since they only restrict.</li>
+      <li><strong>Check deny, then ask, then allow.</strong> The first match decides, and specificity doesn't change the order: <code>Bash(aws *)</code> in deny blocks <code>aws s3 ls</code> even when <code>Bash(aws s3 ls)</code> is allowed. A user-level deny blocks a project-level allow, and the reverse.</li>
+      <li><strong>Fall back to the mode.</strong> With no match, the permission mode decides. In Manual mode, edits and Bash commands outside a built-in read-only set ask first; reads inside the working directory don't.</li>
+    </ol>
+    <p><code>--allowedTools</code> and <code>--disallowedTools</code> add allow and deny rules for one session, and a deny in any settings file still blocks a tool <code>--allowedTools</code> names.</p>
+  </div>
+  <div>
+    <h2>Outside the stack</h2>
+    <p>Environment variables and flags such as <code>--model</code> aren't levels; each one pairs with a key by its own rule. For the model, <code>--model</code> beats <code>ANTHROPIC_MODEL</code>, both beat <code>model</code> in any file, managed included, and <code>ANTHROPIC_DEFAULT_MODEL</code> applies only when nothing else selects a model.</p>
+    <p>A managed <code>model</code> is a starting default, not a lock. The locks are <code>availableModels</code> and <code>deniedModels</code>, and <code>--model</code> picks only from the models your organization allows.</p>
+  </div>
+  <div>
+    <h2>Surprises worth knowing</h2>
+    <ul>
+      <li>“Yes, and don't ask again” saves an <code>allow</code> rule to <code>.claude/settings.local.json</code>. It can't outrank an <code>ask</code> rule from a project or managed file, so the prompt keeps coming.</li>
+      <li><code>permissions.defaultMode</code> set to <code>auto</code> or <code>bypassPermissions</code> doesn't take effect from project or local settings.</li>
+      <li>In user settings, <code>Read(/secrets/**)</code> anchors at <code>~/.claude/</code>, not your project. Use a <code>~/</code> or <code>//</code> path there.</li>
+      <li>A few security keys keep a stricter value from a lower level even against managed settings, such as <code>disableClaudeAiConnectors: true</code> from any scope.</li>
+      <li>Settings files are strict JSON: a <code>//</code> comment or a trailing comma is a Settings Error. <code>/status</code> lists the files that loaded, and <code>claude doctor</code> lists entries Claude Code rejected.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <h2>Sources</h2>
+  <p>Every product fact here comes from the Claude Code docs, read in November 2026:</p>
+  <ul>
+    <li><a href="https://code.claude.com/docs/en/settings" target="_blank" rel="noopener">Settings files and precedence</a></li>
+    <li><a href="https://code.claude.com/docs/en/permissions" target="_blank" rel="noopener">Configure permissions</a></li>
+    <li><a href="https://code.claude.com/docs/en/settings-reference" target="_blank" rel="noopener">All settings</a></li>
+    <li><a href="https://code.claude.com/docs/en/model-config" target="_blank" rel="noopener">Model configuration</a></li>
+    <li><a href="https://code.claude.com/docs/en/env-vars" target="_blank" rel="noopener">Environment variables</a></li>
+    <li><a href="https://code.claude.com/docs/en/managed-settings" target="_blank" rel="noopener">Deploy managed settings</a></li>
+    <li><a href="https://code.claude.com/docs/en/settings-example" target="_blank" rel="noopener">Example settings files</a></li>
+  </ul>
+  <p>The rule checker is a simplified model of the documented behavior: it doesn't split compound commands, strip wrappers, run hooks or know the read-only command list. <code>ledgerline-api</code> and its rules are invented.</p>
+  <p class="sig">Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html" target="_blank" rel="noopener">html</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id)};
+var esc=function(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})};
+var C=function(s){s=String(s);return '<code'+(s.length>24?' class="w"':'')+'>'+esc(s)+'</code>'};
+var LV=['managed','cli','local','project','user'];
+var N={managed:1,cli:2,local:3,project:4,user:5};
+var NAME={managed:'Managed',cli:'Command line',local:'Project local',project:'Shared project',user:'User'};
+var SHORT={managed:'managed',cli:'--settings',local:'local',project:'project',user:'user'};
+var FILE={managed:'managed-settings.json',cli:'--settings',local:'.claude/settings.local.json',project:'.claude/settings.json',user:'~/.claude/settings.json'};
+var MODELS=['sonnet','opus','haiku','opusplan','claude-sonnet-5','claude-opus-5-5'];
+var TO={'120000':'2 min','300000':'5 min','600000':'10 min'};
+var ENVK=[{k:'t',v:'BASH_DEFAULT_TIMEOUT_MS',o:['120000','300000','600000']},{k:'tel',v:'CLAUDE_CODE_ENABLE_TELEMETRY',o:['1']}];
+var LANE={
+ flag:{n:'--model',g:'--',d:'Command-line flag, this session only. Outranks <code>ANTHROPIC_MODEL</code> and the <code>model</code> key in every file, managed included.'},
+ envModel:{n:'ANTHROPIC_MODEL',g:'$',d:'Exported in your shell. Claude Code reads it before the <code>model</code> key in any file.'},
+ envDefault:{n:'ANTHROPIC_DEFAULT_MODEL',g:'$',d:'Exported in your shell. Used only when nothing else selects a model, and ignored when set to <code>haiku</code>, <code>opusplan</code>, <code>default</code> or <code>inherit</code>.'},
+ shell:{n:'export',g:'$',d:'Variables exported in your shell before you run <code>claude</code>. A value in any settings file replaces them in most sessions.'}};
+var CAP={model:'Highest level first. The topmost one that sets <code>model</code> wins; the dashed lanes sit outside the stack.',
+ env:'Highest level first, one variable at a time. In most sessions, a value in any file replaces the one exported in your shell.',
+ permissions:'Every level’s rules are pooled, then checked deny → ask → allow, whichever file they came from.'};
+var PH={managed:'Bash(curl *)',cli:'Bash',local:'Edit(/src/**)',project:'Bash(npm test)',user:'Bash(git log *)'};
+var PROBES=[{t:'Bash',i:'npm run test'},{t:'Bash',i:'git push origin main'},{t:'Bash',i:'aws s3 ls'},{t:'Read',i:'.env'},{t:'Edit',i:'src/billing/invoice.ts'}];
+var HOME='/Users/rowan',ROOT=HOME+'/code/ledgerline-api';
+var FB={Bash:'No rule matches, so the permission mode decides. In Manual mode, Bash commands outside the built-in read-only set ask first.',Read:'No rule matches. File reads inside the working directory need no approval.',Edit:'No rule matches, so the permission mode decides. In Manual mode, file edits ask first.'};
+var HEAD={deny:'Blocked',ask:'Asks you first',allow:'Runs without asking'};
+var VERB={allow:'allow',ask:'ask about',deny:'block'};
+
+function R(a,k,d){return{allow:a||[],ask:k||[],deny:d||[]}}
+function example(){return{
+ model:{flag:'',envModel:'',managed:'',cli:'',local:'claude-opus-5-5',project:'claude-sonnet-5',user:'opus',envDefault:''},
+ env:{managed:{t:'',tel:''},cli:{t:'',tel:''},local:{t:'',tel:''},project:{t:'600000',tel:'1'},user:{t:'300000',tel:''},shell:{t:'',tel:''}},
+ rules:{managed:R(0,0,['Read(./.env)','Read(./secrets/**)']),cli:R(),local:R(['Bash(git push *)']),project:R(['Bash(npm run *)','Bash(aws s3 ls)'],['Bash(git push *)']),user:R(['Bash(git diff *)','Read(~/.zshrc)'],0,['Bash(aws *)'])},
+ trusted:true,managedOnly:false}}
+function blank(){var s=example();Object.keys(s.model).forEach(function(k){s.model[k]=''});Object.keys(s.env).forEach(function(k){s.env[k]={t:'',tel:''}});LV.forEach(function(l){s.rules[l]=R()});s.trusted=S.trusted;return s}
+var S=example(),tab='model',probe=1;
+
+/* ---------- resolution ---------- */
+function resolveModel(){var m=S.model,chain=[{id:'flag',v:m.flag},{id:'envModel',v:m.envModel}];
+ LV.forEach(function(l){chain.push({id:l,v:m[l]})});
+ var dIgn=['haiku','opusplan','default','inherit'].indexOf(m.envDefault)>=0;
+ chain.push({id:'envDefault',v:m.envDefault,ign:dIgn});
+ var win=null;chain.forEach(function(c){if(!win&&c.v&&!c.ign)win=c});
+ var fileWin=null;LV.forEach(function(l){if(!fileWin&&m[l])fileWin=l});
+ return{chain:chain,win:win,fileWin:fileWin,dIgn:dIgn}}
+function resolveEnv(k){var st={},win=null;
+ LV.concat('shell').forEach(function(id){var v=S.env[id][k];
+  if(!v)st[id]='none';else if(k==='tel'&&(id==='local'||id==='project'))st[id]='ign';else if(!win){win=id;st[id]='win'}else st[id]='over'});
+ return{win:win,st:st}}
+function rst(id,list){if(S.managedOnly&&id!=='managed')return'mo';if(id==='project'&&list==='allow'&&!S.trusted)return'trust';return'on'}
+
+/* ---------- rule matching (simplified, per the documented syntax) ---------- */
+function rx(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+function glob(p){var o='',i=0;while(i<p.length){if(p.substr(i,3)==='**/'){o+='(?:.*/)?';i+=3}else if(p.substr(i,2)==='**'){o+='.*';i+=2}else if(p[i]==='*'){o+='[^/]*';i++}else if(p[i]==='?'){o+='[^/]';i++}else{o+=rx(p[i]);i++}}return o}
+function bash(spec,cmd){var s=spec;if(/:\*$/.test(s))s=s.slice(0,-2)+' *';var parts=s.split('*');
+ if(new RegExp('^'+parts.map(rx).join('.*')+'$').test(cmd))return true;
+ return parts.length===2&&/ \*$/.test(s)&&cmd===s.slice(0,-2)}
+function path(spec,rel,list,lvl){var p=spec.trim(),target=rel,any=false,pat;if(!p)return false;
+ if(p[0]==='!')return'na';
+ if(p.slice(0,2)==='//'){pat=p.slice(1);target=ROOT+'/'+rel}
+ else if(p.slice(0,2)==='~/'){pat=HOME+p.slice(1);target=ROOT+'/'+rel}
+ else if(p[0]==='/'){if(lvl==='user')return false;if(lvl!=='project'&&lvl!=='local')return'na';pat=p.slice(1)}
+ else{pat=p.replace(/^\.\//,'');if(pat.indexOf('/')<0)any=true;else if(list!=='allow'&&/^[^\/*]+\/\*\*$/.test(pat))any=true}
+ return new RegExp('^'+(any?'(?:.*/)?':'')+glob(pat)+'$').test(target)}
+function parse(rule){return /^([^(]+)(?:\((.*)\))?$/.exec(rule.trim())}
+function match(rule,p,list,lvl){var m=parse(rule);if(!m)return false;var tool=m[1].trim(),spec=m[2];
+ if(tool.indexOf('*')>=0){if(list==='allow')return false;if(!new RegExp('^'+tool.split('*').map(rx).join('.*')+'$').test(p.t))return false}
+ else if(tool!==p.t&&!(list==='deny'&&tool==='Read'&&p.t==='Edit'&&spec!==undefined))return false;
+ if(spec===undefined||spec.trim()==='*')return true;
+ return p.t==='Bash'?bash(spec,p.i):path(spec,p.i,list,lvl)}
+function evaluate(p){var steps=[],dec=null;
+ ['deny','ask','allow'].forEach(function(list){var hits=[],skip=[];
+  LV.forEach(function(id){S.rules[id][list].forEach(function(rule){var m=match(rule,p,list,id);if(!m)return;var st=rst(id,list);
+   if(m==='na')skip.push({rule:rule,level:id,st:'na'});else if(st==='on')hits.push({rule:rule,level:id});else skip.push({rule:rule,level:id,st:st})})});
+  steps.push({list:list,hits:hits,skip:skip});if(!dec&&hits.length)dec=list});
+ return{steps:steps,decided:dec}}
+function outcome(p,e){if(e.decided)return{c:e.decided,fb:false};return{c:p.t==='Read'?'allow':'ask',fb:true}}
+var OCW={deny:'blocked',ask:'asks',allow:'runs'};
+
+/* ---------- small renderers ---------- */
+function tagHTML(id){return '<span class="tg t'+N[id]+'">'+N[id]+'<span class="tn"> '+SHORT[id]+'</span></span>'}
+function lvName(id){return LANE[id]?C(LANE[id].n):'<span class="tg t'+N[id]+'">'+N[id]+'</span> '+NAME[id]}
+function opts(list,val,lbl){return '<option value="">— not set —</option>'+list.map(function(o){return '<option value="'+esc(o)+'"'+(o===val?' selected':'')+'>'+esc(o)+(lbl&&lbl[o]?' ('+lbl[o]+')':'')+'</option>'}).join('')}
+function fModel(id,sr,visible){return '<div class="field" id="f-m-'+id+'"><label for="m-'+id+'"'+(visible?'':' class="sr"')+'><span class="k">"model"</span><span class="sr"> '+sr+'</span></label><select id="m-'+id+'" data-k="model" data-id="'+id+'" aria-describedby="s-m-'+id+'">'+opts(MODELS,S.model[id])+'</select><span class="st" id="s-m-'+id+'"></span></div>'}
+function fEnv(id,e){var f='e-'+id+'-'+e.k;return '<div class="field" id="f-'+f+'"><label for="'+f+'"><span class="k">'+e.v+'</span><span class="sr"> in '+(id==='shell'?'your shell':NAME[id]+' settings')+'</span></label><select id="'+f+'" data-k="env" data-id="'+id+'" data-v="'+e.k+'" aria-describedby="s-'+f+'">'+opts(e.o,S.env[id][e.k],e.k==='t'?TO:null)+'</select><span class="st" id="s-'+f+'"></span></div>'}
+function lane(id){var L=LANE[id],inner=id==='shell'?ENVK.map(function(e){return fEnv('shell',e)}).join(''):fModel(id,'set by '+L.n,false);
+ return '<div class="lane"><div class="spine" aria-hidden="true">'+L.g+'</div><div class="body"><div><h3 class="lname"><code>'+L.n+'</code> <span class="otag">outside the stack</span></h3><p class="who">'+L.d+'</p></div><div class="slot">'+inner+'</div></div></div>'}
+function fRules(id){var h='<p class="rstat" id="rs-'+id+'"></p><div class="rl" id="rl-'+id+'"></div>';
+ if(id==='managed')h+='<label class="tgl"><input type="checkbox" data-t="managedOnly"'+(S.managedOnly?' checked':'')+'><span>Set <code>allowManagedPermissionRulesOnly</code> so only managed rules count</span></label>';
+ if(id==='project')h+='<label class="tgl"><input type="checkbox" data-t="trusted"'+(S.trusted?' checked':'')+'><span>You accepted the workspace trust dialog for this folder</span></label>';
+ if(id==='local')h+='<p class="hint">“Yes, and don’t ask again” saves allow rules here. They skip the trust step while the file stays untracked.</p>';
+ return h+'<div class="add" role="group" aria-label="Add a rule to '+NAME[id]+'"><label class="sr" for="al-'+id+'">List for the new rule in '+NAME[id]+'</label><select id="al-'+id+'"><option>allow</option><option>ask</option><option>deny</option></select><label class="sr" for="ar-'+id+'">New rule for '+NAME[id]+'</label><input id="ar-'+id+'" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="'+esc(PH[id])+'" data-enter="'+id+'"><button class="btn sm" type="button" data-add="'+id+'">Add</button><p class="msg" id="am-'+id+'" aria-live="polite"></p></div>'}
+function chips(id){var r=S.rules[id],h='';
+ ['allow','ask','deny'].forEach(function(list){h+='<div class="rr"><span class="rk '+list+'">'+list+'</span><ul class="chips" aria-label="'+list+' rules in '+NAME[id]+'">';
+  if(!r[list].length)h+='<li class="none">none</li>';
+  r[list].forEach(function(rule,i){var st=rst(id,list);
+   h+='<li class="chip '+list+(st!=='on'?' ghost':'')+'"><span>'+esc(rule)+'</span>'+(st==='trust'?'<em>waits for trust</em>':st==='mo'?'<em>ignored</em>':'')+'<button type="button" data-rm="'+id+'|'+list+'|'+i+'" aria-label="Remove '+esc(rule)+' from '+list+' in '+NAME[id]+'">×</button></li>'});
+  h+='</ul></div>'});
+ return h}
+function rowStat(id){var r=S.rules[id],n=r.allow.length+r.ask.length+r.deny.length;
+ if(!n)return'No rules yet';if(S.managedOnly&&id!=='managed')return'Ignored: managed settings allow only their own rules';
+ var s=n+' rule'+(n>1?'s':'')+' in the pool';if(id==='project'&&!S.trusted&&r.allow.length)s+='; allow rules wait for trust';return s}
+function probePanel(){var h='<p class="eyebrow">Five tool calls against the pooled rules</p><p class="sub">Manual mode, no hooks. Pick one to see how Claude Code decides.</p><fieldset class="probes"><legend class="sr">Tool call to check</legend>';
+ PROBES.forEach(function(p,i){h+='<label class="probe" id="pr-'+i+'"><input type="radio" name="probe" value="'+i+'"'+(i===probe?' checked':'')+'><span class="tool">'+p.t+'</span><span class="inp">'+esc(p.i)+'</span><span class="oc" id="oc-'+i+'"></span></label>'});
+ return h+'</fieldset><div id="trace" aria-live="polite"></div>'}
+
+/* ---------- launch line and blame view ---------- */
+function cliJson(){var o={},e={},p={};if(S.model.cli)o.model=S.model.cli;
+ ENVK.forEach(function(x){if(S.env.cli[x.k])e[x.v]=S.env.cli[x.k]});if(Object.keys(e).length)o.env=e;
+ ['allow','ask','deny'].forEach(function(l){if(S.rules.cli[l].length)p[l]=S.rules.cli[l].slice()});if(Object.keys(p).length)o.permissions=p;
+ return Object.keys(o).length?JSON.stringify(o):''}
+function launch(){var L=[],P='<span class="pr">$</span> ';
+ function ex(k,v){if(v)L.push(P+'export '+k+'='+esc(v))}
+ ex('ANTHROPIC_MODEL',S.model.envModel);ex('ANTHROPIC_DEFAULT_MODEL',S.model.envDefault);ex('BASH_DEFAULT_TIMEOUT_MS',S.env.shell.t);ex('CLAUDE_CODE_ENABLE_TELEMETRY',S.env.shell.tel);
+ var c='claude';if(S.model.flag)c+=' --model '+S.model.flag;var j=cliJson();if(j)c+=" --settings '"+j.replace(/'/g,"'\\''")+"'";
+ L.push(P+esc(c));return L.join('\n')}
+function ser(arr,ind,out){arr.forEach(function(m,i){var cm=i<arr.length-1?',':'',k=m.key!=null?JSON.stringify(m.key)+': ':'';
+ if(m.kids){out.push({i:ind,c:k+'{'});ser(m.kids,ind+1,out);out.push({i:ind,c:'}'+cm})}
+ else if(m.arr){out.push({i:ind,c:k+'['});ser(m.arr,ind+1,out);out.push({i:ind,c:']'+cm})}
+ else out.push({i:ind,c:k+m.val+cm,tag:m.tag,ghost:m.ghost,note:m.note})})}
+function blame(){var mem=[],r=resolveModel();
+ if(r.fileWin){var note='';if(r.win&&r.win.id==='flag')note='this session: --model '+r.win.v;else if(r.win&&r.win.id==='envModel')note='this session: ANTHROPIC_MODEL='+r.win.v;
+  mem.push({key:'model',val:JSON.stringify(S.model[r.fileWin]),tag:r.fileWin,note:note})}
+ var ev=[];ENVK.forEach(function(e){var w=resolveEnv(e.k).win;if(w&&w!=='shell')ev.push({key:e.v,val:JSON.stringify(S.env[w][e.k]),tag:w})});
+ if(ev.length)mem.push({key:'env',kids:ev});
+ var pk=[];['allow','ask','deny'].forEach(function(list){var it=[];LV.forEach(function(l){S.rules[l][list].forEach(function(rule){var st=rst(l,list);it.push({val:JSON.stringify(rule),tag:l,ghost:st!=='on',note:st==='trust'?'waits for trust':st==='mo'?'ignored: managed rules only':''})})});if(it.length)pk.push({key:list,arr:it})});
+ if(pk.length)mem.push({key:'permissions',kids:pk});
+ if(S.managedOnly)mem.push({key:'allowManagedPermissionRulesOnly',val:'true',tag:'managed'});
+ var out=[];if(mem.length){out.push({i:0,c:'{'});ser(mem,1,out);out.push({i:0,c:'}'})}else out.push({i:0,c:'{}'});
+ return out.map(function(x){return '<div class="bl'+(x.ghost?' ghost':'')+'">'+(x.tag?tagHTML(x.tag):'<span class="tg"></span>')+'<span class="cw" style="--i:'+x.i+'"><code>'+esc(x.c)+'</code>'+(x.note?'<span class="nt">← '+esc(x.note)+'</span>':'')+'</span></div>'}).join('')}
+
+/* ---------- verdicts ---------- */
+function vModel(r){var m=S.model,w=r.win,why=[],h='<p class="eyebrow">New sessions start on</p>';
+ if(!w){h+='<p class="big">your account’s default</p>';why.push('Nothing selects a model: no flag, no <code>ANTHROPIC_MODEL</code> and no <code>model</code> in any file, so Claude Code uses your account’s default model.')}
+ else{h+='<p class="big"><span class="hl">'+esc(w.v)+'</span></p>';
+  if(w.id==='flag'){h+='<p class="from">from the <code>--model</code> flag, this session only</p>';why.push('<code>--model</code> outranks <code>ANTHROPIC_MODEL</code> and the <code>model</code> key in every file, managed included.');if(r.fileWin)why.push('Your files say '+C(m[r.fileWin])+' ('+lvName(r.fileWin)+'). The next launch without the flag uses that.')}
+  else if(w.id==='envModel'){h+='<p class="from">from <code>ANTHROPIC_MODEL</code> in your shell</p>';why.push('Claude Code reads <code>ANTHROPIC_MODEL</code> first and uses the <code>model</code> key only when the variable is unset.');if(r.fileWin)why.push('Unset it to get '+C(m[r.fileWin])+' from '+lvName(r.fileWin)+' back.')}
+  else if(w.id==='envDefault'){h+='<p class="from">from <code>ANTHROPIC_DEFAULT_MODEL</code></p>';why.push('No flag, no <code>ANTHROPIC_MODEL</code> and no file selects a model, so the default for new sessions applies.')}
+  else{h+='<p class="from">from '+lvName(w.id)+' · '+C(FILE[w.id])+'</p>';
+   var losers=LV.filter(function(l){return m[l]&&l!==w.id});
+   if(losers.length)why.push('It outranks '+losers.map(function(l){return C(m[l])+' in '+lvName(l)}).join(' and ')+'.');
+   if(w.id==='managed')why.push('A managed <code>model</code> is a starting default, not a lock: <code>--model</code> or <code>ANTHROPIC_MODEL</code> still change it, within the models your organization allows.');
+   if(w.id==='user')why.push('<code>/model</code> saves here too, so a project, local, <code>--settings</code> or managed value would outrank it at the next launch.');
+   if(m.envDefault&&!r.dIgn)why.push('<code>ANTHROPIC_DEFAULT_MODEL</code> isn’t used, because a file sets <code>model</code>.')}}
+ if(m.envDefault&&r.dIgn)why.push(C('ANTHROPIC_DEFAULT_MODEL='+m.envDefault)+' is ignored: Claude Code ignores that variable when it’s set to haiku, opusplan, default or inherit.');
+ return h+'<div class="why">'+why.map(function(s){return '<p>'+s+'</p>'}).join('')+'</div>'}
+function vEnv(e,r){var h='<div class="ev"><p class="evk"><code>'+e.v+'</code></p>',w=r.win;
+ if(w){var v=S.env[w][e.k];h+='<p class="big sm"><span class="hl">'+esc(v)+'</span> <span class="unit">'+(e.k==='t'?TO[v]:'OpenTelemetry collection on')+'</span></p><p class="from">from '+(w==='shell'?'your shell':lvName(w)+' · '+C(FILE[w]))+'</p>';
+  var beat=LV.concat('shell').filter(function(id){return r.st[id]==='over'});
+  if(beat.length)h+='<p class="why">It replaces '+beat.map(function(id){return C(S.env[id][e.k])+' from '+(id==='shell'?'your shell':lvName(id))}).join(' and ')+'.</p>';
+  if(w==='shell')h+='<p class="why">No settings file sets it, so the exported value applies.</p>'}
+ else h+='<p class="big sm">not set</p><p class="from">'+(e.k==='t'?'Foreground Bash commands use the default timeout, 120000 ms (2 minutes).':'OpenTelemetry data collection isn’t enabled.')+'</p>';
+ var ign=['local','project'].filter(function(id){return r.st[id]==='ign'});
+ if(ign.length)h+='<p class="why warn">The value in '+ign.map(function(id){return C(FILE[id])}).join(' and ')+' is ignored: project and local files can’t set telemetry export variables. Set it in your shell, user settings or managed settings.</p>';
+ return h+'</div>'}
+function explain(p,e){var out=[],d=e.decided,st=function(l){return e.steps.filter(function(s){return s.list===l})[0]};
+ var where=function(r){return C(r.rule)+' in '+lvName(r.level)};
+ if(d==='deny'){var h=st('deny').hits[0],a=st('allow').hits[0];out.push('Blocked by '+where(h)+'.');
+  if(a)out.push(where(a)+' also matches, but deny rules are checked first, and an allow rule can’t carve an exception out of a deny rule.'+(N[h.level]>N[a.level]?' The level doesn’t help either: deny rules from any level are evaluated before allow rules.':''));
+  if(h.rule.indexOf('(')<0||h.rule==='Bash(*)')out.push('A bare tool name in deny removes the tool from Claude’s context entirely.');
+  if(p.t==='Edit'&&parse(h.rule)[1].trim()==='Read')out.push('A <code>Read</code> deny rule also blocks Edit and Write on the same path.')}
+ else if(d==='ask'){var k=st('ask').hits[0],a2=st('allow').hits[0];out.push(where(k)+' makes Claude Code ask before it runs.');
+  if(a2){out.push(where(a2)+' also matches, but a matching ask rule prompts even when an allow rule matches too.');
+   if(a2.level==='local'&&(k.level==='project'||k.level==='managed'))out.push('This is what “Yes, and don’t ask again” runs into: the saved allow rule lands in the local file, and it can’t outrank an ask rule from a project or managed file.')}}
+ else if(d==='allow')out.push(where(st('allow').hits[0])+' lets it run without a prompt.');
+ else out.push(FB[p.t]);
+ e.steps.forEach(function(s){s.skip.forEach(function(r){out.push(r.st==='trust'?C(r.rule)+' in the shared project file would '+VERB[s.list]+' it, but allow rules there wait until you trust the folder.':r.st==='mo'?C(r.rule)+' in '+lvName(r.level)+' doesn’t count, because managed settings set <code>allowManagedPermissionRulesOnly</code>.':C(r.rule)+' uses an anchor or <code>!</code> pattern this page doesn’t simulate, so it’s left out.')})});
+ return out}
+function trace(p){var e=evaluate(p),o=outcome(p,e),h='<ol class="trace" aria-label="Rule checks in order">',past=false;
+ e.steps.forEach(function(s){var dec=s.list===e.decided,bits=s.hits.map(function(r){return C(r.rule)+' '+tagHTML(r.level)}).concat(s.skip.map(function(r){return C(r.rule)+' '+tagHTML(r.level)+' <span class="skip">'+(r.st==='trust'?'waits for trust':r.st==='mo'?'ignored':'not simulated')+'</span>'}));
+  h+='<li class="'+(past?'after':'')+'"><span class="rk '+s.list+'">'+s.list+'</span><span>'+(bits.length?bits.join(' '):'<span class="none">no match</span>')+(dec?' <b class="stop">decides</b>':past&&s.hits.length?' <span class="skip">also matches, not reached</span>':'')+'</span></li>';
+  if(dec)past=true});
+ h+='</ol><p class="res '+o.c+'"><span class="dot" aria-hidden="true"></span>'+HEAD[o.c]+(o.fb?' <span class="fb">no rule matched</span>':'')+'</p><div class="why">'+explain(p,e).map(function(s){return '<p>'+s+'</p>'}).join('')+'</div>';
+ if(o.fb&&p.t==='Bash')h+='<div class="prompt" aria-hidden="true"><b>Bash command</b>\n  '+esc(p.i)+'\nThis command requires approval\nDo you want to proceed?</div>';
+ return h}
+
+/* ---------- render and update ---------- */
+function render(){$('cap').innerHTML=CAP[tab];
+ LV.forEach(function(id){$('slot-'+id).innerHTML=tab==='model'?fModel(id,'in '+NAME[id]+' settings',true)+(id==='user'?'<p class="hint"><code>/model</code> saves your pick here, in the lowest file.</p>':''):tab==='env'?ENVK.map(function(e){return fEnv(id,e)}).join(''):fRules(id)});
+ $('lanes-top').innerHTML=tab==='model'?lane('flag')+lane('envModel'):'';
+ $('lanes-bot').innerHTML=tab==='model'?lane('envDefault'):tab==='env'?lane('shell'):'';
+ $('verdict').hidden=tab==='permissions';$('probe').hidden=tab!=='permissions';
+ $('probe').innerHTML=tab==='permissions'?probePanel():'';
+ update()}
+function update(){$('launch').innerHTML=launch();
+ if(tab==='model'){var r=resolveModel();
+  r.chain.forEach(function(c){var f=$('f-m-'+c.id);if(!f)return;var cl='none',tx='not set';
+   if(c.v){if(c.ign){cl='ign';tx='ignored'}else if(c===r.win){cl='win';tx='wins'}else{cl='over';tx='overridden by '+(LANE[r.win.id]?LANE[r.win.id].n:N[r.win.id]+' · '+NAME[r.win.id])}}
+   f.className='field '+cl;var s=$('s-m-'+c.id);s.className='st '+cl;s.textContent=tx});
+  $('verdict').innerHTML=vModel(r)}
+ else if(tab==='env'){var out='';
+  ENVK.forEach(function(e){var r=resolveEnv(e.k);
+   LV.concat('shell').forEach(function(id){var f=$('f-e-'+id+'-'+e.k);if(!f)return;var st=r.st[id];
+    var tx=st==='none'?'not set':st==='ign'?'ignored here':st==='win'?'wins':'overridden by '+(r.win==='shell'?'your shell':N[r.win]+' · '+NAME[r.win]);
+    f.className='field '+st;var s=$('s-e-'+id+'-'+e.k);s.className='st '+st;s.textContent=tx});
+   out+=vEnv(e,r)});
+  $('verdict').innerHTML='<p class="eyebrow">Claude Code’s environment</p>'+out+'<p class="fine">Each variable resolves on its own, so these two can come from different files.</p>'}
+ else{LV.forEach(function(id){$('rl-'+id).innerHTML=chips(id);$('rs-'+id).textContent=rowStat(id)});
+  PROBES.forEach(function(p,i){var o=outcome(p,evaluate(p)),el=$('oc-'+i);el.className='oc '+o.c;el.textContent=OCW[o.c];$('pr-'+i).classList.toggle('sel',i===probe)});
+  $('trace').innerHTML=trace(PROBES[probe])}
+ $('blame').innerHTML=blame()}
+
+/* ---------- events ---------- */
+function setTab(t,focus){tab=t;document.querySelectorAll('[role="tab"]').forEach(function(b){var on=b.getAttribute('data-tab')===t;b.setAttribute('aria-selected',on?'true':'false');b.tabIndex=on?0:-1;if(on&&focus)b.focus()});
+ $('board').setAttribute('aria-labelledby','tab-'+t);render()}
+$('tabs').addEventListener('click',function(e){var b=e.target.closest('[role="tab"]');if(b&&b.getAttribute('data-tab')!==tab)setTab(b.getAttribute('data-tab'),false)});
+$('tabs').addEventListener('keydown',function(e){var ts=['model','env','permissions'],i=ts.indexOf(tab),n=-1;
+ if(e.key==='ArrowRight')n=(i+1)%3;else if(e.key==='ArrowLeft')n=(i+2)%3;else if(e.key==='Home')n=0;else if(e.key==='End')n=2;
+ if(n>=0){e.preventDefault();setTab(ts[n],true)}});
+var board=$('board');
+board.addEventListener('change',function(e){var t=e.target,k=t.getAttribute('data-k');
+ if(k==='model'){S.model[t.getAttribute('data-id')]=t.value;update()}
+ else if(k==='env'){S.env[t.getAttribute('data-id')][t.getAttribute('data-v')]=t.value;update()}
+ else if(t.hasAttribute('data-t')){S[t.getAttribute('data-t')]=t.checked;update()}
+ else if(t.name==='probe'){probe=+t.value;update()}});
+board.addEventListener('click',function(e){var a=e.target.closest('[data-add]');if(a){addRule(a.getAttribute('data-add'));return}var b=e.target.closest('[data-rm]');if(!b)return;var q=b.getAttribute('data-rm').split('|'),id=q[0],list=q[1],i=+q[2];
+ S.rules[id][list].splice(i,1);update();
+ var next=null;$('rl-'+id).querySelectorAll('[data-rm]').forEach(function(x){var y=x.getAttribute('data-rm').split('|');if(!next&&y[1]===list&&+y[2]>=i)next=x});
+ var m=$('am-'+id);m.className='msg';m.textContent='Removed '+q[1]+' rule.';(next||$('ar-'+id)).focus()});
+function addRule(id){
+ var inp=$('ar-'+id),list=$('al-'+id).value,v=inp.value.trim(),m=$('am-'+id);m.className='msg err';
+ if(!v){m.textContent='Type a rule first, such as '+PH[id]+'.';inp.focus();return}
+ if(!/^[A-Za-z0-9_*.-]+(\(.*\))?$/.test(v)){m.textContent='Rules look like Tool or Tool(specifier), such as Bash(npm run *).';inp.focus();return}
+ if(S.rules[id][list].indexOf(v)>=0){m.textContent=v+' is already in '+list+'.';inp.focus();return}
+ S.rules[id][list].push(v);inp.value='';m.className='msg';m.textContent='Added '+v+' to '+list+'.';update();inp.focus()}
+board.addEventListener('keydown',function(e){var id=e.target.getAttribute&&e.target.getAttribute('data-enter');if(id&&e.key==='Enter'&&!e.isComposing){e.preventDefault();addRule(id)}});
+$('reset').addEventListener('click',function(){S=example();probe=1;render()});
+$('clear').addEventListener('click',function(){S=blank();render()});
+render();
+})();
+</script>
+</body>
+</html>
