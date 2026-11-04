@@ -1,6 +1,6 @@
 // Server-rendered pages: your pages at /, the example gallery at /gallery, history,
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
-import { MAX_BODY_BYTES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
+import { MAX_BODY_BYTES, POPULAR_CHOICES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
 import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, heroTile, sparkline, stackedColumnChart } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
@@ -86,7 +86,8 @@ const ICONS = {
  */
 export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE } = {}) {
   const item = (href, label, key) => `<li><a href="${href}" target="_top"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a></li>`;
-  const live = STATIC_SITE ? '' : item('/', 'Pages', 'pages') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
+  const random = `/random${current ? `?not=${encodeURIComponent(current)}` : ''}`; // never the page you're on, unless it's the only one
+  const live = STATIC_SITE ? '' : item('/', 'Pages', 'pages') + item(random, 'Random', 'random') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
   const toggle = `<button type="button" class="icon-btn" data-theme-toggle aria-label="Switch light or dark">${ICONS.sun}${ICONS.moon}</button>`;
   return `<aside class="sidebar left">
 <div class="side-top"><h2 class="page-title"><a href="/" target="_top">HTML Server</a></h2>
@@ -327,7 +328,7 @@ ${columnChart(s.uploads_by_week.map((w) => ({ label: `Week of ${w.week}`, short:
 
 <h2 class="section-label">Pages</h2>
 <div class="charts three">
-${barList(s.most_viewed.map((p) => ({ label: p.title, value: p.views, href: p.url })), { title: 'Most viewed', unit: 'views', empty: 'No views yet.' })}
+${popularList(s.popular)}
 ${barList(s.most_edited.map((p) => ({ label: p.title, value: p.versions, href: p.url })), { title: 'Most edited', unit: 'versions', empty: 'No page has a second version yet.' })}
 ${barList(s.tags.slice(0, 10).map((x) => ({ label: categoryLabel(x.tag), value: x.count, href: `/?category=${encodeURIComponent(x.tag)}` })), { title: 'Pages per tag', unit: 'pages', empty: 'No tags yet.' })}
 </div>
@@ -343,6 +344,21 @@ ${barList(s.tags.slice(0, 10).map((x) => ({ label: categoryLabel(x.tag), value: 
 <p class="meta foot-note">Data as JSON: <a href="/api/stats">/api/stats</a> · API usage, for admins: <a href="/api/stats/usage">/api/stats/usage</a>.</p>
 <div id="tip" class="tip" role="tooltip" hidden></div>
 </main>`, { scripts: ['stats.js'] });
+}
+
+/**
+ * /stats's Popular list: the pages with the most visits (each visitor once a day per page) over
+ * the period picked beside its title. public/stats.js swaps in the list for another period.
+ */
+function popularList({ weeks, pages }) {
+  const period = (w) => (w == null ? 'All time' : w === 1 ? 'Last week' : `Last ${w} weeks`);
+  const choices = [...new Set([...POPULAR_CHOICES, weeks ?? POPULAR_CHOICES[0]])].sort((a, b) => a - b);
+  const picker = `<form class="period-picker" action="/stats#popular" method="get"><select name="weeks" aria-label="Period">${[...choices, null]
+    .map((w) => `<option value="${w ?? 'all'}"${w === weeks ? ' selected' : ''}>${period(w)}</option>`).join('')}</select>`
+    + '<noscript><button>Show</button></noscript></form>';
+  const n = (count, word) => `${fmtNum(count)} ${word}${count === 1 ? '' : 's'}`;
+  return barList(pages.map((p) => ({ label: p.title, value: p.visits, href: p.url, tip: `${p.title}: ${n(p.visits, 'visit')}, ${n(p.views, 'view')}` })),
+    { id: 'popular', title: 'Popular', unit: 'visits', control: picker, empty: weeks == null ? 'No views yet.' : `No views in the ${period(weeks).toLowerCase()}.` });
 }
 
 const fmtNum = (n) => Number(n || 0).toLocaleString('en-US');
@@ -468,17 +484,23 @@ export function htmlFramePage({ page, n, backlinks, explorer, graph, previews = 
 </div>${page.tags.length ? `<ul class="note-tags">${page.tags.map((t) => `<li><a class="tag-link" href="/?category=${encodeURIComponent(t)}">${esc(t)}</a></li>`).join('')}</ul>` : ''}</header>
 <iframe class="page-frame auto" src="${esc(embed)}" title="${esc(page.title)}"></iframe>
 <div class="frame-foot">${graph ? localGraph(graph, page.slug) : ''}${backlinksSection(backlinks)}</div>
-</main>${previewData(previews)}${inlined().popover}${inlined().copy}${FRAME_SIZE}`);
+</main>${previewData(previews)}${inlined().popover}${inlined().copy}${FRAME_SCRIPT}`);
 }
 
-// The frame's half of the sizing (the page's half is public/embed-size.js): with native
-// responsive iframes the browser sizes it; otherwise take the height the page reports.
-// Either way, a page that asks for window height gets it.
-const FRAME_SIZE = `<script>(()=>{const f=document.querySelector('.page-frame');if(!f)return;
+// The frame's half of the page's scripts (public/embed-size.js, public/in-frame.js). Sizing:
+// with native responsive iframes the browser sizes it; otherwise take the height the page
+// reports. Either way, a page that asks for window height gets it. A link the page follows
+// opens in the tab: an http(s) link, only just after the viewer clicked or pressed a key (a
+// click in the page activates this window too), so the page can't send the tab anywhere by
+// itself, as its sandbox wouldn't let it.
+const FRAME_SCRIPT = `<script>(()=>{const f=document.querySelector('.page-frame');if(!f)return;
 const native=CSS.supports('frame-sizing','content-height');
-addEventListener('message',(e)=>{if(e.source!==f.contentWindow||e.data?.htmlServer!=='size')return;
-if(e.data.mode==='window'){f.classList.remove('auto');f.style.height='';return}
-if(!native&&f.classList.contains('auto')&&e.data.height>=40)f.style.height=Math.min(e.data.height,100000)+'px'})})()</script>`;
+addEventListener('message',(e)=>{if(e.source!==f.contentWindow)return;const d=e.data||{};
+if(d.htmlServer==='go'){let u;try{u=new URL(d.href)}catch{return}
+if(/^https?:$/.test(u.protocol)&&navigator.userActivation?.isActive!==false)location.assign(u.href);return}
+if(d.htmlServer!=='size')return;
+if(d.mode==='window'){f.classList.remove('auto');f.style.height='';return}
+if(!native&&f.classList.contains('auto')&&d.height>=40)f.style.height=Math.min(d.height,100000)+'px'})})()</script>`;
 
 /** Home › folder › note, from where the note lives; a folder with an index note links to it. */
 function crumbs(path, title, explorer, folderPage = false) {
@@ -707,7 +729,8 @@ curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"
 - **Everything is public** unless uploaded with \`X-Visibility: private\`. **anyone\*** below means anyone for
   public pages, and only the owner (by token) for private or trashed ones.
 - **In a browser tab** an HTML page sits in the site's frame (sidebar, title bar, graph, backlinks), sized to
-  the page. Iframes, curl and other clients get the page itself, as does \`?raw=1\`.
+  the page; ⌘K inside the page opens search, and links it follows open in the tab. Iframes, curl and other
+  clients get the page itself, as does \`?raw=1\`.
 - **Gallery:** a page's \`<meta name="description">\` and \`<meta name="category">\` become its card text and
   category on [the home page](/).
 - **Editing:** by default only a page's owner adds versions. On a server with open editing

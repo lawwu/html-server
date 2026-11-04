@@ -48,7 +48,7 @@ export const DEFAULT_EDITING = 'owner';
 // gallery never publishes anyone's address. Signed-in users see them in full.
 export const MASK_EMAILS_FOR_ANONYMOUS = true;
 // Top-level paths the server itself uses, so no page may take these names.
-export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'assets', 'docs', 'favicon.ico', 'robots.txt']);
+export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'random', 'assets', 'docs', 'favicon.ico', 'robots.txt']);
 
 // How lists of pages can be sorted (?sort=, ls --sort), with their labels on the home
 // page. Featured pages stay on top whichever is chosen. Searches sort by relevance
@@ -139,6 +139,12 @@ export const SCRIPT_TEXT_CHARS = 20000;
 // clients are not counted.
 export const BOT_UA_RE = /bot|crawl|spider|slurp|preview|facebookexternalhit|curl|wget|python-urllib|node/i;
 export const VIEW_REPORT_DAYS = 30;
+// /stats's Popular list: the pages with the most visits over the last 2 weeks, or the period
+// picked from these (?weeks=, any number up to POPULAR_MAX_WEEKS, or all). A visit counts each
+// visitor once a day per page, so reloading a page while you edit it doesn't make it popular.
+export const POPULAR_WEEKS = 2;
+export const POPULAR_CHOICES = [1, 2, 4, 8, 12, 26, 52];
+export const POPULAR_MAX_WEEKS = 520;
 
 // Table of contents: added to a page at render time (never to the stored version)
 // when it has at least this many h2/h3 headings. public/toc.js decides placement;

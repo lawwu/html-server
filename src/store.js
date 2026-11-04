@@ -7,7 +7,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS,
-  PAGE_EXT_RE, SEARCH_SORT, SLUG_HINT, SLUG_RE, SORTS, USERNAME_RULES,
+  PAGE_EXT_RE, POPULAR_WEEKS, SEARCH_SORT, SLUG_HINT, SLUG_RE, SORTS, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
 import { isPagePath, pageUrl, validatePath } from './paths.js';
@@ -947,6 +947,18 @@ export class Store {
       + ` WHERE artifacts_fts MATCH ? AND ${where}`, ftsMatch(queryWords(q, this.vocabulary())), ...args).n;
   }
 
+  /**
+   * A page picked at random from the ones list() would give with these filters (in a folder,
+   * with a tag): its name, or null when there are none. Not `not` (the page you're on) unless
+   * it's the only one.
+   */
+  random(viewerId, { not, ...filters } = {}) {
+    const [where, args] = this.listFilter(viewerId, filters);
+    const pick = (skip) => this.one(`SELECT a.slug FROM artifacts a JOIN users u ON u.id = a.owner_id WHERE ${where}`
+      + `${skip ? ' AND a.slug <> ? COLLATE NOCASE' : ''} ORDER BY random() LIMIT 1`, ...args, ...(skip ? [skip] : []))?.slug ?? null;
+    return (not && pick(not)) || pick();
+  }
+
   /** The text indexed for these pages, by id. (Ids are written into the SQL: some databases bind at most 100 values.) */
   indexedText(ids) {
     if (!ids.length) return new Map();
@@ -1052,8 +1064,9 @@ export class Store {
    * Everything /stats shows, for the pages this viewer can see (public pages, plus
    * their own private ones). Days and weeks are in the server's local time, and
    * every series is filled in, so a quiet day is a zero rather than a gap.
+   * `popular`: the Popular list's period in weeks (null: all time).
    */
-  stats(viewerId, { days = 30, weeks = 12, top = 10 } = {}) {
+  stats(viewerId, { days = 30, weeks = 12, top = 10, popular = POPULAR_WEEKS } = {}) {
     const vis = "a.state = 'active' AND (a.visibility = 'public' OR a.owner_id = ?)";
     const v = viewerId ?? -1;
     const one = (sql) => this.one(sql, v);
@@ -1101,11 +1114,19 @@ export class Store {
       if (uploadsByWeek[i]) uploadsByWeek[i].versions++;
     }
 
-    const pageRows = (sql) => this.all(sql, v, top).map((r) => ({ ...r, url: pageUrl(r.slug) }));
+    const pageRows = (sql, ...more) => this.all(sql, v, ...more, top).map((r) => ({ ...r, url: pageUrl(r.slug) }));
+    // Visits: each visitor once a day per page. The visitor hash already changes every day
+    // (countView), so the distinct hashes a page has are its visits.
+    const popularSince = popular == null ? 0 : dayStart(7 * popular - 1).getTime() / 1000;
     return {
       totals,
       views_by_day: viewsByDay,
       uploads_by_week: uploadsByWeek,
+      popular: {
+        weeks: popular,
+        pages: pageRows(`SELECT a.slug, a.title, COUNT(DISTINCT x.visitor) AS visits, COUNT(*) AS views FROM views x`
+          + ` JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ? GROUP BY a.id ORDER BY visits DESC, views DESC, a.title LIMIT ?`, popularSince),
+      },
       most_viewed: pageRows(`SELECT a.slug, a.title, (SELECT COUNT(*) FROM views x WHERE x.artifact_id = a.id) AS views FROM artifacts a`
         + ` WHERE ${vis} AND views > 0 ORDER BY views DESC, a.title LIMIT ?`),
       most_edited: pageRows(`SELECT a.slug, a.title, a.latest_version AS versions FROM artifacts a WHERE ${vis} AND a.latest_version > 1`

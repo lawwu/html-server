@@ -62,3 +62,21 @@ usageBody?.addEventListener('click', (e) => {
   e.preventDefault();
   loadUsage(saved() || document.getElementById('usage-token')?.value.trim(), { days: a.dataset.days });
 });
+
+// The Popular list's period: swap in that period's list (from this page at ?weeks=) and keep
+// the choice in the address. Without scripts, the form's Show button loads the page so.
+let asked = 0;
+document.addEventListener('change', async (e) => {
+  if (!e.target.matches?.('#popular select')) return;
+  const url = `/stats?weeks=${encodeURIComponent(e.target.value)}`;
+  const n = ++asked;
+  try {
+    const r = await fetch(url);
+    const next = new DOMParser().parseFromString(await r.text(), 'text/html').getElementById('popular');
+    if (!r.ok || !next) throw new Error(`HTTP ${r.status}`);
+    if (n !== asked) return; // a later choice is on its way
+    document.getElementById('popular').replaceWith(next);
+    next.querySelector('select').focus(); // arrow keys keep choosing
+    history.replaceState(null, '', `${url}#popular`);
+  } catch { location.href = `${url}#popular`; }
+});

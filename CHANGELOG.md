@@ -7,6 +7,24 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Random page.** A Random link in the sidebar opens a random page you can see, never the
+  one you're on (unless it's the only one). `/random?folder=…` or `?category=…` picks one
+  in a folder or with a tag. `random` is now a reserved page name.
+- **Popular pages on `/stats`,** in place of the all-time most viewed: the pages with the
+  most visits over the last 2 weeks, or the period picked beside the list (1 week to a year,
+  or all time; `?weeks=` takes any number up to 520). A visit counts each visitor once a day
+  per page, so reloading a page while you edit it doesn't make it popular. Hover a page for
+  its visits and views. `/api/stats` has the list as `popular`; `most_viewed` stays, all time.
+- **⌘K works inside HTML pages in the frame.** A framed page runs sandboxed, so once you had
+  clicked into it, its key presses never reached the search. Now ⌘K and Ctrl+K open it from
+  there too, unless the page uses those keys itself.
+- **Links in a framed HTML page open in the tab.** Following a link from one page to another
+  loaded the next page inside the first one's frame, under its title, address and sidebar;
+  `target="_top"` links did nothing, and other sites opened inside the frame. Now the tab
+  goes there, as it would without the frame. The frame follows a link only just after a
+  click or key press in the page, so a page still can't send the tab anywhere by itself.
+  Links to a place on the page, new-tab links and ⌘-clicks work as before.
+
 ## 0.10.1 (2026-10-30)
 
 - **A malformed link no longer stops a note publishing, or the server starting.** A

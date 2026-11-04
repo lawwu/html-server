@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { fileBytes, fileText } from './files.js';
 import {
-  CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { VIEWS, countLabel, diffPage, docsMarkdown, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
@@ -28,8 +28,11 @@ export const ROUTES = [
   ['POST', '/api/moves', 'movePages', 'owner', 'Move pages atomically: `{"moves":[{"from":"report.html","to":"research/report.html"}]}`. History and share links survive; old addresses redirect'],
   ['GET', '/api/folders', 'folders', 'anyone*', 'Folder choices visible to the viewer'],
   ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first, whatever the sort); `?sort=updated|created|views|title` (featured pages stay on top); `?view=list` for the list layout'],
-  ['GET', '/stats', 'stats', 'anyone*', 'Totals, views and uploads over time, most viewed and edited pages, tags, recent uploads'],
-  ['GET', '/api/stats', 'statsData', 'anyone*', 'The same numbers as JSON'],
+  ['GET', '/stats', 'stats', 'anyone*',
+    `Totals, views and uploads over time, the most popular pages (most visits over the last ${POPULAR_WEEKS} weeks; \`?weeks=\` 1-${POPULAR_MAX_WEEKS} or \`all\`), the most edited, tags, recent uploads`],
+  ['GET', '/api/stats', 'statsData', 'anyone*', 'The same numbers as JSON (the same `?weeks=`)'],
+  ['GET', '/random', 'random', 'anyone*',
+    'Go to a random page you can see (a redirect). `?folder=` or `?category=` picks one in a folder or with a tag; `?not=<name>` skips that page (the sidebar\'s Random link skips the page you\'re on)'],
   ['GET', '/api/stats/usage', 'usageData', 'admin',
     'API usage, last 30 days (`?days=365`, or `?days=all`): calls by kind of client (MCP, CLI, browser, other HTTP), over time, the most used MCP tools and CLI commands, the busiest routes, errors. Details are kept 90 days, daily totals for good'],
   ['GET', '/stats/usage', 'usage', 'admin', null], // the same, as the section /stats shows admins
@@ -115,6 +118,9 @@ export const ROUTES = [
 ].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`, 'u'), label: routeLabel(path) }))
   .sort((a, b) => routePriority(a) - routePriority(b));
 
+/** A page's address for a Location header, which is ASCII: a name in any script, encoded. */
+const pageLocation = (slug) => pageUrl(slug).replace(/[^\x00-\x7f]+/gu, encodeURIComponent);
+
 function routePriority(r) {
   if (r.handler === 'render') return 4;
   if (r.handler === 'folder') return 3;
@@ -126,6 +132,7 @@ const TOC_SCRIPT = fileText('public/toc.js');
 const VERSION_BADGE_SCRIPT = fileText('public/version-badge.js');
 const EMBED_SIZE_SCRIPT = fileText('public/embed-size.js').replace(/^(\/\/.*\n)+/, ''); // without its header comment
 const IN_PAGE_LINKS_SCRIPT = fileText('public/in-page-links.js').replace(/^(\/\/.*\n)+/, '');
+const IN_FRAME_SCRIPT = fileText('public/in-frame.js').replace(/^(\/\/.*\n)+/, '');
 
 /** Insert a script just before the page's last </body> (or at the end). Display-time only. */
 function injectScript(html, attrs, code) {
@@ -172,6 +179,11 @@ export function withBase(doc, href) {
 /** Keep links to a place on the page (#section) on the page: public/in-page-links.js. */
 export function withInPageLinks(doc) {
   return Buffer.from(injectScript(doc.toString('utf8'), 'data-html-server-links', IN_PAGE_LINKS_SCRIPT));
+}
+
+/** In the site's frame, ⌘K opens the site's search and links the page follows open in the tab: public/in-frame.js. */
+export function withInFrame(doc) {
+  return Buffer.from(injectScript(doc.toString('utf8'), 'data-html-server-in-frame', IN_FRAME_SCRIPT));
 }
 
 /** A tag at the start of the <head>; with none, after the doctype, which must stay first (anything before it means quirks mode). */
@@ -366,7 +378,7 @@ class Ctx {
     if (this.preview()) return body;
     // In the site's frame the title bar shows the version, and a floating contents box
     // would be pinned to the top of a frame as tall as the page: just size it.
-    if (!note && this.query.get('embed')) return withInPageLinks(withEmbedSizing(body));
+    if (!note && this.query.get('embed')) return withInFrame(withInPageLinks(withEmbedSizing(body)));
     // Notes carry their contents in the right sidebar already.
     let doc = note || this.query.get('toc') === '0' ? body : withToc(body);
     if (based) doc = withInPageLinks(doc);
@@ -383,6 +395,14 @@ class Ctx {
     const d = this.int('days') ?? 30;
     if (!Number.isInteger(d) || d < 1 || d > 36500) throw new ApiError(400, 'days must be a number of days, or all');
     return d;
+  }
+
+  /** ?weeks= for /stats's Popular list: a number of weeks (default POPULAR_WEEKS), or `all`. */
+  popularWeeks() {
+    if (this.query.get('weeks') === 'all') return null;
+    const w = this.int('weeks') ?? POPULAR_WEEKS;
+    if (w < 1 || w > POPULAR_MAX_WEEKS) throw new ApiError(400, `weeks must be a number of weeks (1-${POPULAR_MAX_WEEKS}), or all`);
+    return w;
   }
 
   /** This server as the client reached it, for examples in the docs. */
@@ -466,8 +486,16 @@ const handlers = {
     const body = await c.jsonBody();
     c.json(200, { results: c.store.movePages(user.id, body.moves) });
   },
-  stats(c) { c.html(statsPage(c.store.stats(c.viewerId()))); },
-  statsData(c) { c.json(200, c.store.stats(c.viewerId())); },
+  stats(c) { c.html(statsPage(c.store.stats(c.viewerId(), { popular: c.popularWeeks() }))); },
+  statsData(c) { c.json(200, c.store.stats(c.viewerId(), { popular: c.popularWeeks() })); },
+  random(c) {
+    const filter = (k) => c.query.get(k) || undefined;
+    const folder = filter('folder');
+    const slug = c.store.random(c.viewerId(), { not: filter('not'), folder, category: filter('category') });
+    // Nothing to pick from: the folder or the home page, which say so.
+    const to = slug ? pageLocation(slug) : folder ? `/${encodePath(folder)}/` : '/';
+    c.send(302, 'text/plain', '', { Location: to, 'Cache-Control': 'no-store' });
+  },
   usageData(c) { c.user({ admin: true }); c.json(200, c.store.usage({ days: c.usageDays() })); },
   usage(c) { c.user({ admin: true }); c.html(usageSection(c.store.usage({ days: c.usageDays() }))); },
   graph(c) { c.html(graphPage(c.store.graph(c.viewerId(), c.graphScope()))); },
@@ -508,8 +536,7 @@ const handlers = {
     const a = c.store.readable(slug, c.viewerId());
     const old = c.store.oldAddress(slug);
     if (old?.artifact_id === a.id && a.state === ACTIVE) {
-      const to = pageUrl(a.slug).replace(/[^\x00-\x7f]+/gu, encodeURIComponent); // a header is ASCII: a name in any script, encoded
-      return c.send(302, 'text/plain', '', { Location: to + c.url.search, 'Cache-Control': 'no-store' });
+      return c.send(302, 'text/plain', '', { Location: pageLocation(a.slug) + c.url.search, 'Cache-Control': 'no-store' });
     }
     if (c.wantsFrame()) {
       const a = c.store.readable(slug, c.viewerId());
