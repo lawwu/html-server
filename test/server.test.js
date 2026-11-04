@@ -839,6 +839,13 @@ test('skills: the sidebar lists effective-html\'s skills with their examples, wh
   assert.match(frame, /<details open>\n<summary title="Reports, explainers, data stories and small tools">/);
   assert.match(frame, /<a href="\/gallery\/ab-test-readout.html" target="_top" class="on" aria-current="page">A\/B test readout<\/a>/);
   assert.match(frame, /<a class="tag-link" href="\/gallery\?category=effective-html">Effective HTML<\/a>/);
+  // Over each example, the skill it shows, linked to the skill itself; other gallery pages have no such line.
+  for (const s of SKILLS) for (const [file] of s.examples) {
+    const [, page] = await get(`/gallery/${file}`, 'document');
+    assert.ok(page.includes(`<p class="skill-line">Made with the <a href="${SKILLS_REPO}/tree/main/skills/${s.name}" target="_blank" rel="noopener">${s.name} ↗</a> skill from <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a>: `), file);
+  }
+  const other = examples().find((e) => e.category !== 'effective-html');
+  assert.doesNotMatch((await get(`/gallery/${other.slug}`, 'document'))[1], /skill-line/);
   const [, embedded, embedCsp] = await get('/gallery/ab-test-readout.html?embed=1', 'iframe');
   assert.match(embedCsp, /sandbox/);
   assert.match(embedded, /<script data-html-server-embed>[^]*<script data-html-server-links>[^]*<script data-html-server-in-frame>/);

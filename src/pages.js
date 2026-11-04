@@ -518,12 +518,18 @@ export function htmlFramePage({ page, n, backlinks, explorer, graph, previews = 
  * the sidebar (its Skills folder open, if the example is one of a skill's), a title bar, then the
  * example in an iframe. Examples have no versions, comments or links to show.
  */
+// Over an effective-html example: the skill it shows, linked to the skill in its repo.
+function skillLine(slug) {
+  const skill = SKILLS.find((s) => s.examples.some(([f]) => f === slug));
+  return skill ? `<p class="skill-line">Made with the <a href="${SKILLS_REPO}/tree/main/skills/${skill.name}" target="_blank" rel="noopener">${esc(skill.name)} ↗</a> skill from <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a>: ${esc(skill.use.charAt(0).toLowerCase() + skill.use.slice(1))}</p>` : '';
+}
+
 export function exampleFramePage(e) {
   return shell(`${e.title} · HTML Server`, `${siteNav('gallery', { example: e.slug })}<main class="center framed">
 <header class="frame-head"><div class="frame-title">
 <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="/gallery" target="_top">Gallery</a><span class="sep" aria-hidden="true">❯</span><span aria-current="page">${esc(e.title)}</span></nav>
 <h1 class="article-title">${esc(e.title)}</h1>
-<p class="content-meta">${e.description ? `${esc(e.description)} · ` : ''}<a href="/gallery/${e.slug}?raw=1">full page ↗</a></p>
+<p class="content-meta">${e.description ? `${esc(e.description)} · ` : ''}<a href="/gallery/${e.slug}?raw=1">full page ↗</a></p>${skillLine(e.slug)}
 </div>${e.category ? `<ul class="note-tags"><li><a class="tag-link" href="/gallery?category=${encodeURIComponent(e.category)}">${esc(categoryLabel(e.category))}</a></li></ul>` : ''}</header>
 <iframe class="page-frame auto" src="/gallery/${e.slug}?embed=1" title="${esc(e.title)}"></iframe>
 </main>${FRAME_SCRIPT}`);

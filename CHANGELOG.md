@@ -33,7 +33,7 @@ change that couldn't be migrated would be a major version.
   skills of [effective-html](https://github.com/plannotator/effective-html) (MIT), each with
   two examples in the gallery, one on data, data science or machine learning and one on
   Claude Code (drawn from its docs), and a link to the skill. The gallery groups them as
-  Effective HTML.
+  Effective HTML, and each example's title bar names the skill it shows, linked to it.
 - **Gallery examples open in the site's frame,** like your own pages: the sidebar, a title
   bar, ⌘K, and links that move the tab. `?raw=1` is the example alone.
 
