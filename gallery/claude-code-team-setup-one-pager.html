@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One-pager: check our Claude Code setup into the repo</title>
+<meta name="description" content="A one-page pitch to a fictional team to check its Claude Code setup into the repo: the six files to add, what each buys, what stays personal, the risks to agree on and the ask. Every product detail comes from the Claude Code docs.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  color-scheme: light dark;
+  --paper:#f5f3f6; --card:#ffffff; --ink:#1f1a22; --ink-2:#5b5361; --ink-3:#6d6473;
+  --rule:#e3dde6; --rule-2:#cdc4d1;
+  --accent:#8a2b6e; --accent-ink:#ffffff; --accent-soft:#f7e8f2; --accent-line:#dcb0cd; --accent-inv:#f3a3d9;
+  --code:#faf7fa; --term:#231d26; --term-ink:#f2ecf4; --term-dim:#b9adbe;
+  --allow:#1d7549; --allow-bg:#e4f2e9; --ask:#865700; --ask-bg:#fbefd5; --deny:#b2362c; --deny-bg:#fbe7e4;
+  --s1:#d6cbda; --s2:#ad9fb3; --s3:#e8e1ea;
+  --mono: ui-monospace,"SF Mono",SFMono-Regular,"Cascadia Code","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#141116; --card:#1d1920; --ink:#efe9f1; --ink-2:#b6acbb; --ink-3:#978d9d;
+    --rule:#332c37; --rule-2:#4a414f;
+    --accent:#ee96d2; --accent-ink:#22101c; --accent-soft:#3a2134; --accent-line:#7b3d68; --accent-inv:#8a2b6e;
+    --code:#18141b; --term:#0e0c10; --term-ink:#efe9f1; --term-dim:#a89cad;
+    --allow:#74d4a1; --allow-bg:#15301f; --ask:#f0bd5c; --ask-bg:#352810; --deny:#ff8f81; --deny-bg:#3c1916;
+    --s1:#4d4453; --s2:#6a5f71; --s3:#3a333f;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#141116; --card:#1d1920; --ink:#efe9f1; --ink-2:#b6acbb; --ink-3:#978d9d;
+  --rule:#332c37; --rule-2:#4a414f;
+  --accent:#ee96d2; --accent-ink:#22101c; --accent-soft:#3a2134; --accent-line:#7b3d68; --accent-inv:#8a2b6e;
+  --code:#18141b; --term:#0e0c10; --term-ink:#efe9f1; --term-dim:#a89cad;
+  --allow:#74d4a1; --allow-bg:#15301f; --ask:#f0bd5c; --ask-bg:#352810; --deny:#ff8f81; --deny-bg:#3c1916;
+  --s1:#4d4453; --s2:#6a5f71; --s3:#3a333f;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 var(--sans);font-variant-numeric:tabular-nums}
+code,pre{font-family:var(--mono)}
+code{font-size:.9em}
+a{color:var(--accent);text-underline-offset:2px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+.vh{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+.page{max-width:70rem;margin:0 auto;padding:28px 16px 24px;display:grid;gap:36px}
+@media (min-width:720px){.page{padding:36px 32px 28px;gap:40px}}
+h2{margin:0;font:700 1.15rem/1.25 var(--mono);letter-spacing:-.01em}
+h3{margin:0;font:650 1rem/1.3 var(--sans);text-wrap:balance}
+.sec{display:grid;gap:12px;align-content:start;min-width:0}
+.lead{margin:0;color:var(--ink-2);font-size:.95rem;text-wrap:pretty}
+.label{font:600 .7rem/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.inl{color:var(--ink);background:var(--code);border:1px solid var(--rule);border-radius:3px;padding:0 3px;white-space:nowrap}
+
+/* top: masthead beside the today/after picture */
+.top{display:grid;gap:20px}
+@media (min-width:960px){.top{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:36px;align-items:center}}
+.masthead{display:grid;gap:12px}
+.eyebrow{margin:0;font:600 .7rem/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.eyebrow span{color:var(--accent)}
+h1{margin:0;font:700 clamp(1.7rem,1.2rem + 2vw,2.1rem)/1.12 var(--mono);letter-spacing:-.035em;text-wrap:balance}
+.dek{margin:0;font-size:1.05rem;color:var(--ink-2);max-width:58ch;text-wrap:pretty}
+.tldr{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px}
+.tag{font:700 .7rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink);background:var(--accent);padding:5px 7px 4px;border-radius:3px}
+
+.why{display:grid;gap:8px}
+@media (min-width:560px){.why{grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr);gap:0;align-items:stretch}}
+.why-panel{margin:0;background:var(--card);border:1px solid var(--rule);border-radius:6px;padding:12px;display:grid;gap:8px;align-content:space-between}
+.why-panel svg{display:block;width:100%;height:auto}
+.why-panel figcaption{font-size:.85rem;line-height:1.4;color:var(--ink-2)}
+.why-panel figcaption b{display:block;font:700 .7rem/1.5 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink)}
+.why-after{border-color:var(--accent-line)}
+.why-after figcaption b{color:var(--accent)}
+.why-arrow{display:grid;place-items:center;color:var(--accent)}
+.why-arrow svg{width:22px;height:16px;transform:rotate(90deg)}
+@media (min-width:560px){.why-arrow svg{transform:none}}
+.lt-screen{fill:var(--card);stroke:var(--ink-3);stroke-width:1.5}
+.lt-base{fill:var(--rule-2)}
+.sc1{fill:var(--s1)} .sc2{fill:var(--s2)} .sc3{fill:var(--s3)}
+.fold-own{stroke:var(--ink-3);stroke-width:1.25}
+.fold-empty{fill:none;stroke:var(--ink-3);stroke-width:1.25;stroke-dasharray:3 3}
+.tie{stroke:var(--rule-2);stroke-width:1.25;stroke-dasharray:2 3;fill:none}
+.ac{fill:var(--accent)} .ac-2{fill:var(--accent);opacity:.5} .ac-3{fill:var(--accent);opacity:.75}
+.fan{stroke:var(--accent);stroke-width:1.5;fill:none}
+.fold-txt{font:600 13px var(--mono);fill:var(--accent-ink)}
+
+/* main: repo tree beside what stays yours */
+.main{display:grid;gap:36px}
+@media (min-width:960px){.main{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:32px;align-items:start}}
+
+.tree{list-style:none;margin:0;padding:10px 0;background:var(--card);border:1px solid var(--rule);border-radius:6px;font:13px/1.8 var(--mono)}
+@media (min-width:480px){.tree{font-size:14px}}
+.rl{display:flex;flex-wrap:wrap;padding:0 12px}
+@media (min-width:480px){.rl{padding:0 16px}}
+.st{flex:0 0 3.2ch;font-weight:700}
+.pn{flex:0 0 auto;white-space:pre}
+.pfx,.pfx2{color:var(--ink-3);white-space:pre}
+.nt{flex:1 1 100%;display:flex;padding-left:3.2ch;color:var(--ink-2)}
+.nt .c{flex:1 1 0;min-width:0}
+.nt .c::before{content:"# ";color:var(--ink-3)}
+@media (min-width:760px){
+  .pn{flex:0 0 33ch}
+  .nt{flex:1 1 0;padding-left:0}
+  .pfx2{display:none}
+}
+.row.add .rl{background:var(--accent-soft)}
+.row.add .st,.row.mod .st{color:var(--accent)}
+.row.add .nm,.row.mod .nm{font-weight:700}
+.row.ign .st,.row.ign .nm{color:var(--ink-3)}
+.row.ign .nm{font-style:italic}
+.row.dim .nm{color:var(--ink-2)}
+.row summary{display:block;list-style:none;cursor:pointer;position:relative}
+.row summary::-webkit-details-marker{display:none}
+.row summary .rl{padding-right:calc(16px + 2ch)}
+.row summary::after{content:"+";position:absolute;right:14px;top:0;font:700 15px/1.68 var(--mono);color:var(--accent)}
+.row details[open] > summary::after{content:"\2212"}
+.row summary:hover .nm{text-decoration:underline;text-underline-offset:3px}
+.row summary:focus-visible{outline-offset:-2px;border-radius:0}
+.peek{margin:6px 12px 12px;padding:14px;border:1px solid var(--accent-line);border-radius:5px;background:var(--card);font:14.5px/1.5 var(--sans);display:grid;gap:12px;min-width:0}
+@media (min-width:480px){.peek{margin:6px 16px 14px calc(16px + 3.2ch)}}
+.peek p{margin:0;color:var(--ink-2);text-wrap:pretty}
+.peek p b{color:var(--ink)}
+.legend{margin:0;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:.85rem;color:var(--ink-2)}
+.legend span{display:inline-flex;gap:7px;align-items:baseline}
+.legend b{font:700 .85rem var(--mono);color:var(--accent)}
+.legend .k-ign b{color:var(--ink-3)}
+
+pre{margin:0}
+.snip{background:var(--code);border:1px solid var(--rule);border-radius:4px;padding:10px 12px;font-size:12.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+.snip .k{color:var(--accent);font-weight:600}
+.snip .m{color:var(--ink-3)}
+.snip mark,.srv-cfg mark{background:var(--accent-soft);color:var(--accent);font-weight:700;border-radius:2px;padding:0 1px}
+.meter{display:grid;gap:5px}
+.meter-bar{height:8px;border-radius:4px;background:var(--s3);overflow:hidden}
+.meter-bar i{display:block;height:100%;width:19%;background:var(--accent);border-radius:4px}
+.meter-cap{display:flex;justify-content:space-between;gap:8px;font:12px/1.3 var(--mono);color:var(--ink-2)}
+
+/* permission lanes and the rule tester (inside the settings.json disclosure) */
+.lanes{display:grid;gap:6px}
+.lane{display:grid;grid-template-columns:3.4rem minmax(0,1fr);gap:8px;align-items:start;padding:7px 9px;border-radius:4px;border:1px solid transparent;transition:background-color .2s,border-color .2s}
+.lane.deny{background:var(--deny-bg);--x:var(--deny)}
+.lane.ask{background:var(--ask-bg);--x:var(--ask)}
+.lane.allow{background:var(--allow-bg);--x:var(--allow)}
+.ln{font:700 .72rem/1.9 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--x)}
+.rules{display:flex;flex-wrap:wrap;gap:5px}
+.rule{font:12.5px/1.5 var(--mono);padding:1px 6px;border-radius:3px;background:var(--card);border:1px solid var(--rule);color:var(--ink);transition:box-shadow .2s,border-color .2s}
+.lane.dim{background:transparent;border-color:var(--rule)}
+.lane.dim .rule{background:transparent;color:var(--ink-2)}
+.lane.hit{border-color:var(--x)}
+.rule.hit{border-color:var(--x);box-shadow:0 0 0 1px var(--x)}
+.try{display:grid;gap:8px}
+.cmds{display:flex;flex-wrap:wrap;gap:6px}
+.cmd{font:13px/1.4 var(--mono);padding:5px 9px;border:1px solid var(--rule-2);border-radius:4px;background:var(--card);color:var(--ink);cursor:pointer;text-align:left}
+.cmd:hover{border-color:var(--accent)}
+.cmd[aria-pressed="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.peek .verdict{margin:0;padding:9px 11px;border-radius:4px;background:var(--code);border:1px solid var(--rule);color:var(--ink);min-height:4.2em}
+.v-tag{display:inline-block;font:700 .68rem/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:4px 6px 3px;border-radius:3px;margin-right:6px;color:var(--card);background:var(--ink-2);vertical-align:1px}
+.verdict[data-lane="allow"] .v-tag{background:var(--allow)}
+.verdict[data-lane="ask"] .v-tag{background:var(--ask)}
+.verdict[data-lane="deny"] .v-tag{background:var(--deny)}
+.verdict code{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:0 3px;white-space:nowrap}
+
+.flow{list-style:none;margin:0;padding:0;display:grid;gap:20px}
+.flow li{position:relative;padding:7px 10px;border:1px solid var(--rule);border-radius:4px;background:var(--code);display:grid;gap:1px}
+.flow li:last-child{border-color:var(--accent-line);background:var(--accent-soft)}
+.flow li + li::before{content:"";position:absolute;left:18px;top:-17px;width:2px;height:10px;background:var(--accent)}
+.flow li + li::after{content:"";position:absolute;left:14px;top:-8px;border:5px solid transparent;border-top:6px solid var(--accent);border-bottom:0}
+.fk{font:600 .68rem/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.flow code{font-size:13px;overflow-wrap:anywhere}
+
+.servers{display:grid;gap:8px}
+.srv{border:1px solid var(--rule);border-radius:4px;padding:8px 11px;display:grid;gap:3px;background:var(--code)}
+.srv-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.srv-name{font:700 14px var(--mono)}
+.pill{font:600 .66rem/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--rule-2);border-radius:999px;padding:3px 7px 2px;color:var(--ink-2)}
+.srv-cfg{font-size:12.5px;overflow-wrap:anywhere;color:var(--ink-2)}
+
+.term{background:var(--term);color:var(--term-ink);border-radius:5px;padding:10px 14px;font:13px/1.6 var(--mono)}
+.term p{margin:0;color:var(--term-ink);overflow-wrap:anywhere}
+.term .ps{color:var(--accent-inv);margin-right:1ch}
+.term .out{color:var(--term-dim);padding-left:2ch}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .term .ps{color:var(--accent)}}
+:root[data-theme="dark"] .term .ps{color:var(--accent)}
+
+/* what stays yours */
+.mine{list-style:none;margin:0;padding:0;background:var(--card);border:1px solid var(--rule);border-radius:6px}
+.mine li{display:grid;grid-template-columns:2.4ch minmax(0,1fr);gap:0 10px;padding:8px 14px}
+.mine li + li{border-top:1px solid var(--rule)}
+.mine .mk{font:700 13px/1.5 var(--mono);color:var(--ink-3);grid-row:span 2}
+.mine .p{font:600 13px/1.5 var(--mono);overflow-wrap:anywhere}
+.mine span.d{color:var(--ink-2);font-size:.9rem;line-height:1.4}
+.prec{display:grid;gap:8px}
+.stack{list-style:none;margin:0;padding:0 0 0 24px;display:grid;gap:5px;position:relative}
+.stack::before{content:"";position:absolute;left:8px;top:8px;bottom:6px;width:2px;background:var(--rule-2)}
+.stack::after{content:"";position:absolute;left:4px;top:0;border:5px solid transparent;border-bottom:8px solid var(--rule-2);border-top:0}
+.lvl{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 10px;padding:5px 10px;border-radius:4px;border:1px solid var(--rule);background:var(--card);font:12.5px/1.45 var(--mono)}
+.lvl small{font:12px/1.45 var(--sans);color:var(--ink-2)}
+.lvl.team{border-color:var(--accent-line);background:var(--accent-soft)}
+.lvl.team .lv{color:var(--accent);font-weight:700}
+.prec p{margin:0;font-size:.85rem;color:var(--ink-2);text-wrap:pretty}
+
+/* risks */
+.risks{display:grid;gap:12px}
+@media (min-width:640px){.risks{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:1060px){.risks{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.risk{background:var(--card);border:1px solid var(--rule);border-radius:6px;padding:14px;display:grid;gap:8px;align-content:start}
+.risk-h{display:flex;gap:10px;align-items:center}
+.risk-h svg{flex:none;width:24px;height:24px;color:var(--accent)}
+.risk p{margin:0;color:var(--ink-2);font-size:.92rem;line-height:1.45;text-wrap:pretty}
+.risk .agree{padding-top:8px;border-top:1px dashed var(--rule-2);color:var(--ink);font-weight:550}
+.agree b{display:block;font:700 .66rem/1.5 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+
+/* the ask (kept distinct from the .ask permission lane) */
+.askbox{background:var(--ink);color:var(--paper);border-radius:8px;padding:20px 18px;display:grid;gap:14px}
+@media (min-width:860px){.askbox{grid-template-columns:auto minmax(0,1fr);column-gap:40px;padding:22px 28px;align-items:start}}
+.askbox h2{color:var(--paper);font-size:1.35rem;line-height:1.3}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:10px;counter-reset:s}
+@media (min-width:860px){.steps{grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}}
+.steps li{display:grid;grid-template-columns:1.5rem minmax(0,1fr);gap:8px;align-items:baseline;counter-increment:s;font-weight:600}
+.steps li::before{content:counter(s);font:700 1.25rem/1 var(--mono);color:var(--accent-inv)}
+.steps small{display:block;font-weight:400;font-size:.88rem;opacity:.82}
+.after{margin:0;font-size:.9rem}
+@media (min-width:860px){.after{grid-column:2}}
+.after b{font:700 .68rem/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent-inv);margin-right:6px}
+.askbox code{font-size:.88em;color:var(--paper);border:1px solid currentColor;border-radius:3px;padding:0 3px;white-space:nowrap}
+
+/* footer */
+.foot{display:grid;gap:6px;border-top:1px solid var(--rule);padding-top:14px;font-size:.85rem;color:var(--ink-2)}
+.foot p{margin:0;text-wrap:pretty}
+.credit{color:var(--ink-3)}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="top">
+  <header class="masthead">
+    <p class="eyebrow">One-pager <span>·</span> Saltmarsh Ferries <span>·</span> Nov 2026 <span>·</span> First reactions wanted</p>
+    <h1>Let’s check our Claude Code setup into the repo</h1>
+    <p class="dek">Five of us set up Claude Code on <code>booking-api</code> alone. Put the shared parts in git, and everyone who pulls gets the same rules, tools and shortcuts.</p>
+    <p class="tldr"><span class="tag">The ask</span> Skim PR #318 and agree four rules by Friday.</p>
+  </header>
+  <div class="why" role="group" aria-label="Today versus after this change">
+    <figure class="why-panel">
+      <svg viewBox="6 6 408 154" role="img" aria-label="Five laptops, each fed by its own separate settings folder, each showing a different setup.">
+        <path class="tie" d="M50 52V104M130 40V104M210 58V104M290 44V104M370 54V104"/>
+        <path class="sc1 fold-own" d="M33 50V28q0-2 2-2H44l4 4H65q2 0 2 2V50q0 2-2 2H35q-2 0-2-2Z"/>
+        <path class="fold-empty" d="M113 38V16q0-2 2-2H124l4 4H145q2 0 2 2V38q0 2-2 2H115q-2 0-2-2Z"/>
+        <path class="sc2 fold-own" d="M193 56V34q0-2 2-2H204l4 4H225q2 0 2 2V56q0 2-2 2H195q-2 0-2-2Z"/>
+        <path class="sc3 fold-own" d="M273 42V20q0-2 2-2H284l4 4H305q2 0 2 2V42q0 2-2 2H275q-2 0-2-2Z"/>
+        <path class="sc1 fold-own" d="M353 52V30q0-2 2-2H364l4 4H385q2 0 2 2V52q0 2-2 2H355q-2 0-2-2Z"/>
+        <rect class="lt-screen" x="17" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="13" y="151" width="74" height="6" rx="2"/>
+        <rect class="sc2" x="26" y="114" width="40" height="6" rx="3"/><rect class="sc1" x="26" y="124" width="26" height="6" rx="3"/><rect class="sc2" x="26" y="134" width="48" height="6" rx="3"/>
+        <rect class="lt-screen" x="97" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="93" y="151" width="74" height="6" rx="2"/>
+        <rect class="sc1" x="106" y="114" width="22" height="6" rx="3"/>
+        <rect class="lt-screen" x="177" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="173" y="151" width="74" height="6" rx="2"/>
+        <rect class="sc2" x="186" y="114" width="48" height="6" rx="3"/><rect class="sc2" x="186" y="124" width="18" height="6" rx="3"/><rect class="sc1" x="186" y="134" width="36" height="6" rx="3"/>
+        <rect class="lt-screen" x="257" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="253" y="151" width="74" height="6" rx="2"/>
+        <rect class="sc1" x="266" y="114" width="30" height="6" rx="3"/><rect class="sc2" x="266" y="124" width="44" height="6" rx="3"/>
+        <rect class="lt-screen" x="337" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="333" y="151" width="74" height="6" rx="2"/>
+        <rect class="sc2" x="346" y="114" width="48" height="6" rx="3"/><rect class="sc1" x="346" y="124" width="34" height="6" rx="3"/><rect class="sc2" x="346" y="134" width="12" height="6" rx="3"/>
+      </svg>
+      <figcaption><b>Today</b>Five setups, each built alone.</figcaption>
+    </figure>
+    <div class="why-arrow" aria-hidden="true">
+      <svg viewBox="0 0 40 24"><path d="M2 12h32M26 4l9 8-9 8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <figure class="why-panel why-after">
+      <svg viewBox="6 6 408 154" role="img" aria-label="One shared .claude folder in the repo, with lines to five laptops that all show the same setup.">
+        <path class="fan" d="M210 60L50 104M210 60L130 104M210 60V104M210 60L290 104M210 60L370 104"/>
+        <path class="ac" d="M166 57V14q0-3 3-3H195l6 7H251q3 0 3 3V57q0 3-3 3H169q-3 0-3-3Z"/>
+        <text class="fold-txt" x="210" y="44" text-anchor="middle">.claude/</text>
+        <rect class="lt-screen" x="17" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="13" y="151" width="74" height="6" rx="2"/>
+        <rect class="ac" x="26" y="114" width="42" height="6" rx="3"/><rect class="ac-2" x="26" y="124" width="28" height="6" rx="3"/><rect class="ac-3" x="26" y="134" width="48" height="6" rx="3"/>
+        <rect class="lt-screen" x="97" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="93" y="151" width="74" height="6" rx="2"/>
+        <rect class="ac" x="106" y="114" width="42" height="6" rx="3"/><rect class="ac-2" x="106" y="124" width="28" height="6" rx="3"/><rect class="ac-3" x="106" y="134" width="48" height="6" rx="3"/>
+        <rect class="lt-screen" x="177" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="173" y="151" width="74" height="6" rx="2"/>
+        <rect class="ac" x="186" y="114" width="42" height="6" rx="3"/><rect class="ac-2" x="186" y="124" width="28" height="6" rx="3"/><rect class="ac-3" x="186" y="134" width="48" height="6" rx="3"/>
+        <rect class="lt-screen" x="257" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="253" y="151" width="74" height="6" rx="2"/>
+        <rect class="ac" x="266" y="114" width="42" height="6" rx="3"/><rect class="ac-2" x="266" y="124" width="28" height="6" rx="3"/><rect class="ac-3" x="266" y="134" width="48" height="6" rx="3"/>
+        <rect class="lt-screen" x="337" y="104" width="66" height="46" rx="4"/><rect class="lt-base" x="333" y="151" width="74" height="6" rx="2"/>
+        <rect class="ac" x="346" y="114" width="42" height="6" rx="3"/><rect class="ac-2" x="346" y="124" width="28" height="6" rx="3"/><rect class="ac-3" x="346" y="134" width="48" height="6" rx="3"/>
+      </svg>
+      <figcaption><b>After PR #318</b>One setup in git. Pull, and you have it.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="main">
+  <section class="sec" aria-labelledby="add-h">
+    <h2 id="add-h">What we’d add, and what each buys</h2>
+    <p class="lead">Six files, one PR, marked the way <code class="inl">git status</code> marks them. Open a new file to see inside.</p>
+    <ul class="tree" aria-label="The booking-api repository after the PR">
+      <li class="row dim"><span class="rl"><span class="st"></span><span class="pn"><span class="nm">booking-api/</span></span></span></li>
+      <li class="row dim"><span class="rl"><span class="st"></span><span class="pn"><span class="pfx" aria-hidden="true">├─ </span><span class="nm">.claude/</span></span></span></li>
+      <li class="row add"><details><summary><span class="rl"><span class="st"><span aria-hidden="true">A</span><span class="vh">Added:</span></span><span class="pn"><span class="pfx" aria-hidden="true">│  ├─ </span><span class="nm"><span class="vh">.claude/</span>settings.json</span></span><span class="nt"><span class="pfx2" aria-hidden="true">│  │  </span><span class="c">guardrails + auto-format</span></span></span></summary>
+        <div class="peek">
+          <p><b>Permission rules.</b> Safe commands run without a prompt; secrets are off limits. Checked deny, then ask, then allow; the first match wins.</p>
+          <div class="lanes">
+            <div class="lane deny dim" data-lane="deny"><span class="ln">deny</span><span class="rules"><code class="rule">Read(./.env)</code><code class="rule">Read(./.env.*)</code><code class="rule">Read(./secrets/**)</code></span></div>
+            <div class="lane ask dim" data-lane="ask"><span class="ln">ask</span><span class="rules"><code class="rule">Bash(git push *)</code><code class="rule">Bash(npm run migrate *)</code></span></div>
+            <div class="lane allow hit" data-lane="allow"><span class="ln">allow</span><span class="rules"><code class="rule hit">Bash(npm test *)</code><code class="rule">Bash(npm run lint *)</code><code class="rule">Bash(npm run typecheck *)</code></span></div>
+          </div>
+          <div class="try">
+            <span class="label" id="try-l">Try a command Claude might run</span>
+            <div class="cmds" role="group" aria-labelledby="try-l">
+              <button type="button" class="cmd" aria-pressed="true">npm test</button>
+              <button type="button" class="cmd" aria-pressed="false">git push origin main</button>
+              <button type="button" class="cmd" aria-pressed="false">cat .env</button>
+              <button type="button" class="cmd" aria-pressed="false">git -C . push origin main</button>
+              <button type="button" class="cmd" aria-pressed="false">grep -r API_KEY .</button>
+            </div>
+            <p class="verdict" id="verdict" data-lane="allow" aria-live="polite"><b class="v-tag">allow</b> Matches <code>Bash(npm test *)</code>: runs without a prompt, once you’ve trusted the folder.</p>
+          </div>
+          <p><b>Format hook.</b> After every edit, Prettier runs on the file. It always runs, silently, without relying on Claude to remember. Needs <code class="inl">jq</code>.</p>
+          <ol class="flow">
+            <li><span class="fk">Claude edits a file</span><code>src/api/handlers/fares.ts</code></li>
+            <li><span class="fk">PostToolUse hook, matcher</span><code>Edit|Write</code></li>
+            <li><span class="fk">Runs</span><code>npx prettier --write src/api/handlers/fares.ts</code></li>
+          </ol>
+<pre class="snip">{
+  <span class="k">"permissions"</span>: {
+    "allow": [
+      "Bash(npm test *)",
+      "Bash(npm run lint *)",
+      "Bash(npm run typecheck *)"
+    ],
+    "ask": ["Bash(git push *)", "Bash(npm run migrate *)"],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)"
+    ]
+  },
+  <span class="k">"hooks"</span>: {
+    "PostToolUse": [{
+      "matcher": "Edit|Write",
+      "hooks": [{
+        "type": "command",
+        "command": "jq -r '.tool_input.file_path' | xargs npx prettier --write"
+      }]
+    }]
+  }
+}</pre>
+        </div>
+      </details></li>
+      <li class="row ign"><span class="rl"><span class="st"><span aria-hidden="true">!!</span><span class="vh">Ignored by git:</span></span><span class="pn"><span class="pfx" aria-hidden="true">│  ├─ </span><span class="nm"><span class="vh">.claude/</span>settings.local.json</span></span><span class="nt"><span class="pfx2" aria-hidden="true">│  │  </span><span class="c">yours: personal overrides</span></span></span></li>
+      <li class="row dim"><span class="rl"><span class="st"></span><span class="pn"><span class="pfx" aria-hidden="true">│  └─ </span><span class="nm"><span class="vh">.claude/</span>skills/</span></span></span></li>
+      <li class="row add"><details><summary><span class="rl"><span class="st"><span aria-hidden="true">A</span><span class="vh">Added:</span></span><span class="pn"><span class="pfx" aria-hidden="true">│     ├─ </span><span class="nm"><span class="vh">.claude/skills/</span>deploy-staging/SKILL.md</span></span><span class="nt"><span class="pfx2" aria-hidden="true">│     │  </span><span class="c">/deploy-staging, humans only</span></span></span></summary>
+        <div class="peek">
+<pre class="snip">---
+description: Deploy the current branch to staging
+<mark>disable-model-invocation: true</mark>
+---
+1. Run npm test
+2. Run npm run deploy-staging
+3. Post the staging URL on the PR</pre>
+          <p>Only a person can start it: Claude can’t invoke this skill on its own.</p>
+        </div>
+      </details></li>
+      <li class="row add"><details><summary><span class="rl"><span class="st"><span aria-hidden="true">A</span><span class="vh">Added:</span></span><span class="pn"><span class="pfx" aria-hidden="true">│     └─ </span><span class="nm"><span class="vh">.claude/skills/</span>new-endpoint/SKILL.md</span></span><span class="nt"><span class="pfx2" aria-hidden="true">│        </span><span class="c">/new-endpoint scaffold</span></span></span></summary>
+        <div class="peek">
+          <div class="term"><p><span class="ps" aria-hidden="true">›</span>/new-endpoint refunds</p><p class="out">handler, schema and test, written our way</p></div>
+<pre class="snip">---
+description: Scaffold a booking-api endpoint (handler, schema, test). Use when adding a route.
+argument-hint: &lt;resource&gt;
+---
+Add an endpoint for $ARGUMENTS:
+1. Handler in src/api/handlers/
+2. Request schema next to it
+3. A test, then run npm test</pre>
+          <p>The folder name becomes the command, and Claude can also load the skill on its own when a task fits.</p>
+        </div>
+      </details></li>
+      <li class="row mod"><details><summary><span class="rl"><span class="st"><span aria-hidden="true">M</span><span class="vh">Changed:</span></span><span class="pn"><span class="pfx" aria-hidden="true">├─ </span><span class="nm">.gitignore</span></span><span class="nt"><span class="pfx2" aria-hidden="true">│  </span><span class="c">keeps personal files out</span></span></span></summary>
+        <div class="peek">
+<pre class="snip"><span class="m"># Claude Code: personal files</span>
+CLAUDE.local.md
+.claude/settings.local.json</pre>
+          <p>Claude Code already keeps <code class="inl">settings.local.json</code> out of git when it creates the file; this covers files made by hand.</p>
+        </div>
+      </details></li>
+      <li class="row add"><details><summary><span class="rl"><span class="st"><span aria-hidden="true">A</span><span class="vh">Added:</span></span><span class="pn"><span class="pfx" aria-hidden="true">├─ </span><span class="nm">.mcp.json</span></span><span class="nt"><span class="pfx2" aria-hidden="true">│  </span><span class="c">shared GitHub + DB, no tokens</span></span></span></summary>
+        <div class="peek">
+          <div class="servers">
+            <div class="srv"><div class="srv-h"><code class="srv-name">github</code><span class="pill">http</span></div><code class="srv-cfg">PRs, issues, reviews · Bearer <mark>${SALTMARSH_GH_PAT}</mark></code></div>
+            <div class="srv"><div class="srv-h"><code class="srv-name">db</code><span class="pill">stdio</span></div><code class="srv-cfg">staging, read-only user · --dsn <mark>${STAGING_RO_DSN}</mark></code></div>
+          </div>
+          <p>Each <code class="inl">${…}</code> is read from your own environment, so git holds names, never tokens. Claude Code asks each of us to approve both servers before using them.</p>
+<pre class="snip">{
+  <span class="k">"mcpServers"</span>: {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer <mark>${SALTMARSH_GH_PAT}</mark>"
+      }
+    },
+    "db": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y", "@bytebase/dbhub",
+        "--dsn", "<mark>${STAGING_RO_DSN}</mark>"
+      ]
+    }
+  }
+}</pre>
+        </div>
+      </details></li>
+      <li class="row ign"><span class="rl"><span class="st"><span aria-hidden="true">!!</span><span class="vh">Ignored by git:</span></span><span class="pn"><span class="pfx" aria-hidden="true">├─ </span><span class="nm">CLAUDE.local.md</span></span><span class="nt"><span class="pfx2" aria-hidden="true">│  </span><span class="c">yours: notes for this repo</span></span></span></li>
+      <li class="row add"><details><summary><span class="rl"><span class="st"><span aria-hidden="true">A</span><span class="vh">Added:</span></span><span class="pn"><span class="pfx" aria-hidden="true">├─ </span><span class="nm">CLAUDE.md</span></span><span class="nt"><span class="pfx2" aria-hidden="true">│  </span><span class="c">stop re-explaining the repo</span></span></span></summary>
+        <div class="peek">
+<pre class="snip" aria-label="Excerpt of CLAUDE.md"><span class="k"># booking-api</span>
+<span class="k">## Commands</span>
+- `npm test` before every commit
+- `npm run lint` must pass
+<span class="k">## Conventions</span>
+- Money is integer pence
+- Handlers: `src/api/handlers/`
+- New endpoint? Use /new-endpoint</pre>
+          <div class="meter">
+            <div class="meter-bar" aria-hidden="true"><i></i></div>
+            <div class="meter-cap"><span>38 lines</span><span>docs: keep it under 200</span></div>
+          </div>
+          <p>Claude reads it at the start of every session: commands and conventions, written once for all of us. <code class="inl">/init</code> drafts a first version.</p>
+        </div>
+      </details></li>
+      <li class="row dim"><span class="rl"><span class="st"></span><span class="pn"><span class="pfx" aria-hidden="true">├─ </span><span class="nm">README.md</span></span></span></li>
+      <li class="row dim"><span class="rl"><span class="st"></span><span class="pn"><span class="pfx" aria-hidden="true">├─ </span><span class="nm">package.json</span></span></span></li>
+      <li class="row dim"><span class="rl"><span class="st"></span><span class="pn"><span class="pfx" aria-hidden="true">└─ </span><span class="nm">src/</span></span></span></li>
+    </ul>
+    <p class="legend"><span><b>A</b>new</span><span><b>M</b>changed</span><span class="k-ign"><b>!!</b>ignored by git, stays yours</span><span><b>+</b>open for details</span></p>
+  </section>
+
+  <section class="sec" aria-labelledby="mine-h">
+    <h2 id="mine-h">What stays yours</h2>
+    <ul class="mine">
+      <li><span class="mk" aria-hidden="true">!!</span><span class="p">.claude/settings.local.json</span><span class="d">Your overrides and “don’t ask again” approvals.</span></li>
+      <li><span class="mk" aria-hidden="true">!!</span><span class="p">CLAUDE.local.md</span><span class="d">Your notes: sandbox URLs, test data.</span></li>
+      <li><span class="mk" aria-hidden="true">~</span><span class="p">~/.claude/</span><span class="d">Theme, editor mode, default model, in every repo.</span></li>
+      <li><span class="mk" aria-hidden="true">~</span><span class="p">~/.claude.json</span><span class="d">MCP servers you add just for yourself.</span></li>
+      <li><span class="mk" aria-hidden="true">$</span><span class="p">Your tokens</span><span class="d">Stay in your shell. <code class="inl">.mcp.json</code> only names them.</span></li>
+    </ul>
+    <div class="prec">
+      <span class="label">Same key in two files? Higher wins</span>
+      <ol class="stack" aria-label="Settings precedence among the three files, highest first">
+        <li class="lvl"><span class="lv">.claude/settings.local.json</span><small>you</small></li>
+        <li class="lvl team"><span class="lv">.claude/settings.json</span><small>team</small></li>
+        <li class="lvl"><span class="lv">~/.claude/settings.json</span><small>you, every repo</small></li>
+      </ol>
+      <p>Org policy and <code class="inl">--settings</code> sit above all three. Permission lists add up instead, and a deny in any file wins.</p>
+    </div>
+  </section>
+</div>
+
+<section class="sec" aria-labelledby="risk-h">
+  <h2 id="risk-h">Risks to agree on</h2>
+  <div class="risks">
+    <article class="risk">
+      <div class="risk-h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10l3 2.5L7 15M12.5 15.5h4.5"/></svg><h3>Hooks run as us</h3></div>
+      <p>Hooks get your full user permissions, and <code class="inl">claude -p</code> runs never ask. Skills can pre-approve tools.</p>
+      <p class="agree"><b>We agree</b>A second reviewer on <code class="inl">.claude/</code> and <code class="inl">.mcp.json</code>.</p>
+    </article>
+    <article class="risk">
+      <div class="risk-h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.6L16 9.5"/></svg><h3>Allow is a yes for all of us</h3></div>
+      <p>No prompt on any machine that trusts the repo. Deny and ask rules apply everywhere.</p>
+      <p class="agree"><b>We agree</b>Allow only tests, lint and type checks.</p>
+    </article>
+    <article class="risk">
+      <div class="risk-h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4H5v16h3M16 4h3v16h-3M12 8v8"/></svg><h3>Rules match text, not intent</h3></div>
+      <p><code class="inl">Bash(git push *)</code> misses <code class="inl">git -C . push</code>. CLAUDE.md is advice, not enforcement.</p>
+      <p class="agree"><b>We agree</b>Must-never-happen goes in a hook or the sandbox.</p>
+    </article>
+    <article class="risk">
+      <div class="risk-h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="3.5"/><path d="M10 13l9.5-9.5M16.5 6.5l2.5 2.5M13.8 9.2l2 2"/></svg><h3>Tokens and data</h3></div>
+      <p>A token in <code class="inl">.mcp.json</code> lands in every clone. The DB server can do whatever its user can.</p>
+      <p class="agree"><b>We agree</b>Names only, never values. The DB user is read-only.</p>
+    </article>
+  </div>
+</section>
+
+<section class="askbox" aria-labelledby="ask-h">
+  <h2 id="ask-h">The ask</h2>
+  <ol class="steps">
+    <li><span>Skim PR #318<small>6 files, about 130 lines</small></span></li>
+    <li><span>Agree the four rules<small>thumbs-up in #booking-dev by Friday</small></span></li>
+    <li><span>Try it for two sprints<small>then keep, trim or drop it at the retro</small></span></li>
+  </ol>
+  <p class="after"><b>After you pull</b>Set <code>SALTMARSH_GH_PAT</code> and <code>STAGING_RO_DSN</code>, then approve the two MCP servers when asked. Questions: Priya.</p>
+</section>
+
+<footer class="foot">
+  <p>Saltmarsh Ferries, <code>booking-api</code> and the team are made up. Every Claude Code detail comes from the docs:
+    <a href="https://code.claude.com/docs/en/memory" target="_blank" rel="noopener">CLAUDE.md and memory</a> ·
+    <a href="https://code.claude.com/docs/en/settings" target="_blank" rel="noopener">Settings</a> ·
+    <a href="https://code.claude.com/docs/en/settings-example" target="_blank" rel="noopener">Example settings</a> ·
+    <a href="https://code.claude.com/docs/en/permissions" target="_blank" rel="noopener">Permissions</a> ·
+    <a href="https://code.claude.com/docs/en/hooks-guide" target="_blank" rel="noopener">Hooks guide</a> ·
+    <a href="https://code.claude.com/docs/en/hooks#security-considerations" target="_blank" rel="noopener">Hooks security</a> ·
+    <a href="https://code.claude.com/docs/en/mcp" target="_blank" rel="noopener">MCP</a> ·
+    <a href="https://code.claude.com/docs/en/skills" target="_blank" rel="noopener">Skills</a> ·
+    <a href="https://code.claude.com/docs/en/claude-directory" target="_blank" rel="noopener">The .claude directory</a></p>
+  <p class="credit">Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/one-pager" target="_blank" rel="noopener">one-pager</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+
+</div>
+<script>
+(function(){
+  var CASES = [
+    {lane:'allow', rule:'Bash(npm test *)', say:'Matches <code>Bash(npm test *)</code>: runs without a prompt, once you’ve trusted the folder.'},
+    {lane:'ask', rule:'Bash(git push *)', say:'Matches <code>Bash(git push *)</code>: Claude Code asks first, every time.'},
+    {lane:'deny', rule:'Read(./.env)', say:'Matches <code>Read(./.env)</code>: blocked. Read rules also cover commands such as <code>cat</code>, <code>head</code> and <code>tail</code> that name the file.'},
+    {lane:null, rule:null, say:'Rules match the command as written, so this push slips past the ask rule. Your permission mode decides what happens: in Manual mode, the usual prompt.'},
+    {lane:null, rule:null, say:'<code>grep</code> is on the built-in read-only list and this command never names <code>.env</code>, so it runs without asking and can read it. The sandbox closes this gap.'}
+  ];
+  var btns = Array.prototype.slice.call(document.querySelectorAll('.cmd'));
+  var lanes = Array.prototype.slice.call(document.querySelectorAll('.lane'));
+  var rules = Array.prototype.slice.call(document.querySelectorAll('.rule'));
+  var out = document.getElementById('verdict');
+  if (!out || btns.length !== CASES.length) return;
+  function show(i){
+    var c = CASES[i];
+    btns.forEach(function(b, j){ b.setAttribute('aria-pressed', j === i ? 'true' : 'false'); });
+    lanes.forEach(function(l){
+      var on = c.lane === l.getAttribute('data-lane');
+      l.classList.toggle('hit', on);
+      l.classList.toggle('dim', !on);
+    });
+    rules.forEach(function(r){ r.classList.toggle('hit', r.textContent === c.rule); });
+    out.setAttribute('data-lane', c.lane || 'none');
+    out.innerHTML = '<b class="v-tag">' + (c.lane || 'no match') + '</b> ' + c.say;
+  }
+  btns.forEach(function(b, i){ b.addEventListener('click', function(){ show(i); }); });
+})();
+</script>
+</body>
+</html>

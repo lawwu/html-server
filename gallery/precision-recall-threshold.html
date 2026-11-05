@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Precision and recall, in pictures</title>
+<meta name="description" content="Drag a spam filter’s threshold across 100 emails to see what it catches, what it wrongly flags and what slips through, with precision, recall and the precision–recall curve updating live. Then see why accuracy misleads when spam is rare, and how the cost of each mistake picks the line.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  --bg:#f3f5f9; --surface:#ffffff; --ink:#131722; --ink-2:#586176; --rule:#d9dee8; --zone:#e9effb;
+  --tp:#2a5bd7; --fp:#d1432b; --fn:#e2a019; --fn-ink:#8c5d00; --quiet:#8a95aa; --focus:#2a5bd7;
+  --num:"DIN Alternate","Bahnschrift","DIN 2014","D-DIN","Roboto Condensed","Arial Narrow",system-ui,sans-serif;
+  --text:"Charter","Bitstream Charter","Sitka Text",Cambria,Georgia,serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d111a; --surface:#141a26; --ink:#e7ebf3; --ink-2:#9aa4b9; --rule:#283042; --zone:#1a2438;
+    --tp:#7da2ff; --fp:#ff7b5c; --fn:#f2b544; --fn-ink:#f2b544; --quiet:#5f6a82; --focus:#7da2ff;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d111a; --surface:#141a26; --ink:#e7ebf3; --ink-2:#9aa4b9; --rule:#283042; --zone:#1a2438;
+  --tp:#7da2ff; --fp:#ff7b5c; --fn:#f2b544; --fn-ink:#f2b544; --quiet:#5f6a82; --focus:#7da2ff;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 var(--text)}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+.wrap{max-width:60rem;margin:0 auto;padding:2.4rem 1rem 2.4rem}
+
+/* outcome tokens: envelope fill / stroke / flap */
+.tp{--ef:var(--tp);--es:var(--tp);--ep:var(--surface)}
+.fp{--ef:var(--fp);--es:var(--fp);--ep:var(--surface)}
+.fn{--ef:var(--fn);--es:var(--fn);--ep:var(--surface)}
+.tn{--ef:var(--surface);--es:var(--quiet);--ep:var(--quiet)}
+.c-tp{color:var(--tp)} .c-fp{color:var(--fp)} .c-fn{color:var(--fn-ink)} .c-tn{color:var(--ink-2)}
+
+.kicker{margin:0;font:700 .74rem/1.2 var(--num);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2)}
+h1{margin:.45rem 0 .55rem;font:900 clamp(2.05rem,5.6vw,3.3rem)/1.03 var(--text);letter-spacing:-.018em;text-wrap:balance}
+.dek{margin:0;max-width:36rem;font-size:1.1rem;color:var(--ink-2);text-wrap:pretty}
+
+/* the hero: 100 envelopes and a line */
+.stage{margin:1.5rem 0 0;padding:.85rem 0 1rem;background:var(--surface);border:1px solid var(--rule);border-radius:6px}
+.hint{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.2rem 1rem;padding:0 1rem .4rem;font:700 .7rem/1.3 var(--num);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.hint b{color:var(--ink)}
+.plot{position:relative;touch-action:pan-y;-webkit-user-select:none;user-select:none;cursor:ew-resize}
+.plot:focus{outline:none}
+.plot:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.plot svg{display:block;width:100%;height:auto}
+.plot:focus-visible .pill{stroke:var(--focus);stroke-width:3px}
+svg text{font-family:var(--num);font-weight:700}
+.zone{fill:var(--zone)}
+.zl{font-size:10.5px;letter-spacing:.14em;fill:var(--ink-2)}
+.ol .n{font-size:19px}
+.ol .w{font-size:11.5px;letter-spacing:.04em;fill:var(--ink-2)}
+.ol.tp .n{fill:var(--tp)} .ol.fp .n{fill:var(--fp)} .ol.fn .n{fill:var(--fn-ink)} .ol.tn .n{fill:var(--ink)}
+.ln{font-size:10.5px;letter-spacing:.12em;fill:var(--ink-2);paint-order:stroke;stroke:var(--surface);stroke-width:4px;stroke-linejoin:round}
+.mid{stroke:var(--ink-2);stroke-width:1;opacity:.55}
+.trk{stroke:var(--rule);stroke-width:2}
+.tick{stroke:var(--ink-2)}
+.tkl{font-size:11px;fill:var(--ink-2)}
+.thr{stroke:var(--ink);stroke-width:2}
+.pill{fill:var(--ink)}
+.ptx{fill:var(--surface);font-size:13px}
+.chev{fill:var(--surface)}
+.ring{fill:none;stroke:var(--ink);stroke-width:1.3}
+.tip{position:absolute;z-index:2;max-width:15rem;padding:.45rem .65rem;background:var(--surface);color:var(--ink);border:1px solid var(--rule);border-radius:4px;box-shadow:0 6px 18px rgba(10,14,25,.16);font:.86rem/1.35 var(--text);pointer-events:none;display:flex;flex-direction:column;gap:.1rem}
+.tip[hidden]{display:none}
+.tip span{font:700 .74rem/1.35 var(--num);letter-spacing:.04em;color:var(--ink-2)}
+.tip span.o.c-tp{color:var(--tp)} .tip span.o.c-fp{color:var(--fp)} .tip span.o.c-fn{color:var(--fn-ink)}
+.cap{padding:.35rem 1rem 0}
+.key{display:flex;flex-wrap:wrap;gap:.4rem 1.3rem;margin:0;padding:0;list-style:none;font:700 .78rem/1.3 var(--num);letter-spacing:.03em}
+.key li{display:flex;align-items:center;gap:.4rem}
+.key i{font:italic 400 .8rem var(--text);letter-spacing:0;color:var(--ink-2)}
+.g{display:block;flex:none;width:15px;height:10px}
+.note{display:flex;gap:.55rem;align-items:flex-start;margin:.7rem 0 0;max-width:42rem;font-size:.96rem;line-height:1.45;color:var(--ink-2)}
+.note svg{flex:none;margin-top:.3rem}
+
+/* the two questions */
+.scores{display:grid;grid-template-columns:1fr 1fr minmax(17rem,1.3fr);gap:1.8rem 2.2rem;margin-top:2rem;align-items:start}
+@media (max-width:860px){.scores{grid-template-columns:1fr 1fr}.curve{grid-column:1/-1;max-width:30rem}}
+@media (max-width:520px){.scores{grid-template-columns:1fr}}
+.lab{font:700 .74rem/1.2 var(--num);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2)}
+.big{margin:.3rem 0 .35rem;font:700 clamp(3rem,9vw,4.2rem)/1 var(--num);font-variant-numeric:tabular-nums}
+.q{margin:0 0 .7rem;font-size:1rem;line-height:1.4;max-width:18rem}
+.glyphs{display:flex;flex-wrap:wrap;gap:3px;min-height:10px}
+.frac{margin-top:.6rem;font:700 .84rem/1.4 var(--num);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.tech{margin:.2rem 0 0;font:italic .84rem/1.4 var(--text);color:var(--ink-2)}
+.tech span{display:block}
+@media (hover: none){.hov{display:none}}
+.curve svg{display:block;width:100%;height:auto;margin-top:.35rem}
+.curve p{margin:.35rem 0 0;font-size:.92rem;line-height:1.45;color:var(--ink-2)}
+.acc{display:flex;flex-wrap:wrap;gap:.2rem .7rem;align-items:baseline;margin:1.8rem 0 0;padding-top:.9rem;border-top:1px solid var(--rule);color:var(--ink-2);font-size:.98rem}
+.acc b{font:700 1.5rem/1 var(--num);color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* sections */
+.sec{margin-top:3.4rem}
+h2{margin:0 0 .45rem;font:700 clamp(1.45rem,3.6vw,1.9rem)/1.15 var(--text);letter-spacing:-.01em;text-wrap:balance}
+.lead{margin:0 0 1.2rem;max-width:36rem;text-wrap:pretty}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:1rem 2.4rem;max-width:38rem}
+.gfig{margin:0;min-width:0}
+.gl{margin:0 0 .55rem;font:700 .72rem/1.25 var(--num);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);min-height:2.5em}
+.grid{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}
+.grid .g{width:100%;height:auto;aspect-ratio:3/2}
+.grid .g:nth-child(n+91){margin-top:6px}
+.gstat{margin-top:.7rem;font:700 2.1rem/1 var(--num);font-variant-numeric:tabular-nums}
+.gstat small{margin-left:.3rem;font-size:.74rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.gsub{margin-top:.4rem;font-size:.95rem;line-height:1.4}
+.gsub span{display:block;font:700 .78rem/1.5 var(--num);color:var(--ink-2);letter-spacing:.03em}
+.ctl{display:grid;grid-template-columns:auto minmax(7rem,1fr) auto;gap:.6rem .9rem;align-items:center;max-width:40rem;font:700 .72rem/1.25 var(--num);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+.ctl span:last-child{text-align:right}
+@media (max-width:480px){.ctl{grid-template-columns:1fr 1fr}.ctl input{grid-column:1/-1;grid-row:2}}
+input[type=range]{width:100%;margin:0;accent-color:var(--ink);cursor:pointer}
+input[type=range]:focus-visible{outline:2px solid var(--focus);outline-offset:4px;border-radius:2px}
+.say{margin:.8rem 0 .4rem;font-size:1.08rem;min-height:1.6em}
+.legend{display:flex;flex-wrap:wrap;gap:.3rem 1.2rem;font:700 .78rem/1.3 var(--num);letter-spacing:.03em}
+.sw{display:inline-block;width:.72rem;height:.72rem;margin-right:.35rem;border-radius:1px;vertical-align:-.06em}
+#costbox{margin-top:.5rem}
+#costbox svg{display:block;width:100%;height:auto;cursor:pointer}
+.bfn{fill:var(--fn)} .bfp{fill:var(--fp)} .dim{opacity:.42}
+.bestbox{fill:none;stroke:var(--ink);stroke-width:1.5}
+.brk{fill:none;stroke:var(--bg);stroke-width:2.5}
+.yl{stroke:var(--ink);stroke-width:1.5;stroke-dasharray:4 3}
+.cl{font-size:11px;letter-spacing:.07em;fill:var(--ink);paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
+.sum{margin:.4rem 0 .9rem;font:700 .84rem/1.65 var(--num);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.sum b{color:var(--ink)}
+.nw{white-space:nowrap}
+.lead-l{stroke:var(--ink);stroke-width:1}
+.btn{font:700 .8rem/1 var(--num);letter-spacing:.1em;text-transform:uppercase;padding:.7rem 1rem;color:var(--ink);background:transparent;border:1.5px solid var(--ink);border-radius:3px;cursor:pointer;transition:background-color .15s,color .15s}
+.btn:hover:not(:disabled){background:var(--ink);color:var(--surface)}
+.btn:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.btn:disabled{opacity:.5;cursor:default}
+.after{margin:1.4rem 0 0;max-width:36rem;color:var(--ink-2);text-wrap:pretty}
+/* PR curve */
+.gr{stroke:var(--rule)}
+.tk,.at,.bl{font-size:10.5px;fill:var(--ink-2)}
+.at{letter-spacing:.12em}
+.base{stroke:var(--ink-2);stroke-dasharray:3 4}
+.ideal{fill:none;stroke:var(--ink-2);stroke-dasharray:2 2}
+.cv{fill:none;stroke:var(--ink-2);stroke-width:1.5;stroke-linejoin:round}
+.dot{fill:var(--ink-2);cursor:pointer}
+.cur{fill:var(--ink);stroke:var(--bg);stroke-width:2.5}
+.curl{font-size:12px;fill:var(--ink);paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
+footer{margin-top:3.2rem;padding-top:.9rem;border-top:1px solid var(--rule);font-size:.82rem;color:var(--ink-2)}
+footer a{color:inherit;text-underline-offset:2px}
+@media (max-width:559px){
+  .stage{margin-left:-1rem;margin-right:-1rem;border-radius:0;border-left:0;border-right:0}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="env" viewBox="0 0 24 16">
+    <rect x="1" y="1" width="22" height="14" rx="2.2" stroke-width="1.6" style="fill:var(--ef);stroke:var(--es)"/>
+    <path d="M2.8 2.9 12 9.6 21.2 2.9" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="stroke:var(--ep)"/>
+  </symbol>
+</svg>
+<main class="wrap">
+  <header>
+    <p class="kicker">Machine learning · classification</p>
+    <h1>Precision and recall, in pictures</h1>
+    <p class="dek">A spam filter gives 100 emails a score from 0 (surely fine) to 1 (surely spam). Every email at or above your line goes to the spam folder.</p>
+  </header>
+
+  <figure class="stage">
+    <div class="hint"><b>Drag the line</b><span>Keyboard: Tab to it, then ← →</span></div>
+    <div class="plot" id="plot" role="slider" tabindex="0" aria-label="Spam line: emails scoring at or above it go to the spam folder" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0.5">
+      <svg id="main" aria-hidden="true"></svg>
+      <div class="tip" id="tip" aria-hidden="true" hidden></div>
+    </div>
+    <figcaption class="cap">
+      <ul class="key">
+        <li><svg class="g tp" viewBox="0 0 24 16" aria-hidden="true"><use href="#env"/></svg>caught <i>true positive</i></li>
+        <li><svg class="g fn" viewBox="0 0 24 16" aria-hidden="true"><use href="#env"/></svg>slipped through <i>false negative</i></li>
+        <li><svg class="g fp" viewBox="0 0 24 16" aria-hidden="true"><use href="#env"/></svg>false alarm <i>false positive</i></li>
+        <li><svg class="g tn" viewBox="0 0 24 16" aria-hidden="true"><use href="#env"/></svg>kept <i>true negative</i></li>
+      </ul>
+      <p class="note"><svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true"><rect x="1" y="1" width="20" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><span>No line is perfect, because the two piles overlap. Ringed: a sale email you signed up for (score 0.86) and a phishing “invoice” (0.32).<span class="hov"> Hover any envelope to read it.</span></span></p>
+    </figcaption>
+  </figure>
+
+  <section class="scores" aria-label="Scores at your line">
+    <div class="metric">
+      <div class="lab">Precision</div>
+      <div class="big" id="pv">50%</div>
+      <p class="q">Of the emails sent to spam, how many really are spam?</p>
+      <div class="glyphs" id="pg" aria-hidden="true"></div>
+      <div class="frac" id="pf"></div>
+      <p class="tech"><span>caught ÷ (caught + false alarms)</span><span>TP ÷ (TP + FP)</span></p>
+    </div>
+    <div class="metric">
+      <div class="lab">Recall</div>
+      <div class="big" id="rv">80%</div>
+      <p class="q">Of all the real spam, how much does it catch?</p>
+      <div class="glyphs" id="rg" aria-hidden="true"></div>
+      <div class="frac" id="rf"></div>
+      <p class="tech"><span>caught ÷ (caught + slipped through)</span><span>TP ÷ (TP + FN)</span></p>
+    </div>
+    <div class="curve">
+      <div class="lab">Precision–recall curve</div>
+      <div id="prbox"><svg id="pr" role="img"></svg></div>
+      <p>Each dot is one place to put the line. Slide the line left and the dot moves right (more spam caught) and down (more false alarms). No dot reaches the ideal corner.</p>
+    </div>
+  </section>
+  <p class="acc">Accuracy <b id="av">90%</b><span id="af">90 right calls ÷ 100</span><span>Looks fine. Below: why it misleads.</span></p>
+
+  <section class="sec">
+    <h2>Accuracy can fool you</h2>
+    <p class="lead">Spam is rare here: 10 emails in 100. So a filter that flags nothing is already 90% accurate.</p>
+    <div class="pair">
+      <figure class="gfig">
+        <figcaption class="gl">A filter that flags nothing</figcaption>
+        <div class="grid" id="gA" role="img"></div>
+        <div class="gstat" id="sA"></div>
+        <div class="gsub" id="uA"></div>
+      </figure>
+      <figure class="gfig">
+        <figcaption class="gl">Our filter, line at 0.50</figcaption>
+        <div class="grid" id="gB" role="img"></div>
+        <div class="gstat" id="sB"></div>
+        <div class="gsub" id="uB"></div>
+      </figure>
+    </div>
+    <p class="after">Same score, and the bottom row is the 10 mistakes in both. Only one filter catches spam. Precision and recall show the difference; accuracy hides it.</p>
+  </section>
+
+  <section class="sec">
+    <h2>So where should the line go?</h2>
+    <p class="lead">Where mistakes cost least. That depends on which mistake hurts more.</p>
+    <div class="ctl">
+      <span aria-hidden="true">Spam slipping<br>through hurts more</span>
+      <input type="range" id="ratio" min="0" max="6" step="1" value="5" aria-label="Which mistake hurts more">
+      <span aria-hidden="true">Losing a good<br>email hurts more</span>
+    </div>
+    <p class="say" id="say"></p>
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw" style="background:var(--fp)"></i><span id="kfp">false alarms × 5</span></span>
+      <span><i class="sw" style="background:var(--fn)"></i><span id="kfn">slipped through × 1</span></span>
+    </div>
+    <div id="costbox"><svg id="cost" role="img"></svg></div>
+    <div class="sum" id="sum"></div>
+    <button class="btn" id="go" type="button">Move my line</button>
+    <p class="after">Many tools put the line at 0.5 by default. That is a habit, not an answer. Spam filters usually lean right: a job offer lost in the spam folder hurts more than one junk email. A filter screening a bank’s staff for phishing should lean left.</p>
+  </section>
+
+  <footer>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/big-pics-little-words" target="_blank" rel="noopener">big-pics-little-words</a> skill from effective-html (MIT) · HTML Server gallery</footer>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* 100 fictional emails: [score × 100, subject, ringed in the picture?]. 10 spam, 90 good. */
+  var SPAM = [
+    [32, 'Invoice attached — please review', 1], [46, 'Updated shared document for you'],
+    [61, 'Quick favor? Sent from my phone'], [68, 'Your package could not be delivered'],
+    [77, 'Crypto tip: 50× in one week'], [83, 'Your account will be suspended'],
+    [88, 'Claim your free cruise now'], [91, 'Lose 30 lbs in 30 days'],
+    [93, 'Cheap watches, best price!!!'], [97, 'You’ve WON a $1,000 gift card!!!']
+  ];
+  var GOOD = [
+    [1, 'Re: dinner Friday?'], [1, 'Photos from Grandma’s birthday'], [2, 'Carpool this week'],
+    [2, 'Re: notes from Tuesday’s call'], [3, 'Can you review my draft?'], [3, 'Soccer practice moved to 5pm'],
+    [4, 'Re: weekend plans'], [4, 'Lunch tomorrow?'], [4, 'Minutes: budget meeting'],
+    [5, 'Library books due Thursday'], [5, 'Quarterly report, final version'], [6, 'Re: the recipe you asked for'],
+    [6, 'Team offsite agenda'], [6, 'Piano recital schedule'], [7, 'Fwd: hiking trail map'],
+    [7, 'Re: question about the lease'], [8, 'Dentist appointment confirmed'], [8, 'Small group at our house Sunday'],
+    [8, 'Code review: search fix'], [9, 'Thank you for the flowers'], [9, 'Neighborhood cleanup Saturday'],
+    [10, 'Flight check-in is open'], [10, 'Reminder: parent–teacher conference'], [11, 'Re: borrowing the ladder'],
+    [11, 'Weekly status update'], [11, 'Field trip permission slip'], [12, 'Your water bill is ready'],
+    [12, 'Re: vacation photos'], [12, 'New comment on your document'], [13, 'Interview schedule for Monday'],
+    [13, 'Your prescription is ready'], [13, 'Re: book club pick'], [14, 'Your password was changed'],
+    [14, 'Swim lessons start June 3'], [15, 'Receipt from the hardware store'], [15, 'Pull request merged'],
+    [16, 'Volunteer sign-up sheet'], [16, 'Re: quote for the fence repair'], [17, 'Your order was delivered'],
+    [17, 'Your talk was accepted'], [18, 'Monthly statement available'], [18, 'Re: Thanksgiving potluck'],
+    [18, '1:1 moved to 3pm'], [19, 'School closed Monday (snow)'], [19, 'Your car is due for service'],
+    [20, 'Insurance renewal documents'], [20, 'Invitation: Sam’s 7th birthday'], [21, 'Re: Re: Re: printer jam'],
+    [21, 'Shared album: beach day'], [22, 'Your tax forms are ready'], [22, 'Course reminder: week 3 quiz'],
+    [23, 'Expense report approved'], [23, 'Dry cleaning ready for pickup'], [24, 'Church newsletter, May'],
+    [24, 'New sign-in from your laptop'], [25, 'Webinar recording now available'], [25, 'Your package is out for delivery'],
+    [26, 'Annual benefits enrollment'], [27, 'Re: refund for the cancelled class'], [27, 'Survey: how did we do?'],
+    [28, 'Verify your new email address'], [28, 'Your subscription renews soon'], [29, 'Holiday hours at the clinic'],
+    [30, 'Product update: new features'], [31, 'Your monthly points summary'], [31, 'Last call for RSVPs'],
+    [32, 'Alumni newsletter'], [33, 'Security alert: new device'], [33, 'Price drop on your saved item'],
+    [34, 'Final notice: library fine $2'], [35, 'Weekend deals near you'], [36, 'You have 3 unread messages'],
+    [37, 'Black Friday preview'], [38, 'Thanks for your donation'], [39, 'Rate your recent purchase'],
+    [40, 'Exclusive offer for members'], [41, 'Free shipping this weekend'], [43, 'Reminder: claim your rebate'],
+    [44, 'Don’t miss our spring sale'], [45, 'Your cart misses you'], [47, 'Last chance: early-bird tickets'],
+    [49, 'Gift card balance: $25'], [51, 'Win a family pass: school raffle'], [53, 'Act now: passport renewal reminder'],
+    [56, 'Congratulations! You’ve earned a reward'], [58, 'Your free trial ends in 3 days'],
+    [62, 'URGENT: confirm your RSVP by Friday'], [67, '$10 off, today only!'],
+    [72, 'You’re a WINNER: photo contest results'], [86, 'FLASH SALE: 70% off, tonight only!!!', 1]
+  ];
+  var N = 20;                       // line positions 0.00, 0.05 … 1.00; scores are binned the same way
+  var OUT = {
+    tp: '→ spam folder: caught', fp: '→ spam folder: false alarm',
+    fn: '→ inbox: slipped through', tn: '→ inbox: kept'
+  };
+  var STOPS = [[1, 10], [1, 5], [1, 2], [1, 1], [2, 1], [5, 1], [10, 1]];   // [cost of a false alarm, cost of a slipped spam]
+
+  var mails = [];
+  SPAM.forEach(function (d) { mails.push({ s: d[0], sub: d[1], ring: !!d[2], spam: true }); });
+  GOOD.forEach(function (d) { mails.push({ s: d[0], sub: d[1], ring: !!d[2], spam: false }); });
+  var nSpam = SPAM.length, nGood = GOOD.length, nAll = mails.length;
+  var stack = {}, maxS = 0, maxG = 0;
+  mails.sort(function (a, b) { return a.s - b.s; });
+  mails.forEach(function (m) {
+    m.bin = Math.floor(m.s / 5);
+    var key = (m.spam ? 's' : 'g') + m.bin;
+    m.row = stack[key] || 0;
+    stack[key] = m.row + 1;
+    if (m.spam) maxS = Math.max(maxS, m.row + 1); else maxG = Math.max(maxG, m.row + 1);
+  });
+  /* flagged ⇔ score ≥ line ⇔ bin ≥ k */
+  var ST = [];
+  for (var k = 0; k <= N; k++) {
+    var tp = 0, fp = 0;
+    for (var i = 0; i < nAll; i++) if (mails[i].bin >= k) { if (mails[i].spam) tp++; else fp++; }
+    ST.push({ k: k, tp: tp, fp: fp, fn: nSpam - tp, tn: nGood - fp,
+      p: tp + fp ? tp / (tp + fp) : null, r: tp / nSpam, acc: (tp + nGood - fp) / nAll });
+  }
+
+  var K = 10, stop = 5;
+  var $ = function (id) { return document.getElementById(id); };
+  function tStr(k) { return (k * 5 / 100).toFixed(2); }
+  function pct(x) { return x === null ? '—' : Math.round(x * 100) + '%'; }
+  function outcome(m, k) { return m.spam ? (m.bin >= k ? 'tp' : 'fn') : (m.bin >= k ? 'fp' : 'tn'); }
+  function env(cls) { return '<svg class="g ' + cls + '" viewBox="0 0 24 16" aria-hidden="true"><use href="#env"/></svg>'; }
+  function rep(cls, n) { var h = ''; for (var i = 0; i < n; i++) h += env(cls); return h; }
+  function f1(v) { return Math.round(v * 10) / 10; }
+  function plural(n, one, many) { return n === 1 ? one : many; }
+
+  /* ---------- the hero picture ---------- */
+  var plot = $('plot'), svg = $('main'), tip = $('tip');
+  var G = {}, R = {}, marks = [];
+
+  function buildMain() {
+    var cw = plot.clientWidth;
+    if (!cw) return;
+    var W = Math.max(cw, 300);          // narrower frames scale the drawing down instead of squashing it
+    var pad = W < 560 ? 20 : 28, PW = W - 2 * pad, bw = PW / N;
+    var ew = Math.min(bw * 0.76, 26), eh = ew * 2 / 3, gap = Math.max(2, ew * 0.15), sy = eh + gap;
+    var axis = 50 + maxS * sy + 4;
+    var goodBottom = axis + 3 + maxG * sy - gap;
+    var botLab = goodBottom + 25, track = botLab + 25, H = track + 52;
+    G = { W: W, pad: pad, PW: PW, bw: bw, ew: ew, eh: eh, sy: sy, axis: axis, track: track };
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.setAttribute('width', W);
+    svg.setAttribute('height', f1(H));
+    var h = '<rect id="zone" class="zone" y="0" height="' + f1(track - 12) + '"/>';
+    h += '<line class="mid" x1="' + pad + '" x2="' + (pad + PW) + '" y1="' + f1(axis) + '" y2="' + f1(axis) + '"/>';
+    h += '<line class="trk" x1="' + pad + '" x2="' + (pad + PW) + '" y1="' + f1(track) + '" y2="' + f1(track) + '"/>';
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (v) {
+      var x = f1(pad + v * PW);
+      h += '<line class="tick" x1="' + x + '" x2="' + x + '" y1="' + f1(track - 5) + '" y2="' + f1(track + 5) + '"/>';
+      h += '<text class="tkl" text-anchor="middle" x="' + x + '" y="' + f1(track + 29) + '">' + v + '</text>';
+    });
+    h += '<text class="zl" text-anchor="middle" x="' + f1(pad + PW / 2) + '" y="' + f1(track + 46) + '">SPAM SCORE</text>';
+    mails.forEach(function (m, i) {
+      var x = pad + m.bin * bw + (bw - ew) / 2;
+      var y = m.spam ? axis - 3 - eh - m.row * sy : axis + 3 + m.row * sy;
+      h += '<use href="#env" data-i="' + i + '" x="' + f1(x) + '" y="' + f1(y) + '" width="' + f1(ew) + '" height="' + f1(eh) + '"/>';
+      if (m.ring) h += '<rect class="ring" x="' + f1(x - 3.5) + '" y="' + f1(y - 3.5) + '" width="' + f1(ew + 7) + '" height="' + f1(eh + 7) + '" rx="4"/>';
+    });
+    h += '<text class="ln" x="' + pad + '" y="' + f1(axis - 3 - eh / 2 + 4) + '">SPAM (' + nSpam + ')</text>';
+    h += '<text class="ln" text-anchor="end" x="' + (pad + PW) + '" y="' + f1(axis + 3 + 3 * sy + eh / 2 + 4) + '">GOOD EMAIL (' + nGood + ')</text>';
+    h += '<text id="zIn" class="zl" text-anchor="end" y="14">← INBOX</text>';
+    h += '<text id="zSp" class="zl" y="14">SPAM FOLDER →</text>';
+    ['fn', 'tp'].forEach(function (c) { h += '<text id="l' + c + '" class="ol ' + c + '" y="40"><tspan class="n"></tspan><tspan class="w"></tspan></text>'; });
+    ['tn', 'fp'].forEach(function (c) { h += '<text id="l' + c + '" class="ol ' + c + '" y="' + f1(botLab) + '"><tspan class="n"></tspan><tspan class="w"></tspan></text>'; });
+    h += '<line id="thr" class="thr" y1="0" y2="' + f1(track - 12) + '"/>';
+    h += '<g id="handle"><rect class="pill" x="-38" y="-12" width="76" height="24" rx="12"/>' +
+      '<path class="chev" d="M-29 0l5-4v8zM29 0l-5-4v8z"/><text id="ptx" class="ptx" text-anchor="middle" y="4.6"></text></g>';
+    svg.innerHTML = h;
+    marks = Array.prototype.slice.call(svg.querySelectorAll('use[data-i]'));
+    ['zone', 'thr', 'handle', 'ptx', 'zIn', 'zSp', 'lfn', 'ltp', 'ltn', 'lfp'].forEach(function (id) { R[id] = $(id); });
+    R.zInW = R.zIn.getComputedTextLength();
+    R.zSpW = R.zSp.getComputedTextLength();
+    updateMain();
+  }
+
+  /* count + word beside the line; drop the word when the side is narrow, and the label when the side is empty */
+  function setLab(t, n, word, side, xL) {
+    var nn = t.firstChild, ww = t.lastChild;
+    t.style.display = (side < 0 ? K === 0 : K === N) ? 'none' : '';
+    nn.textContent = n;
+    ww.textContent = word;
+    ww.setAttribute('dx', 5);
+    t.setAttribute('text-anchor', side < 0 ? 'end' : 'start');
+    t.setAttribute('x', f1(side < 0 ? xL - 8 : xL + 8));
+    var room = side < 0 ? xL - G.pad - 8 : G.pad + G.PW - xL - 8;
+    if (t.getComputedTextLength() > room) { ww.textContent = ''; ww.setAttribute('dx', 0); }
+    var w = t.style.display ? 0 : t.getComputedTextLength();
+    if (side < 0 ? xL - 8 - w < 2 : xL + 8 + w > G.W - 2) t.style.display = 'none';
+  }
+
+  function updateMain() {
+    if (!G.W) return;
+    var s = ST[K], xL = G.pad + K / N * G.PW;
+    R.zone.setAttribute('x', f1(xL));
+    R.zone.setAttribute('width', f1(Math.max(0, G.pad + G.PW - xL)));
+    R.thr.setAttribute('x1', f1(xL));
+    R.thr.setAttribute('x2', f1(xL));
+    marks.forEach(function (u) { u.setAttribute('class', outcome(mails[+u.getAttribute('data-i')], K)); });
+    R.zIn.setAttribute('x', f1(xL - 8));
+    R.zSp.setAttribute('x', f1(xL + 8));
+    R.zIn.style.display = xL - G.pad - 8 >= R.zInW ? '' : 'none';
+    R.zSp.style.display = G.pad + G.PW - xL - 8 >= R.zSpW ? '' : 'none';
+    setLab(R.lfn, s.fn, 'slipped through', -1, xL);
+    setLab(R.ltp, s.tp, 'caught', 1, xL);
+    setLab(R.ltn, s.tn, 'kept', -1, xL);
+    setLab(R.lfp, s.fp, plural(s.fp, 'false alarm', 'false alarms'), 1, xL);
+    R.handle.setAttribute('transform', 'translate(' + f1(Math.max(42, Math.min(G.W - 42, xL))) + ',' + f1(G.track) + ')');
+    R.ptx.textContent = '≥ ' + tStr(K);
+    plot.setAttribute('aria-valuenow', tStr(K));
+    plot.setAttribute('aria-valuetext', valueText(s));
+  }
+
+  function valueText(s) {
+    var t = 'Line at ' + tStr(s.k) + '. ';
+    if (s.tp + s.fp === 0) return t + 'Nothing flagged; all ' + nSpam + ' spam slip through. Recall 0 percent, precision undefined.';
+    return t + (s.tp + s.fp) + ' flagged: ' + s.tp + ' spam caught, ' + s.fp + ' ' + plural(s.fp, 'false alarm', 'false alarms') +
+      '. ' + s.fn + ' spam slipped through. Precision ' + Math.round(s.p * 100) + ' percent, recall ' + Math.round(s.r * 100) + ' percent.';
+  }
+
+  /* drag, click and keys */
+  var dragging = false;
+  function kAt(clientX) {
+    var r = plot.getBoundingClientRect(), x = (clientX - r.left) * G.W / (r.width || G.W);
+    return Math.round((x - G.pad) / G.PW * N);
+  }
+  plot.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
+    dragging = true;
+    hideTip();
+    try { plot.setPointerCapture(e.pointerId); } catch (err) { /* capture is optional */ }
+    setK(kAt(e.clientX));
+  });
+  plot.addEventListener('pointermove', function (e) {
+    if (dragging) { setK(kAt(e.clientX)); return; }
+    if (e.pointerType !== 'mouse') return;
+    var t = e.target && e.target.closest ? e.target.closest('[data-i]') : null;
+    if (t) showTip(t); else hideTip();
+  });
+  function endDrag() { dragging = false; }
+  plot.addEventListener('pointerup', endDrag);
+  plot.addEventListener('pointercancel', endDrag);
+  plot.addEventListener('lostpointercapture', endDrag);
+  plot.addEventListener('pointerleave', hideTip);
+  plot.addEventListener('keydown', function (e) {
+    var step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -5, PageUp: 5 }[e.key];
+    if (e.key === 'Home') setK(0);
+    else if (e.key === 'End') setK(N);
+    else if (step) setK(K + step);
+    else return;
+    e.preventDefault();
+    hideTip();
+  });
+
+  function showTip(node) {
+    var m = mails[+node.getAttribute('data-i')], o = outcome(m, K);
+    var b = document.createElement('b'), a = document.createElement('span'), c = document.createElement('span');
+    b.textContent = '“' + m.sub + '”';
+    a.textContent = (m.spam ? 'Spam' : 'Good email') + ' · score ' + (m.s / 100).toFixed(2);
+    c.className = 'o c-' + o;
+    c.textContent = OUT[o];
+    tip.textContent = '';
+    tip.appendChild(b); tip.appendChild(a); tip.appendChild(c);
+    tip.hidden = false;
+    var cw = plot.clientWidth, sc = cw / G.W;
+    var x = (+node.getAttribute('x') + G.ew / 2) * sc, y = +node.getAttribute('y') * sc;
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var top = y - th - 10;
+    if (top < 0) top = y + G.eh * sc + 10;
+    tip.style.left = Math.max(4, Math.min(cw - tw - 4, x - tw / 2)) + 'px';
+    tip.style.top = top + 'px';
+  }
+  function hideTip() { tip.hidden = true; }
+
+  /* ---------- the two questions ---------- */
+  function updateScores() {
+    var s = ST[K];
+    $('pv').textContent = pct(s.p);
+    $('rv').textContent = pct(s.r);
+    $('pg').innerHTML = rep('tp', s.tp) + rep('fp', s.fp);
+    $('rg').innerHTML = rep('tp', s.tp) + rep('fn', s.fn);
+    $('pf').innerHTML = s.tp + s.fp
+      ? '<span class="c-tp">' + s.tp + ' caught</span> ÷ ' + (s.tp + s.fp) + ' flagged'
+      : 'Nothing flagged: 0 ÷ 0 has no answer';
+    $('rf').innerHTML = '<span class="c-tp">' + s.tp + ' caught</span> ÷ ' + nSpam + ' spam';
+    $('av').textContent = pct(s.acc);
+    $('af').textContent = (s.tp + s.tn) + ' right calls ÷ ' + nAll + ' emails.';
+  }
+
+  /* ---------- precision–recall curve ---------- */
+  var prBox = $('prbox'), pr = $('pr'), P = {};
+  function buildPR() {
+    var cw = prBox.clientWidth;
+    if (!cw) return;
+    var W = Math.max(cw, 260);
+    var H = Math.round(Math.max(210, Math.min(250, W * 0.68)));
+    var m = { l: 40, r: 16, t: 26, b: 40 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+    function X(r) { return m.l + r * iw; }
+    function Y(p) { return m.t + (1 - p) * ih; }
+    P = { W: W, H: H, X: X, Y: Y, m: m };
+    pr.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    pr.setAttribute('width', W);
+    pr.setAttribute('height', H);
+    var h = '';
+    [0, 0.5, 1].forEach(function (v) {
+      var lbl = v ? v * 100 + '%' : '0';
+      h += '<line class="gr" x1="' + m.l + '" x2="' + f1(X(1)) + '" y1="' + f1(Y(v)) + '" y2="' + f1(Y(v)) + '"/>';
+      h += '<line class="gr" x1="' + f1(X(v)) + '" x2="' + f1(X(v)) + '" y1="' + m.t + '" y2="' + f1(Y(0)) + '"/>';
+      h += '<text class="tk" text-anchor="end" x="' + (m.l - 6) + '" y="' + f1(Y(v) + 4) + '">' + lbl + '</text>';
+      h += '<text class="tk" text-anchor="middle" x="' + f1(X(v)) + '" y="' + f1(Y(0) + 16) + '">' + lbl + '</text>';
+    });
+    h += '<text class="at" x="' + m.l + '" y="13">PRECISION ↑</text>';
+    h += '<text class="at" text-anchor="end" x="' + f1(X(1)) + '" y="' + (H - 4) + '">RECALL →</text>';
+    var base = nSpam / nAll;
+    h += '<line class="base" x1="' + m.l + '" x2="' + f1(X(1)) + '" y1="' + f1(Y(base)) + '" y2="' + f1(Y(base)) + '"/>';
+    h += '<text class="bl" x="' + (m.l + 5) + '" y="' + f1(Y(base) - 5) + '">flag everything: ' + pct(base) + '</text>';
+    h += '<circle class="ideal" cx="' + f1(X(1)) + '" cy="' + f1(Y(1)) + '" r="5"/>';
+    h += '<text class="bl" text-anchor="end" x="' + f1(X(1) - 9) + '" y="' + f1(Y(1) + 15) + '">ideal</text>';
+    var pts = [];
+    for (var k = N - 1; k >= 0; k--) pts.push(f1(X(ST[k].r)) + ',' + f1(Y(ST[k].p)));
+    h += '<polyline class="cv" points="' + pts.join(' ') + '"/>';
+    for (k = 0; k < N; k++) h += '<circle class="dot" data-k="' + k + '" cx="' + f1(X(ST[k].r)) + '" cy="' + f1(Y(ST[k].p)) + '" r="3.4"/>';
+    h += '<g id="prc"><circle class="cur" r="6.5"/><text id="prl" class="curl"></text></g>';
+    pr.innerHTML = h;
+    updatePR();
+  }
+  function updatePR() {
+    if (!P.W) return;
+    var s = ST[K], g = $('prc'), lab = $('prl');
+    if (s.p === null) {
+      g.style.display = 'none';
+      pr.setAttribute('aria-label', 'Precision–recall curve. At ' + tStr(K) + ' nothing is flagged, so precision is undefined and recall is 0%.');
+      return;
+    }
+    g.style.display = '';
+    var cx = P.X(s.r), cy = P.Y(s.p);
+    g.setAttribute('transform', 'translate(' + f1(cx) + ',' + f1(cy) + ')');
+    lab.textContent = '≥ ' + tStr(K);
+    var w = lab.getComputedTextLength();
+    var lx = cx + 10 + w > P.W - 2 ? -10 - w : 10, ly = cy - 10 < 12 ? 18 : -9;
+    lab.setAttribute('x', f1(lx));
+    lab.setAttribute('y', ly);
+    pr.setAttribute('aria-label', 'Precision–recall curve with one dot per line position. Your line, ' + tStr(K) +
+      ', sits at recall ' + pct(s.r) + ' and precision ' + pct(s.p) + '.');
+  }
+  pr.addEventListener('pointerdown', function (e) {
+    var r = pr.getBoundingClientRect(), x = (e.clientX - r.left) * P.W / (r.width || P.W),
+      y = (e.clientY - r.top) * P.H / (r.height || P.H), best = -1, bd = 18 * 18;
+    for (var k = 0; k < N; k++) {
+      var dx = P.X(ST[k].r) - x, dy = P.Y(ST[k].p) - y, d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = k; }
+    }
+    if (best >= 0) setK(best);
+  });
+
+  /* ---------- accuracy: two grids ---------- */
+  function gridStats(id, s, label) {
+    $('g' + id).innerHTML = rep('tp', s.tp) + rep('tn', s.tn) + rep('fn', s.fn) + rep('fp', s.fp);
+    $('g' + id).setAttribute('aria-label', label + ': ' + (s.tp + s.tn) + ' right calls (' + s.tp + ' spam caught, ' + s.tn +
+      ' good emails kept) and ' + (s.fn + s.fp) + ' mistakes (' + s.fn + ' spam slipped through, ' + s.fp + ' false alarms).');
+    $('s' + id).innerHTML = pct(s.acc) + '<small>accurate</small>';
+    $('u' + id).innerHTML = 'Catches <b>' + s.tp + '</b> of ' + nSpam + ' spam' +
+      '<span>Recall ' + pct(s.r) + ' · precision ' + pct(s.p) + '</span>';
+  }
+
+  /* ---------- cost of mistakes ---------- */
+  var costBox = $('costbox'), cost = $('cost'), C = {};
+  function costsFor(c) { return ST.map(function (s) { return c[0] * s.fp + c[1] * s.fn; }); }
+  function bestOf(cs) { var b = 0; for (var k = 1; k <= N; k++) if (cs[k] < cs[b]) b = k; return b; }
+  function stopText(c) {
+    if (c[0] === c[1]) return 'Both mistakes hurt the same.';
+    return c[0] > c[1]
+      ? 'One false alarm hurts ' + c[0] + '× more than one spam slipping through.'
+      : 'One spam slipping through hurts ' + c[1] + '× more than one false alarm.';
+  }
+  function drawCost() {
+    var cw = costBox.clientWidth;
+    if (!cw) return;
+    var W = Math.max(cw, 300);
+    /* the scale tops out at 6× the cheapest line; costlier bars are cut and marked */
+    var c = STOPS[stop], cs = costsFor(c), b = bestOf(cs), yMax = Math.max(6 * cs[b], 6);
+    var pad = W < 560 ? 20 : 28, PW = W - 2 * pad, bw = PW / N, barW = Math.min(bw * 0.62, 22);
+    var top = 44, bh = 132, base = top + bh, H = base + 48;
+    C = { W: W, pad: pad, PW: PW };
+    function X(k) { return pad + k / N * PW; }
+    function hh(v) { return v / yMax * bh; }
+    cost.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    cost.setAttribute('width', W);
+    cost.setAttribute('height', H);
+    var h = '<defs><clipPath id="cclip"><rect x="0" y="' + top + '" width="' + W + '" height="' + bh + '"/></clipPath></defs><g clip-path="url(#cclip)">';
+    for (var k = 0; k <= N; k++) {
+      var s = ST[k], x = f1(X(k) - barW / 2), a = hh(c[1] * s.fn), d = hh(c[0] * s.fp), dim = k === b ? '' : ' dim';
+      h += '<rect class="bfn' + dim + '" x="' + x + '" y="' + f1(base - a) + '" width="' + f1(barW) + '" height="' + f1(a) + '"/>';
+      h += '<rect class="bfp' + dim + '" x="' + x + '" y="' + f1(base - a - d) + '" width="' + f1(barW) + '" height="' + f1(d) + '"/>';
+    }
+    h += '</g>';
+    for (k = 0; k <= N; k++) if (cs[k] > yMax) {
+      h += '<path class="brk" d="M' + f1(X(k) - barW / 2 - 1) + ' ' + (top + 12) + 'l' + f1(barW / 2 + 1) + ' -5l' + f1(barW / 2 + 1) + ' 5"/>';
+    }
+    var bt = base - hh(cs[b]);
+    h += '<rect class="bestbox" x="' + f1(X(b) - barW / 2 - 2) + '" y="' + f1(bt - 2) + '" width="' + f1(barW + 4) + '" height="' + f1(base - bt + 2) + '"/>';
+    h += '<line class="tick" x1="' + pad + '" x2="' + (pad + PW) + '" y1="' + base + '" y2="' + base + '"/>';
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (v) {
+      h += '<text class="tkl" text-anchor="middle" x="' + f1(pad + v * PW) + '" y="' + (base + 17) + '">' + v + '</text>';
+    });
+    h += '<text class="zl" text-anchor="middle" x="' + f1(pad + PW / 2) + '" y="' + (base + 36) + '">LINE POSITION</text>';
+    h += '<line class="yl" x1="' + f1(X(K)) + '" x2="' + f1(X(K)) + '" y1="18" y2="' + base + '"/>';
+    h += '<text class="cl" data-cx="' + f1(X(K)) + '" y="13">' + (K === b ? 'YOUR LINE = BEST · COST ' + cs[K] : 'YOUR LINE · COST ' + cs[K]) + '</text>';
+    if (K !== b) {
+      h += '<line class="lead-l" x1="' + f1(X(b)) + '" x2="' + f1(X(b)) + '" y1="36" y2="' + f1(bt - 4) + '"/>';
+      h += '<text class="cl" data-cx="' + f1(X(b)) + '" y="31">BEST · COST ' + cs[b] + '</text>';
+    }
+    cost.innerHTML = h;
+    Array.prototype.forEach.call(cost.querySelectorAll('[data-cx]'), function (t) {
+      var w = t.getComputedTextLength(), cx = +t.getAttribute('data-cx');
+      t.setAttribute('x', f1(Math.max(2, Math.min(W - w - 2, cx - w / 2))));
+    });
+    cost.setAttribute('aria-label', 'Total cost of mistakes at each line position. Best line ' + tStr(b) + ', cost ' + cs[b] +
+      '. Your line ' + tStr(K) + ', cost ' + cs[K] + '.');
+    var s0 = ST[K], s1 = ST[b];
+    function sumLine(lbl, kk, s) {
+      return '<div><span class="nw">' + lbl + ' ≥ ' + tStr(kk) + ':</span> <span class="nw">' + s.fp + ' ' +
+        plural(s.fp, 'false alarm', 'false alarms') + ' × ' + c[0] + '</span> <span class="nw">+ ' + s.fn +
+        ' slipped through × ' + c[1] + ' = <b>' + (c[0] * s.fp + c[1] * s.fn) + '</b></span></div>';
+    }
+    $('sum').innerHTML = K === b ? sumLine('Your line (the best)', K, s0) : sumLine('Your line', K, s0) + sumLine('Best line', b, s1);
+    var go = $('go');
+    go.disabled = K === b;
+    go.textContent = K === b ? 'Your line is at the best spot' : 'Move my line to ' + tStr(b);
+    go.setAttribute('data-k', b);
+  }
+  function syncStop() {
+    stop = +$('ratio').value;
+    var c = STOPS[stop], txt = stopText(c);
+    $('say').textContent = txt;
+    $('ratio').setAttribute('aria-valuetext', txt);
+    $('kfp').textContent = 'false alarms × ' + c[0];
+    $('kfn').textContent = 'slipped through × ' + c[1];
+    drawCost();
+  }
+  $('ratio').addEventListener('input', syncStop);
+  $('go').addEventListener('click', function () { setK(+this.getAttribute('data-k')); });
+  cost.addEventListener('pointerdown', function (e) {
+    var r = cost.getBoundingClientRect(), x = (e.clientX - r.left) * C.W / (r.width || C.W);
+    setK(Math.round((x - C.pad) / C.PW * N));
+  });
+
+  /* ---------- state ---------- */
+  function setK(k) {
+    k = Math.max(0, Math.min(N, k));
+    if (k === K) return;
+    K = k;
+    render();
+  }
+  function render() { updateMain(); updateScores(); updatePR(); drawCost(); }
+
+  gridStats('A', ST[N], 'A filter that flags nothing');
+  gridStats('B', ST[10], 'Our filter with the line at 0.50');
+  buildMain();
+  buildPR();
+  syncStop();
+  render();
+
+  var seen = {};
+  function onWidth(node, key, fn) {
+    function check() { var w = node.clientWidth; if (w && w !== seen[key]) { seen[key] = w; fn(); } }
+    seen[key] = node.clientWidth;
+    if (window.ResizeObserver) new ResizeObserver(check).observe(node);
+    else window.addEventListener('resize', check);
+  }
+  onWidth(plot, 'main', buildMain);
+  onWidth(prBox, 'pr', buildPR);
+  onWidth(costBox, 'cost', drawCost);
+})();
+</script>
+</body>
+</html>

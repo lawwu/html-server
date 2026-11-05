@@ -141,3 +141,8 @@ addEventListener('keydown', (e) => {
 });
 box?.addEventListener('focus', () => { box.blur(); open(); });
 box?.form?.addEventListener('submit', (e) => { e.preventDefault(); open(); });
+// ⌘K inside an HTML page in the site's frame: the page runs sandboxed, so its key presses
+// never reach this window; public/in-frame.js passes that one on.
+addEventListener('message', (e) => {
+  if (e.data?.htmlServer === 'search' && e.source === document.querySelector('.page-frame')?.contentWindow) open();
+});

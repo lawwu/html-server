@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiment readout — onboarding checklist</title>
+<meta name="description" content="Did a new onboarding checklist lift 7-day activation? A two-week A/B test readout with the lift and its 95% interval, a sample-ratio check, two guardrails, an explorable segment forest plot that shows what multiple-comparison adjustment does, and the ship decision with next steps.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  --paper:#f3f4f7;--sheet:#fff;--ink:#141925;--ink-2:#465066;--ink-3:#646d84;--rule:#d5d9e2;--grid:#e8ebf0;
+  --treat:#2b44c2;--treat-a:rgba(43,68,194,.12);--treat-b:rgba(43,68,194,.3);--ctrl:#858d9c;
+  --good:#17703f;--bad:#b3261e;--hatch:rgba(179,38,30,.32);
+  --sans:"Avenir Next Condensed","Bahnschrift SemiCondensed","Roboto Condensed",sans-serif-condensed,system-ui,sans-serif;
+  --serif:"Iowan Old Style",Charter,"Sitka Text",Cambria,Georgia,serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --fs-xs:.8125rem;--fs-s:.9375rem;--fs-m:1.0625rem;--fs-l:1.3125rem;--fs-xl:1.75rem;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#0f1319;--sheet:#161b24;--ink:#e6e9f0;--ink-2:#a9b1c1;--ink-3:#8791a6;--rule:#2b323f;--grid:#1f2531;
+  --treat:#93a6ff;--treat-a:rgba(147,166,255,.14);--treat-b:rgba(147,166,255,.34);--ctrl:#8b94a6;
+  --good:#5fd296;--bad:#ff8b7b;--hatch:rgba(255,139,123,.34);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#0f1319;--sheet:#161b24;--ink:#e6e9f0;--ink-2:#a9b1c1;--ink-3:#8791a6;--rule:#2b323f;--grid:#1f2531;
+  --treat:#93a6ff;--treat-a:rgba(147,166,255,.14);--treat-b:rgba(147,166,255,.34);--ctrl:#8b94a6;
+  --good:#5fd296;--bad:#ff8b7b;--hatch:rgba(255,139,123,.34);color-scheme:dark}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 var(--fs-m)/1.6 var(--serif);font-variant-numeric:lining-nums}
+h1,h2,h3,p,ul,ol,dl,dd,figure,table{margin:0}
+h1,h2,h3{font-family:var(--sans);line-height:1.06;text-wrap:balance}
+h1{font-size:clamp(2.25rem,1.45rem + 3.4vw,3.75rem);font-weight:700;letter-spacing:-.012em;max-width:16ch}
+h2{font-size:var(--fs-xl);font-weight:600}
+h3{font-size:var(--fs-l);font-weight:600}
+a{color:var(--treat);text-underline-offset:.15em}
+code{font:.82em/1.3 var(--mono);overflow-wrap:anywhere}
+:focus-visible{outline:2.5px solid var(--treat);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.page{max-width:64rem;margin:0 auto;padding:1.5rem 1rem 2rem;display:grid;gap:3.25rem}
+@media (min-width:760px){.page{padding:2.5rem 2rem 2.5rem}}
+.prose{max-width:40rem}
+.nw{white-space:nowrap}
+[hidden]{display:none!important}
+
+/* masthead */
+.mast{display:grid;gap:1.6rem;min-width:0}
+.meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.2rem 1rem;font:500 var(--fs-s)/1.3 var(--sans);color:var(--ink-2);border-bottom:1.5px solid var(--ink);padding-bottom:.55rem}
+.lead{display:grid;gap:1.4rem}
+@media (min-width:900px){.lead{grid-template-columns:minmax(0,1fr) 18rem;column-gap:3rem;align-items:start}}
+.lead-main{display:grid;gap:1.1rem;min-width:0}
+.answer{font-size:var(--fs-l);line-height:1.5;max-width:37rem}
+.spec{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.3rem 1rem;font:500 var(--fs-s)/1.35 var(--sans);border-top:1px solid var(--rule);padding-top:.8rem}
+.spec dt{color:var(--ink-3)}
+@media (min-width:900px){.spec{border-top:0;border-left:1px solid var(--rule);padding:.2rem 0 .2rem 1.25rem;margin-top:.6rem}}
+
+/* plates and figures */
+.plate{background:var(--sheet);border:1px solid var(--rule);border-radius:3px;padding:1rem;display:grid;gap:.85rem;min-width:0}
+@media (min-width:760px){.plate{padding:1.2rem 1.5rem 1.35rem}}
+figcaption,.cap{font:500 var(--fs-s)/1.45 var(--sans);color:var(--ink-2)}
+figcaption b{color:var(--ink);font-weight:600}
+.keys{display:flex;flex-wrap:wrap;gap:.3rem 1.1rem;font:500 var(--fs-xs)/1.3 var(--sans);color:var(--ink-3)}
+.keys>span{display:inline-flex;align-items:center;gap:.4rem}
+.k{display:inline-block;flex:none}
+.k.dot{width:9px;height:9px;border-radius:50%;background:var(--treat)}
+.k.bar{width:18px;height:3px;background:var(--ink)}
+.k.crv{width:18px;height:9px;border-radius:9px 9px 0 0;background:var(--treat-b);border:1.5px solid var(--treat);border-bottom:0}
+.k.sq{width:10px;height:10px;background:var(--treat)}
+.k.dia{width:16px;height:11px;background:var(--treat);clip-path:polygon(0 50%,50% 0,100% 50%,50% 100%)}
+.k.ov{width:0;height:13px;border-left:1.5px dashed var(--treat)}
+.k.zone{width:16px;height:12px;background:repeating-linear-gradient(135deg,var(--hatch) 0 1.5px,transparent 1.5px 5px);border-right:1.5px solid var(--bad)}
+.chart{min-width:0;overflow:hidden}
+.chart svg{display:block}
+#hero{height:176px}
+#daily{height:156px}
+svg text{font-family:var(--sans);font-size:13px;font-weight:500;fill:var(--ink-3);font-variant-numeric:tabular-nums}
+svg .big{font-size:22px;font-weight:700;fill:var(--ink)}
+svg .b0{fill:var(--ink);font-weight:700}
+svg .ax{stroke:var(--ink);stroke-width:1}
+svg .gl{stroke:var(--grid);stroke-width:1}
+svg .zl{stroke:var(--ink-2);stroke-width:1.25;stroke-dasharray:3 3}
+svg .tail{fill:var(--treat-a)}
+svg .core{fill:var(--treat-b)}
+svg .crv{fill:none;stroke:var(--treat);stroke-width:1.75}
+svg .stem{stroke:var(--treat);stroke-width:1.25;stroke-dasharray:2 2}
+svg .bar{stroke:var(--ink);stroke-width:3}
+svg .end{stroke:var(--ink);stroke-width:2}
+svg .est{fill:var(--treat);stroke:var(--sheet);stroke-width:2}
+svg .band{fill:var(--grid);stroke:var(--rule);stroke-width:1}
+svg .mid{stroke:var(--ink-2);stroke-width:1;stroke-dasharray:3 3}
+svg .obs{fill:var(--treat);stroke:var(--sheet);stroke-width:1.5}
+svg .we{fill:var(--ink-3);font-weight:400}
+svg .wd{font-size:12px;font-weight:400}
+
+/* decision */
+.decide{grid-template-columns:minmax(0,1fr)}
+@media (min-width:900px){.decide{grid-template-columns:minmax(0,15rem) minmax(0,1fr);column-gap:2.75rem}}
+.verdict{display:grid;gap:.55rem;align-content:start}
+.v{font-size:var(--fs-l);line-height:1.42}
+.rule{display:grid;gap:.6rem;min-width:0}
+.rule h2{font-size:var(--fs-l)}
+.checks{list-style:none;padding:0;display:grid;font:500 var(--fs-s)/1.4 var(--sans)}
+.checks li{display:grid;grid-template-columns:3.6rem minmax(0,1fr);gap:.15rem .9rem;padding:.62rem 0;border-top:1px solid var(--rule)}
+.checks .what{color:var(--ink-2)}
+.checks .what b{color:var(--ink);font-weight:600}
+.checks .obs{grid-column:2;font-weight:600;font-variant-numeric:tabular-nums}
+@media (min-width:640px){.checks li{grid-template-columns:3.6rem minmax(0,1fr) 8.5rem}.checks .obs{grid-column:auto;text-align:right}}
+.st{display:inline-flex;align-items:baseline;gap:.45rem;font:700 var(--fs-s)/1.4 var(--sans);color:var(--good)}
+.st::before{content:"";flex:none;width:.3rem;height:.62rem;border:solid currentColor;border-width:0 2px 2px 0;transform:translateY(-.05rem) rotate(45deg)}
+.kick{font:700 var(--fs-s)/1.2 var(--sans)}
+
+/* sections */
+.s{display:grid;gap:1rem;min-width:0;border-top:1px solid var(--rule);padding-top:1.1rem}
+@media (min-width:900px){.s{grid-template-columns:12rem minmax(0,1fr);column-gap:2.75rem;align-items:start}}
+.body{display:grid;gap:1.1rem;min-width:0}
+.bullets{padding-left:1.15rem;display:grid;gap:.55rem}
+.scroll{overflow-x:auto;min-width:0}
+table{border-collapse:collapse;width:100%;font:500 var(--fs-s)/1.35 var(--sans);font-variant-numeric:tabular-nums}
+th,td{padding:.5rem .55rem;text-align:right;border-bottom:1px solid var(--rule);vertical-align:middle}
+th:first-child{text-align:left;padding-left:0}
+th:last-child,td:last-child{padding-right:0}
+thead th{font-size:var(--fs-xs);font-weight:600;color:var(--ink-3);border-bottom:1.5px solid var(--ink);vertical-align:bottom}
+tbody th{font-weight:600}
+tfoot th,tfoot td{font-weight:700;border-bottom:0}
+tfoot tr:first-child>*{border-top:1.5px solid var(--ink)}
+.t-tight{max-width:40rem}
+table:not(.forest) th[scope="row"],table:not(.forest) td{white-space:nowrap}
+.cit{display:block;font-size:var(--fs-xs);font-weight:500;color:var(--ink-3)}
+.sw{display:inline-block;width:.7rem;height:.7rem;border-radius:1px;margin-right:.45rem;vertical-align:-.04rem}
+.sw.c{background:var(--ctrl)}.sw.t{background:var(--treat)}
+.muted{color:var(--ink-3);font-weight:500}
+
+/* guardrails */
+.gr{display:grid;border-top:1.5px solid var(--ink)}
+.gr-row{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name name" "num res" "gl gl";gap:.55rem 1.25rem;align-items:center;padding:.9rem 0;border-bottom:1px solid var(--rule);font:500 var(--fs-s)/1.35 var(--sans);font-variant-numeric:tabular-nums}
+@media (min-width:700px){.gr-row{grid-template-columns:minmax(0,1fr) 8.5rem minmax(0,1.25fr) 4.5rem;grid-template-areas:"name num gl res"}}
+.gr-name{grid-area:name}.gr-num{grid-area:num;display:grid}.glyph{grid-area:gl}.gr-res{grid-area:res;justify-self:end}
+.gr-name b{display:block;font-size:var(--fs-m);font-weight:600}
+.gr-name span,.gr-num span{color:var(--ink-3)}
+.gr-num b{font-size:1.125rem;font-weight:700}
+.glyph{position:relative;height:3.3rem;min-width:0}
+.glyph .trk{top:1.25rem;bottom:auto;height:1.05rem;left:0;right:0}
+.trk .axl{left:0;right:0;top:50%;border-top:1px solid var(--rule)}
+.glyph .lab{position:absolute;font:500 var(--fs-xs)/1 var(--sans);color:var(--ink-3);white-space:nowrap}
+.glyph .lab.top{top:0;color:var(--bad)}
+.glyph .lab.bot{bottom:0;transform:translateX(-50%)}
+
+/* forest explorer */
+.ctl{display:flex;flex-wrap:wrap;gap:.7rem 1.75rem}
+.seg{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem}
+.seg-l{font:600 var(--fs-xs)/1 var(--sans);color:var(--ink-3);margin-right:.3rem}
+.seg button{font:600 var(--fs-s)/1.15 var(--sans);color:var(--ink);background:transparent;border:1px solid var(--rule);border-radius:2px;padding:.5rem .72rem;min-height:2.5rem;cursor:pointer}
+.seg button:hover{border-color:var(--ink-3)}
+.seg button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--sheet)}
+.forest{table-layout:fixed;min-width:17.5rem}
+.forest .c-seg{width:9.5rem}.forest .c-n{width:5rem}.forest .c-est{width:8.4rem}
+.forest tbody tr{height:2.6rem}
+.forest th.c-plot{position:relative;padding:0 0 .3rem}
+.forest td.plot{position:relative;padding:0}
+.axis{position:relative;height:1rem;margin:0 .9rem}
+.axis span{position:absolute;bottom:0;transform:translateX(-50%);color:var(--ink-3);font-weight:500;white-space:nowrap}
+.axis span.z0{color:var(--ink);font-weight:700}
+.trk{position:absolute;top:0;bottom:0;left:.9rem;right:.9rem}
+.trk i{position:absolute;display:block}
+.trk .g{top:0;bottom:0;border-left:1px solid var(--grid)}
+.trk .z{top:0;bottom:0;border-left:1.5px solid var(--ink-2)}
+.trk .ov{top:0;bottom:0;border-left:1.5px dashed var(--treat);opacity:.7}
+.trk .zone{top:0;bottom:0;background:repeating-linear-gradient(135deg,var(--hatch) 0 1.5px,transparent 1.5px 5px)}
+.trk .zone.l{border-right:1.5px solid var(--bad)}.trk .zone.r{border-left:1.5px solid var(--bad)}
+.trk .ci{top:50%;height:2px;margin-top:-1px;background:var(--ink)}
+.trk .pt{top:50%;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;border-radius:50%;background:var(--treat);box-shadow:0 0 0 2px var(--sheet)}
+.trk .sq{top:50%;background:var(--treat);transform:translate(-50%,-50%);border-radius:1px}
+.trk .dia{top:50%;height:16px;margin-top:-8px;background:var(--treat);clip-path:polygon(0 50%,50% 0,100% 50%,50% 100%)}
+.forest.anim .ci,.forest.anim .dia{transition:left .5s cubic-bezier(.25,.7,.2,1),width .5s cubic-bezier(.25,.7,.2,1)}
+.forest tr.grp{height:auto}
+.forest tr.grp th{font-size:var(--fs-xs);font-weight:700;color:var(--ink-3);padding-top:.95rem;padding-bottom:.3rem}
+.forest .est{white-space:nowrap}
+.forest .est span{color:var(--ink-3);font-weight:500;margin-left:.35rem}
+.forest tr[data-i]{cursor:pointer}
+.forest tr.hl>*{background:var(--treat-a)}
+.rb{font:inherit;font-weight:600;color:inherit;background:none;border:0;padding:.25rem 0;margin:0;cursor:pointer;text-align:left;line-height:1.2}
+.rb[aria-pressed="true"]{color:var(--treat);text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:.22em}
+@media (max-width:640px){
+  .forest .c-seg{width:5.75rem}.forest .n{display:none}.forest .c-est{width:5.1rem}
+  .forest .est span{display:block;margin:0;font-size:var(--fs-xs)}
+  .axis,.trk{margin:0 .55rem}.trk{left:.55rem;right:.55rem;margin:0}
+}
+.readout{display:grid;gap:.15rem;min-height:5rem;padding:.7rem .85rem;background:var(--paper);border-radius:2px;font:500 var(--fs-s)/1.45 var(--sans);font-variant-numeric:tabular-nums}
+.readout p:first-child{font-weight:700}
+.readout .sw{margin-right:.35rem}
+.readout .arm{white-space:nowrap;margin-right:1rem}
+.note{font:500 var(--fs-s)/1.5 var(--sans);color:var(--ink-2)}
+
+/* next steps */
+.steps{list-style:none;padding:0;display:grid;counter-reset:s;border-top:1.5px solid var(--ink)}
+.steps li{counter-increment:s;display:grid;grid-template-columns:1.6rem minmax(0,1fr);gap:.2rem .9rem;padding:.85rem 0;border-bottom:1px solid var(--rule)}
+.steps li::before{content:counter(s);grid-row:1 / span 3;font:700 var(--fs-l)/1.15 var(--sans);color:var(--treat)}
+.steps .when,.steps .who{font:600 var(--fs-s)/1.35 var(--sans);color:var(--ink-3)}
+@media (min-width:700px){.steps li{grid-template-columns:1.6rem 6.5rem minmax(0,1fr) 7.5rem}.steps li::before{grid-row:auto}.steps .who{text-align:right}}
+.method{display:grid;gap:.5rem 1.5rem;font-size:1rem;max-width:46rem}
+@media (min-width:700px){.method{grid-template-columns:8.5rem minmax(0,1fr)}}
+.method dt{font:600 var(--fs-s)/1.6 var(--sans)}
+.method dd{color:var(--ink-2)}
+footer{font:500 var(--fs-xs)/1.5 var(--sans);color:var(--ink-3);border-top:1px solid var(--rule);padding-top:.9rem}
+footer a{color:inherit}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<main class="page">
+
+<header class="mast">
+  <p class="meta"><span>Experiment readout · Growth analytics</span><span>Thu 29 Oct 2026 · fictional data</span></p>
+  <div class="lead">
+    <div class="lead-main">
+      <h1>Did the onboarding checklist lift <span class="nw">7-day</span> activation?</h1>
+      <p class="answer"><strong>Yes, by about two points.</strong> New users who got the checklist activated at 32.85%, against 30.77% without it: <strong>+2.08 percentage points</strong> (95% CI +1.17 to +2.99), a <strong>6.8% relative lift</strong>. The split was clean and both guardrails held, so the rule we fixed before launch says ship.</p>
+    </div>
+    <dl class="spec">
+      <dt>Experiment</dt><dd>EXP-0418</dd>
+      <dt>Flag</dt><dd><code>onboarding_<wbr>checklist_<wbr>v1</code></dd>
+      <dt>Ran</dt><dd>Mon 5 – Sun 18 Oct 2026</dd>
+      <dt>Who</dt><dd>Every new sign-up, web, iOS and Android</dd>
+      <dt>Split</dt><dd>50/50 by account, at sign-up</dd>
+      <dt>Primary</dt><dd>7-day activation</dd>
+      <dt>Guardrails</dt><dd>Day-1 retention, support contacts</dd>
+    </dl>
+  </div>
+
+  <figure class="plate">
+    <figcaption><b>Change in 7-day activation, checklist minus control,</b> in percentage points</figcaption>
+    <div id="hero" class="chart" role="img" aria-label="Estimated change +2.08 percentage points, 95% confidence interval +1.17 to +2.99. Zero, meaning no change, lies well outside the interval."></div>
+    <div class="keys" aria-hidden="true">
+      <span><i class="k dot"></i>estimate</span>
+      <span><i class="k bar"></i>95% confidence interval</span>
+      <span><i class="k crv"></i>uncertainty around the estimate (normal approximation, standard error 0.46 pp)</span>
+    </div>
+  </figure>
+
+  <section class="plate decide" aria-labelledby="h-rule">
+    <div class="verdict">
+      <p class="kick st">Decision: ship</p>
+      <p class="v">Turn the checklist on for all new sign-ups, holding back 5% for four weeks to see whether the lift lasts.</p>
+    </div>
+    <div class="rule">
+      <h2 id="h-rule">Decision rule, fixed before launch</h2>
+      <ul class="checks">
+        <li><span class="st">Met</span><span class="what"><b>Clean split.</b> A χ² test against 50/50 must not flag a sample-ratio mismatch (p&nbsp;&lt;&nbsp;0.001).</span><span class="obs">p = 0.75</span></li>
+        <li><span class="st">Met</span><span class="what"><b>Activation up.</b> The whole 95% interval for the change sits above zero.</span><span class="obs">+1.17 to +2.99 pp</span></li>
+        <li><span class="st">Met</span><span class="what"><b>Day-1 retention holds.</b> Its interval’s lower end stays above −1.0&nbsp;pp.</span><span class="obs">lower end −0.42 pp</span></li>
+        <li><span class="st">Met</span><span class="what"><b>Support load holds.</b> Its interval’s upper end stays below +0.7&nbsp;pp.</span><span class="obs">upper end +0.51 pp</span></li>
+      </ul>
+    </div>
+  </section>
+</header>
+
+<section class="s" aria-labelledby="h-split">
+  <h2 id="h-split">Can we trust the split?</h2>
+  <div class="body">
+    <p class="prose">Each new account was assigned at sign-up, 50/50, by a hash of its ID. If assignment or event logging were broken, the arms would drift apart in size, a <em>sample ratio mismatch</em>, and nothing else on this page could be trusted. They didn’t drift.</p>
+    <div class="scroll"><table class="t-tight">
+      <thead><tr><th scope="col">Arm</th><th scope="col">Users</th><th scope="col">Share</th><th scope="col">Expected at 50/50</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><span class="sw c"></span>Control</th><td>20,330</td><td>50.08%</td><td>20,298.5</td></tr>
+        <tr><th scope="row"><span class="sw t"></span>Checklist</th><td>20,267</td><td>49.92%</td><td>20,298.5</td></tr>
+      </tbody>
+      <tfoot><tr><th scope="row">Total 40,597</th><td colspan="3">χ²(1) = 0.10, p = 0.75: no mismatch</td></tr></tfoot>
+    </table></div>
+    <figure class="plate">
+      <figcaption><b>Checklist share of each day’s sign-ups.</b> Grey bars show where a fair 50/50 split lands 95% of the time at that day’s volume; they widen at weekends, when fewer people sign up. All 14 days fall inside.</figcaption>
+      <div id="daily" class="chart" role="img" aria-label="Daily checklist share of sign-ups, 5 to 18 October: every day within its expected 95% range, from 48.4% on Saturday 10 October to 51.3% on Monday 12 October."></div>
+    </figure>
+  </div>
+</section>
+
+<section class="s" aria-labelledby="h-primary">
+  <h2 id="h-primary">Primary metric: 7-day activation</h2>
+  <div class="body">
+    <p class="prose"><b>Activated</b> means that within 7 days of signing up, the new user created a project and invited at least one teammate. That is the standing company definition, unchanged for this test. Every user had the full 7 days: the last window closed on Sun 25 Oct.</p>
+    <div class="scroll"><table class="t-tight">
+      <thead><tr><th scope="col">Arm</th><th scope="col">Users</th><th scope="col">Activated</th><th scope="col">Rate <span class="cit">95% CI</span></th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><span class="sw c"></span>Control</th><td>20,330</td><td>6,255</td><td>30.77% <span class="cit">30.13 to 31.40</span></td></tr>
+        <tr><th scope="row"><span class="sw t"></span>Checklist</th><td>20,267</td><td>6,657</td><td>32.85% <span class="cit">32.20 to 33.49</span></td></tr>
+      </tbody>
+      <tfoot>
+        <tr><th scope="row">Change</th><td></td><td></td><td>+2.08 pp <span class="cit">+1.17 to +2.99</span></td></tr>
+        <tr><th scope="row">Relative lift</th><td></td><td></td><td>+6.8% <span class="cit">+3.8% to +9.8%</span></td></tr>
+      </tfoot>
+    </table></div>
+    <p class="prose">That is z = 4.50, p &lt; 0.001. In plain numbers, about <b>21 more activated users per 1,000 sign-ups</b> (12 to 30), or roughly <b>60 a day</b> at the current ~2,900 sign-ups a day (34 to 87).</p>
+    <p class="prose">The test was sized to detect +1.3&nbsp;pp with 80% power in 14 days. The estimate clears that easily. The interval’s lower end (+1.17) sits just under it, so a lift a little smaller than we designed for is still plausible. No lift at all is not.</p>
+  </div>
+</section>
+
+<section class="s" aria-labelledby="h-guard">
+  <h2 id="h-guard">Guardrails</h2>
+  <div class="body">
+    <p class="prose">A guardrail catches a win that costs something elsewhere. Each has a margin, the most harm we agreed in advance to tolerate, and passes only if its whole 95% interval stays on the safe side of it. The hatched zone is the side that fails.</p>
+    <div class="gr">
+      <div class="gr-row">
+        <div class="gr-name"><b>Day-1 retention</b><span>came back the day after signing up</span></div>
+        <div class="gr-num"><span>38.05% → 38.58%</span><b>+0.53 pp</b><span>−0.42 to +1.47</span></div>
+        <div class="glyph" data-glyph="ret" aria-hidden="true"></div>
+        <div class="gr-res"><span class="st">Met</span></div>
+      </div>
+      <div class="gr-row">
+        <div class="gr-name"><b>Support contacts</b><span>contacted support within 7 days</span></div>
+        <div class="gr-num"><span>4.67% → 4.77%</span><b>+0.10 pp</b><span>−0.31 to +0.51</span></div>
+        <div class="glyph" data-glyph="sup" aria-hidden="true"></div>
+        <div class="gr-res"><span class="st">Met</span></div>
+      </div>
+    </div>
+    <p class="prose">Neither guardrail moved detectably. Support contacts are the closer call: the upper end of the interval (+0.51&nbsp;pp) is inside the +0.7&nbsp;pp margin, about 15% of the baseline rate, but not by much. Support ops will watch it through the rollout.</p>
+  </div>
+</section>
+
+<section class="s" aria-labelledby="h-seg">
+  <h2 id="h-seg">Segments: hypotheses, not verdicts</h2>
+  <div class="body">
+    <p class="prose">Seven segments and three metrics make 21 intervals. At 95% each, expect about one to mislead you even if the checklist did exactly the same thing for everyone. Read segments for what to test next, not for decisions.</p>
+    <div class="plate" id="explorer">
+      <div class="ctl">
+        <div class="seg" role="group" aria-label="Metric">
+          <span class="seg-l" aria-hidden="true">Metric</span>
+          <button type="button" data-metric="act" aria-pressed="true">Activation</button>
+          <button type="button" data-metric="ret" aria-pressed="false">Day-1 retention</button>
+          <button type="button" data-metric="sup" aria-pressed="false">Support contacts</button>
+        </div>
+        <div class="seg" role="group" aria-label="Intervals">
+          <span class="seg-l" aria-hidden="true">Intervals</span>
+          <button type="button" data-adj="0" aria-pressed="true">95% each</button>
+          <button type="button" data-adj="1" aria-pressed="false">Adjusted for 7 looks</button>
+        </div>
+      </div>
+      <div class="scroll"><table class="forest" id="forest">
+        <caption class="sr">Change by segment, checklist minus control, in percentage points, with intervals. Select a segment for its exact counts.</caption>
+        <thead><tr><th scope="col" class="c-seg">Segment</th><th scope="col" class="c-n n">Users</th><th scope="col" class="c-plot"><span class="sr">Interval chart</span><div class="axis" id="axis" aria-hidden="true"></div></th><th scope="col" class="c-est">Change, pp</th></tr></thead>
+      </table></div>
+      <div class="readout" id="readout" aria-live="polite"></div>
+      <p class="note" id="note"></p>
+      <div class="keys" aria-hidden="true">
+        <span><i class="k sq"></i>segment estimate, area by users</span>
+        <span><i class="k dia"></i>all users, spanning its 95% CI</span>
+        <span><i class="k bar"></i>interval</span>
+        <span><i class="k ov"></i>all-users estimate</span>
+        <span id="key-zone" hidden><i class="k zone"></i>past the guardrail margin</span>
+      </div>
+    </div>
+    <ul class="prose bullets">
+      <li><b>Android’s +0.4&nbsp;pp is the number people will quote.</b> Its interval, −1.5 to +2.3, includes zero, and it also includes the overall +2.1. Does the lift really differ by platform? The interaction test gives p = 0.12. That is not established either way.</li>
+      <li><b>The biggest lift is in the smallest segment.</b> Direct &amp; other (+3.9&nbsp;pp) has the fewest users and the widest interval. Extreme estimates collect where samples are small.</li>
+      <li><b>Adjust for the seven looks and iOS stops clearing zero.</b> Nothing about iOS changed, only the honest price of looking seven times.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="s" aria-labelledby="h-next">
+  <h2 id="h-next">Decision and next steps</h2>
+  <div class="body">
+    <p class="prose"><b>Ship the checklist to all new sign-ups</b> and keep 5% back as a long-term control. The lift is real and large enough to matter, the trust checks pass, and nothing we measured got worse.</p>
+    <ol class="steps">
+      <li><span class="when">Mon 2 Nov</span><span class="what"><b>Ramp to 95% of new sign-ups</b> with a 5% holdout, and ship per-step completion logging in the same release so the next version knows which step does the work.</span><span class="who">Growth eng</span></li>
+      <li><span class="when">2–13 Nov</span><span class="what"><b>Watch support contacts daily.</b> Roll back if the share of new users contacting support goes above 5.4% (the 4.67% baseline plus the 0.7&nbsp;pp margin) for a week.</span><span class="who">Support ops</span></li>
+      <li><span class="when">Mon 14 Dec</span><span class="what"><b>Read the holdout.</b> Compare 28-day retention for the first two weeks of ramped sign-ups: it tests whether checklist-driven activations last.</span><span class="who">Growth analytics</span></li>
+      <li><span class="when">Q1 planning</span><span class="what"><b>Only if Android matters to the roadmap,</b> pre-register an Android test sized to detect a difference in lift. Don’t act on today’s Android number.</span><span class="who">Onboarding PM</span></li>
+    </ol>
+    <h3>What this test can’t tell us</h3>
+    <ul class="prose bullets">
+      <li><b>Whether the lift lasts.</b> Two weeks can’t separate a durable effect from novelty.</li>
+      <li><b>Whether these activations are worth as much.</b> The checklist’s steps are the very actions activation counts, creating a project and inviting a teammate, so some of the lift may be box-ticking. The holdout’s 28-day retention is the check.</li>
+      <li><b>How the effect varies by segment.</b> The test wasn’t powered for that; see above.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="s" aria-labelledby="h-method">
+  <h2 id="h-method">Method notes</h2>
+  <div class="body">
+    <dl class="method">
+      <dt>Design</dt><dd>Two arms, assigned 50/50 at sign-up by hashed account ID and analysed as assigned, including users who dismissed the checklist.</dd>
+      <dt>Window</dt><dd>Sign-ups from Mon 5 to Sun 18 Oct 2026, two full weeks so each weekday counts twice, with every outcome observed for 7 days.</dd>
+      <dt>Intervals</dt><dd>Change in proportions with an unpooled normal interval, d ± z·√(p₁q₁/n₁ + p₂q₂/n₂), and p-values from the same z. Relative lift uses the delta method on the log of the ratio.</dd>
+      <dt>Sample ratio</dt><dd>χ² goodness of fit against 50/50 with 1 degree of freedom, flagged below p = 0.001.</dd>
+      <dt>Segments</dt><dd>The same interval within each segment. The adjusted view is Bonferroni across the 7 segment intervals of the chosen metric (z = 2.69, so 99.3% each). The interaction test is Cochran’s Q across a grouping’s segment estimates.</dd>
+      <dt>Fixed in advance</dt><dd>Primary metric, guardrails and margins, the decision rule, duration, and the segment list (as exploratory), all recorded on Fri 2 Oct 2026, before launch.</dd>
+      <dt>Data</dt><dd>Fictional, made for this example. Every chart and interval on the page is computed in the browser from the counts in its source.</dd>
+    </dl>
+  </div>
+</section>
+
+<footer>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html" target="_blank" rel="noopener">html</a> skill from effective-html (MIT) · HTML Server gallery</footer>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  // Counts per segment: [control, checklist]. Segments: all, web, iOS, Android, organic, paid social, teammate invite, direct.
+  var D = {
+    days: [[1638,1709],[1651,1658],[1693,1649],[1688,1640],[1398,1405],[995,932],[1103,1073],[1555,1635],[1635,1683],[1774,1719],[1539,1513],[1504,1474],[1032,1036],[1125,1141]],
+    n: [[20330,20267],[10784,10730],[5489,5505],[4057,4032],[7739,7744],[4459,4525],[4795,4837],[3337,3161]],
+    x: {
+      act: [[6255,6657],[3594,3878],[1640,1747],[1021,1032],[2320,2514],[1035,1094],[1947,2022],[953,1027]],
+      ret: [[7735,7818],[4282,4279],[2134,2212],[1319,1327],[2942,2923],[1376,1390],[2173,2258],[1244,1247]],
+      sup: [[949,966],[537,546],[220,243],[192,177],[367,392],[279,241],[167,186],[136,147]]
+    }
+  };
+  var SEG = ['All users', 'Web', 'iOS', 'Android', 'Organic search', 'Paid social', 'Teammate invite', 'Direct &amp; other'];
+  var GROUPS = [['Platform', [1, 2, 3]], ['Signup source', [4, 5, 6, 7]]];
+  var MET = {
+    act: { label: '7-day activation', up: true },
+    ret: { label: 'Day-1 retention', up: true, margin: -1.0 },
+    sup: { label: 'Support contacts', up: false, margin: 0.7 }
+  };
+  var Z = 1.959964, ZA = 2.690110, MINUS = '−';
+  var state = { m: 'act', adj: false, sel: 0, dom: null };
+  var $ = function (id) { return document.getElementById(id); };
+
+  // Numerical Recipes erfc, fractional error < 1.2e-7
+  function erfc(x) {
+    var z = Math.abs(x), t = 1 / (1 + 0.5 * z);
+    var r = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 +
+      t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+    return x >= 0 ? r : 2 - r;
+  }
+  function chi2sf(x, k) {
+    if (k === 1) return erfc(Math.sqrt(x / 2));
+    if (k === 2) return Math.exp(-x / 2);
+    return erfc(Math.sqrt(x / 2)) + Math.sqrt(2 * x / Math.PI) * Math.exp(-x / 2); // k = 3
+  }
+  // Two-proportion comparison in percentage points, unpooled normal interval.
+  function stat(i, m, z) {
+    var nc = D.n[i][0], nt = D.n[i][1], xc = D.x[m][i][0], xt = D.x[m][i][1];
+    var pc = xc / nc, pt = xt / nt, d = pt - pc, se = Math.sqrt(pc * (1 - pc) / nc + pt * (1 - pt) / nt);
+    return { nc: nc, nt: nt, xc: xc, xt: xt, pc: 100 * pc, pt: 100 * pt, d: 100 * d, se: 100 * se,
+      lo: 100 * (d - z * se), hi: 100 * (d + z * se), p: erfc(Math.abs(d / se) / Math.SQRT2) };
+  }
+  function het(m, idx) { // Cochran's Q: does the change differ across these segments?
+    var rows = idx.map(function (i) { return stat(i, m, Z); }), w = 0, wd = 0, q = 0;
+    rows.forEach(function (r) { var wi = 1 / (r.se * r.se); w += wi; wd += wi * r.d; });
+    rows.forEach(function (r) { q += Math.pow(r.d - wd / w, 2) / (r.se * r.se); });
+    return chi2sf(q, rows.length - 1);
+  }
+  function sg(v, dp) { var s = Math.abs(v).toFixed(dp); return +s === 0 ? s : (v < 0 ? MINUS : '+') + s; }
+  function int(v) { return v.toLocaleString('en-US'); }
+  function fp(p) { return p < 0.001 ? 'p < 0.001' : 'p = ' + p.toFixed(p < 0.1 ? 3 : 2); }
+
+  /* ---------- hero: the primary estimate, its interval and its uncertainty ---------- */
+  var heroW = 0;
+  function drawHero() {
+    var el = $('hero'), W = el.clientWidth;
+    if (!W || W === heroW) return; heroW = W;
+    var s = stat(0, 'act', Z), H = 176, L = 14, R = 40, top = 38, ch = 78, base = top + ch, barY = base + 18, axY = barY + 20;
+    var d0 = -1, d1 = 4, X = function (v) { return L + (v - d0) / (d1 - d0) * (W - L - R); };
+    var Y = function (v) { return base - ch * Math.exp(-0.5 * Math.pow((v - s.d) / s.se, 2)); };
+    var o = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true" focusable="false">';
+    for (var t = d0; t <= d1; t++) {
+      var x = X(t);
+      o += '<line class="gl" x1="' + x + '" x2="' + x + '" y1="' + (top - 8) + '" y2="' + axY + '"/>';
+      o += '<line class="ax" x1="' + x + '" x2="' + x + '" y1="' + axY + '" y2="' + (axY + 5) + '"/>';
+      o += '<text x="' + x + '" y="' + (axY + 19) + '" text-anchor="middle"' + (t === 0 ? ' class="b0"' : '') + '>' + (t === 0 ? '0' : sg(t, 0)) + (t === d1 ? ' pp' : '') + '</text>';
+    }
+    // Draw the curve out to 4 standard errors, where it has met its ground line.
+    var a = Math.max(d0, s.d - 4 * s.se), b = Math.min(d1, s.d + 4 * s.se), pts = [], core = [], k, v;
+    for (k = 0; k <= 120; k++) { v = a + (b - a) * k / 120; pts.push(X(v).toFixed(1) + ',' + Y(v).toFixed(1)); }
+    for (k = 0; k <= 60; k++) { v = s.lo + (s.hi - s.lo) * k / 60; core.push(X(v).toFixed(1) + ',' + Y(v).toFixed(1)); }
+    o += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + base + '" y2="' + base + '"/>';
+    o += '<path class="tail" d="M' + X(a) + ',' + base + 'L' + pts.join('L') + 'L' + X(b) + ',' + base + 'Z"/>';
+    o += '<path class="core" d="M' + X(s.lo) + ',' + base + 'L' + core.join('L') + 'L' + X(s.hi) + ',' + base + 'Z"/>';
+    o += '<path class="crv" d="M' + pts.join('L') + '"/>';
+    o += '<line class="zl" x1="' + X(0) + '" x2="' + X(0) + '" y1="' + (top - 8) + '" y2="' + axY + '"/>';
+    o += '<text x="' + (X(0) + 6) + '" y="' + (top + 8) + '">no change</text>';
+    o += '<line class="ax" x1="' + L + '" x2="' + (W - R) + '" y1="' + axY + '" y2="' + axY + '"/>';
+    o += '<line class="stem" x1="' + X(s.d) + '" x2="' + X(s.d) + '" y1="' + (barY - 6) + '" y2="' + (base - ch) + '"/>';
+    o += '<line class="bar" x1="' + X(s.lo) + '" x2="' + X(s.hi) + '" y1="' + barY + '" y2="' + barY + '"/>';
+    o += '<line class="end" x1="' + X(s.lo) + '" x2="' + X(s.lo) + '" y1="' + (barY - 6) + '" y2="' + (barY + 6) + '"/>';
+    o += '<line class="end" x1="' + X(s.hi) + '" x2="' + X(s.hi) + '" y1="' + (barY - 6) + '" y2="' + (barY + 6) + '"/>';
+    o += '<circle class="est" cx="' + X(s.d) + '" cy="' + barY + '" r="5.5"/>';
+    o += '<text x="' + (X(s.lo) - 8) + '" y="' + (barY + 4.5) + '" text-anchor="end">' + sg(s.lo, 2) + '</text>';
+    o += '<text x="' + (X(s.hi) + 8) + '" y="' + (barY + 4.5) + '">' + sg(s.hi, 2) + '</text>';
+    o += '<text class="big" x="' + X(s.d) + '" y="' + (top - 12) + '" text-anchor="middle">' + sg(s.d, 2) + ' pp</text>';
+    el.innerHTML = o + '</svg>';
+  }
+
+  /* ---------- daily split ---------- */
+  var dailyW = 0;
+  function drawDaily() {
+    var el = $('daily'), W = el.clientWidth;
+    if (!W || W === dailyW) return; dailyW = W;
+    var H = 156, L = 38, R = 4, T = 8, B = 46, n = D.days.length, bw = (W - L - R) / n;
+    var y0 = 47.25, y1 = 52.75, Y = function (v) { return T + (y1 - v) / (y1 - y0) * (H - T - B); };
+    var o = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true" focusable="false">';
+    [48, 50, 52].forEach(function (v) {
+      o += '<line class="' + (v === 50 ? 'mid' : 'gl') + '" x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '"/>';
+      o += '<text x="' + (L - 6) + '" y="' + (Y(v) + 4) + '" text-anchor="end"' + (v === 50 ? ' class="b0"' : '') + '>' + v + '%</text>';
+    });
+    D.days.forEach(function (d, i) {
+      var tot = d[0] + d[1], sh = 100 * d[1] / tot, b = 100 * Z * 0.5 / Math.sqrt(tot);
+      var cx = L + (i + 0.5) * bw, w = Math.max(5, Math.min(16, bw * 0.55)), we = i % 7 > 4;
+      o += '<rect class="band" x="' + (cx - w / 2) + '" y="' + Y(50 + b) + '" width="' + w + '" height="' + (Y(50 - b) - Y(50 + b)) + '" rx="1"/>';
+      o += '<circle class="obs" cx="' + cx + '" cy="' + Y(sh) + '" r="3.8"/>';
+      o += '<text x="' + cx + '" y="' + (H - B + 16) + '" text-anchor="middle"' + (we ? ' class="we"' : '') + '>' + (i + 5) + '</text>';
+      o += '<text x="' + cx + '" y="' + (H - B + 35) + '" text-anchor="middle" class="we wd">' + 'MTWTFSS'.charAt(i % 7) + '</text>';
+    });
+    el.innerHTML = o + '</svg>';
+  }
+
+  /* ---------- guardrail glyphs: interval against the margin ---------- */
+  function drawGlyphs() {
+    document.querySelectorAll('[data-glyph]').forEach(function (el) {
+      var m = el.getAttribute('data-glyph'), s = stat(0, m, Z), mg = MET[m].margin, up = MET[m].up;
+      // Leave room on the failing side so the hatched zone reads as a region, not a sliver.
+      var lo = Math.min(s.lo, mg, 0), hi = Math.max(s.hi, mg, 0), r = hi - lo;
+      lo -= r * (up ? 0.3 : 0.08); hi += r * (up ? 0.08 : 0.3);
+      var P = function (v) { return ((v - lo) / (hi - lo) * 100).toFixed(2) + '%'; };
+      var step = hi - lo < 2 ? 0.5 : 1, h = '<div class="trk"><i class="axl"></i>';
+      h += up ? '<i class="zone l" style="left:0;width:' + P(mg) + '"></i>' : '<i class="zone r" style="left:' + P(mg) + ';right:0"></i>';
+      h += '<i class="z" style="left:' + P(0) + '"></i>';
+      h += '<i class="ci" style="left:' + P(s.lo) + ';width:calc(' + P(s.hi) + ' - ' + P(s.lo) + ')"></i>';
+      h += '<i class="pt" style="left:' + P(s.d) + '"></i></div>';
+      h += up ? '<span class="lab top" style="left:calc(' + P(mg) + ' + 5px)">margin ' + sg(mg, 1) + ' pp</span>'
+              : '<span class="lab top" style="right:calc(100% - ' + P(mg) + ' + 5px)">margin ' + sg(mg, 1) + ' pp</span>';
+      for (var t = Math.ceil(lo / step) * step; t <= hi; t += step) {
+        var f = (t - lo) / (hi - lo);
+        if (f < 0.05 || f > 0.95) continue; // keep tick labels inside the glyph
+        h += '<span class="lab bot" style="left:' + P(t) + '">' + (Math.abs(t) < 1e-9 ? '0' : sg(t, step < 1 ? 1 : 0)) + '</span>';
+      }
+      el.innerHTML = h;
+    });
+  }
+
+  /* ---------- segment forest plot ---------- */
+  var table = $('forest'), axis = $('axis'), readout = $('readout'), note = $('note');
+  var nmax = Math.max.apply(null, D.n.slice(1).map(function (r) { return r[0] + r[1]; }));
+
+  function domainFor(m) { // fixed per metric, wide enough for the adjusted intervals
+    var lo = 0, hi = 0, mg = MET[m].margin;
+    for (var i = 0; i < 8; i++) { var s = stat(i, m, i ? ZA : Z); lo = Math.min(lo, s.lo); hi = Math.max(hi, s.hi); }
+    if (mg != null) { lo = Math.min(lo, mg); hi = Math.max(hi, mg); }
+    var pad = (hi - lo) * 0.06, raw = (hi - lo) / 5, pw = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10)), f = raw / pw;
+    return { lo: lo - pad, hi: hi + pad, step: (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * pw };
+  }
+  function pos(v) { var d = state.dom; return ((v - d.lo) / (d.hi - d.lo) * 100).toFixed(3) + '%'; }
+
+  function build() {
+    var m = state.m, mg = MET[m].margin, t, a = '', bg = '';
+    state.dom = domainFor(m);
+    $('key-zone').hidden = mg == null;
+    for (t = Math.ceil(state.dom.lo / state.dom.step) * state.dom.step; t <= state.dom.hi; t += state.dom.step) {
+      var tv = Math.round(t * 1000) / 1000;
+      a += '<span' + (tv === 0 ? ' class="z0"' : '') + ' style="left:' + pos(tv) + '">' + (tv === 0 ? '0' : sg(tv, state.dom.step < 1 ? 1 : 0)) + '</span>';
+      if (tv !== 0) bg += '<i class="g" style="left:' + pos(tv) + '"></i>';
+    }
+    axis.innerHTML = a;
+    if (mg != null) bg += MET[m].up ? '<i class="zone l" style="left:0;width:' + pos(mg) + '"></i>' : '<i class="zone r" style="left:' + pos(mg) + ';right:0"></i>';
+    bg += '<i class="z" style="left:' + pos(0) + '"></i>';
+    var all = stat(0, m, Z), ov = '<i class="ov" style="left:' + pos(all.d) + '"></i>';
+
+    function row(i) {
+      var s = stat(i, m, Z), side = Math.max(7, 16 * Math.sqrt((D.n[i][0] + D.n[i][1]) / nmax)).toFixed(1);
+      var mark = i === 0 ? '<i class="dia"></i>' : ov + '<i class="ci"></i><i class="sq" style="left:' + pos(s.d) + ';width:' + side + 'px;height:' + side + 'px"></i>';
+      return '<tr data-i="' + i + '"><th scope="row"><button type="button" class="rb" data-i="' + i + '" aria-pressed="' + (i === state.sel) + '">' + SEG[i] + '</button></th>' +
+        '<td class="n">' + int(D.n[i][0] + D.n[i][1]) + '</td><td class="plot"><div class="trk" aria-hidden="true">' + bg + mark + '</div></td>' +
+        '<td class="est"><b>' + sg(s.d, 1) + '</b><span></span></td></tr>';
+    }
+    var h = '<tbody>' + row(0) + '</tbody>';
+    GROUPS.forEach(function (g) {
+      h += '<tbody><tr class="grp"><th scope="rowgroup">' + g[0] + '</th><td class="n"></td><td class="plot"><div class="trk" aria-hidden="true">' + bg + '</div></td><td class="est"></td></tr>';
+      g[1].forEach(function (i) { h += row(i); });
+      h += '</tbody>';
+    });
+    Array.prototype.forEach.call(table.querySelectorAll('tbody'), function (b) { b.remove(); });
+    table.classList.remove('anim');
+    table.insertAdjacentHTML('beforeend', h);
+    apply();
+  }
+
+  // Interval width is the only thing that changes between 95% and adjusted, so only it animates.
+  function apply() {
+    var m = state.m;
+    Array.prototype.forEach.call(table.querySelectorAll('tr[data-i]'), function (tr) {
+      var i = +tr.getAttribute('data-i'), s = stat(i, m, i && state.adj ? ZA : Z);
+      var bar = tr.querySelector(i ? '.ci' : '.dia');
+      bar.style.left = pos(s.lo);
+      bar.style.width = 'calc(' + pos(s.hi) + ' - ' + pos(s.lo) + ')';
+      tr.querySelector('.est span').textContent = sg(s.lo, 1) + ' to ' + sg(s.hi, 1);
+    });
+    var dir = MET[m].up ? 'Right of zero is better.' : 'Right of zero means more support contacts, which is worse.';
+    note.innerHTML = 'Does the change differ between segments? Interaction tests give <b>platform ' + fp(het(m, [1, 2, 3])) +
+      '</b> and <b>signup source ' + fp(het(m, [4, 5, 6, 7])) + '</b>. ' + dir + ' ' +
+      (state.adj ? 'Segment intervals are 99.3% (Bonferroni for 7 looks); all users stays at 95%, the one comparison fixed in advance.'
+                 : 'Intervals are 95% each, with no allowance for looking seven times.');
+    show(state.sel);
+  }
+
+  function show(i) {
+    var m = state.m, s = stat(i, m, Z), a = stat(i, m, ZA);
+    Array.prototype.forEach.call(table.querySelectorAll('tr[data-i]'), function (tr) { tr.classList.toggle('hl', +tr.getAttribute('data-i') === i); });
+    var bits = ['Change <b>' + sg(s.d, 2) + ' pp</b>', '95% CI ' + sg(s.lo, 2) + ' to ' + sg(s.hi, 2)];
+    if (i) bits.push('adjusted ' + sg(a.lo, 2) + ' to ' + sg(a.hi, 2));
+    bits.push(fp(s.p));
+    readout.innerHTML = '<p>' + SEG[i] + ' · ' + MET[m].label + '</p>' +
+      '<p><span class="arm"><span class="sw c"></span>Control ' + int(s.xc) + ' of ' + int(s.nc) + ' (' + s.pc.toFixed(2) + '%)</span> ' +
+      '<span class="arm"><span class="sw t"></span>Checklist ' + int(s.xt) + ' of ' + int(s.nt) + ' (' + s.pt.toFixed(2) + '%)</span></p>' +
+      '<p>' + bits.map(function (b) { return '<span class="nw">' + b + '</span>'; }).join(' · ') + '</p>';
+  }
+
+  function select(i) {
+    state.sel = i;
+    Array.prototype.forEach.call(table.querySelectorAll('.rb'), function (b) { b.setAttribute('aria-pressed', String(+b.getAttribute('data-i') === i)); });
+    show(i);
+  }
+  function rowOf(e) { var tr = e.target.closest && e.target.closest('tr[data-i]'); return tr ? +tr.getAttribute('data-i') : -1; }
+  table.addEventListener('click', function (e) { var i = rowOf(e); if (i >= 0) select(i); });
+  table.addEventListener('mouseover', function (e) { var i = rowOf(e); if (i >= 0) show(i); });
+  table.addEventListener('mouseleave', function () { show(state.sel); });
+  table.addEventListener('focusin', function (e) { var i = rowOf(e); if (i >= 0) show(i); });
+  table.addEventListener('focusout', function (e) { if (!table.contains(e.relatedTarget)) show(state.sel); });
+
+  function press(sel, btn) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute('aria-pressed', String(b === btn)); }); }
+  document.querySelectorAll('[data-metric]').forEach(function (b) {
+    b.addEventListener('click', function () { state.m = b.getAttribute('data-metric'); press('[data-metric]', b); build(); });
+  });
+  document.querySelectorAll('[data-adj]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var adj = b.getAttribute('data-adj') === '1'; press('[data-adj]', b);
+      if (adj === state.adj) return;
+      state.adj = adj; table.classList.add('anim'); apply();
+    });
+  });
+
+  var raf = 0;
+  function redraw() { cancelAnimationFrame(raf); raf = requestAnimationFrame(function () { drawHero(); drawDaily(); }); }
+  drawHero(); drawDaily(); drawGlyphs(); build();
+  if (window.ResizeObserver) { var ro = new ResizeObserver(redraw); ro.observe($('hero')); ro.observe($('daily')); }
+  else window.addEventListener('resize', redraw);
+})();
+</script>
+</body>
+</html>

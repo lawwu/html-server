@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code permission prompts — a working prototype</title>
+<meta name="description" content="Drive a simulated Claude Code session in a fictional repo: answer the permission prompts for an edit, a shell command and a web fetch, save “don’t ask again” rules, decline with feedback, cycle modes with Shift+Tab and approve a plan. Built from the Claude Code docs; nothing runs a real tool.">
+<meta name="category" content="effective-html">
+<style>
+:root{--paper:#eceff3;--panel:#f7f8fa;--term:#fcfcfd;--soft:#e9edf2;--ink:#15171c;--ink-2:#525a6a;--rule:#cfd5de;--clay:#a64a27;--focus:#1d5bd8;--m0:#5a6170;--m1:#6440c0;--m2:#086b63;--m3:#835300;--add:#17703a;--add-bg:#e0f1e5;--del:#ad241b;--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#0c0e11;--panel:#14171c;--term:#101317;--soft:#1b2028;--ink:#e5e7eb;--ink-2:#9ca4b2;--rule:#2c333e;--clay:#e78d64;--focus:#8ab0ff;--m0:#a5acb8;--m1:#baa5ff;--m2:#55d3c6;--m3:#f0b34b;--add:#76d69a;--add-bg:#13291c;--del:#ff8f86;color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#0c0e11;--panel:#14171c;--term:#101317;--soft:#1b2028;--ink:#e5e7eb;--ink-2:#9ca4b2;--rule:#2c333e;--clay:#e78d64;--focus:#8ab0ff;--m0:#a5acb8;--m1:#baa5ff;--m2:#55d3c6;--m3:#f0b34b;--add:#76d69a;--add-bg:#13291c;--del:#ff8f86;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 var(--sans)}
+.wrap{max-width:76rem;margin:0 auto;padding:1.75rem 1rem 2.25rem}
+.kick{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .6rem;margin:0;font:600 11.5px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+.badge{color:var(--clay);border:1.5px solid currentColor;border-radius:3px;padding:.05rem .4rem}
+h1{margin:.5rem 0 .45rem;font-size:clamp(1.45rem,3.4vw,2.1rem);line-height:1.15;letter-spacing:-.015em;text-wrap:balance}
+.lede{margin:0 0 1.35rem;max-width:46rem;color:var(--ink-2)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 19.5rem;gap:1.25rem;align-items:start}
+@media (max-width:940px){.grid{grid-template-columns:minmax(0,1fr)}}
+.term{min-width:0;background:var(--term);border:1px solid var(--rule);border-radius:8px;font:13px/1.55 var(--mono)}
+.bar{display:flex;align-items:center;gap:.6rem;padding:.4rem .5rem .4rem .85rem;border-bottom:1px solid var(--rule);background:var(--soft);border-radius:8px 8px 0 0;font-size:12px;color:var(--ink-2)}
+.path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--clay)}
+.log{max-height:26rem;min-height:12rem;overflow:auto;padding:.85rem .9rem .35rem;overscroll-behavior:contain}
+.ask .log{max-height:15rem;min-height:0}
+.cmd{margin:0 0 .5rem;color:var(--ink-2)}
+.ln{display:grid;grid-template-columns:1.45em minmax(0,1fr);margin:0 0 .45rem}
+.g{color:var(--ink-2)}
+.cl>.g{color:var(--clay)}
+.tool.ok>.g{color:var(--add)}
+.tool.no>.g{color:var(--del)}
+.tx{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.you{background:var(--soft);border-radius:5px;padding:.3rem .4rem}
+.sys{color:var(--ink-2)}
+.rs{position:relative;margin-top:.1rem;padding-left:1.6em}
+.rs::before{content:"⎿";position:absolute;left:.2em;top:0;color:var(--ink-2)}
+.r.ok{color:var(--add)}.r.no{color:var(--del)}.r.dim{color:var(--ink-2)}
+.sim{margin:.15rem 0 .65rem 1.45em;padding:.1rem 0 .1rem .65rem;border-left:2px solid var(--rule);font:12.5px/1.45 var(--sans);color:var(--ink-2)}
+.sim b{margin-right:.45em;font:700 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.planbox{margin:.1rem 0 .7rem 1.45em;padding:.55rem .8rem;border:1px solid var(--rule);border-radius:6px;background:var(--panel)}
+.pbh{margin:0 0 .25rem;font-weight:700;color:var(--m2)}
+.plan{margin:0;padding-left:1.5em}
+.plan li{margin:.15rem 0}
+.line{display:flex;gap:.6rem;width:calc(100% - 1.8rem);margin:.6rem .9rem .2rem;padding:.5rem .65rem;text-align:left;font:inherit;color:var(--ink);background:var(--term);border:1px solid var(--rule);border-radius:6px;cursor:pointer}
+.line[aria-disabled=true]{cursor:default;color:var(--ink-2)}
+.car{color:var(--clay);font-weight:700}
+.spin{display:inline-block;animation:sp 1.4s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.hint{margin:.2rem .9rem .55rem;font:12px/1.45 var(--sans);color:var(--ink-2)}
+.reply{display:flex;align-items:center;gap:.5rem;padding:.6rem .9rem .2rem}
+input[type=text]{flex:1;min-width:0;font:inherit;color:var(--ink);background:var(--term);border:1px solid var(--rule);border-radius:5px;padding:.38rem .5rem}
+input[type=text]::placeholder{color:var(--ink-2);opacity:1}
+.prompt{border-top:1px solid var(--rule);padding:.75rem .9rem .8rem}
+.pt{margin:0 0 .3rem;font:700 13px/1.4 var(--mono)}
+.pp{margin:.15rem 0}
+.dim{color:var(--ink-2)}
+.cmdx{margin:.4rem 0;padding:.35rem .2rem;border-top:1px dashed var(--rule);border-bottom:1px dashed var(--rule);font-weight:700;white-space:pre-wrap;overflow-wrap:anywhere}
+.diff{margin:.4rem 0;padding:.25rem 0;border-top:1px dashed var(--rule);border-bottom:1px dashed var(--rule);overflow-x:auto}
+.dl{display:grid;grid-template-columns:2.4em 1.3em max-content;min-width:100%;width:max-content;white-space:pre}
+.dl.add{background:var(--add-bg)}
+.dn{padding-right:.5em;text-align:right;color:var(--ink-2)}
+.dm{text-align:center;font-weight:700;color:var(--add)}
+.dl.gap{color:var(--ink-2)}
+.pq{margin:.6rem 0 .3rem;font-weight:700}
+.opts{display:grid;gap:.1rem}
+.orow{display:flex;flex-wrap:wrap;align-items:center;gap:.2rem .5rem}
+.opt{flex:1 1 13rem;display:grid;grid-template-columns:1.1em 1.7em minmax(0,1fr);align-items:baseline;min-height:2.15rem;padding:.3rem .4rem;text-align:left;font:inherit;color:inherit;background:none;border:0;border-radius:4px;cursor:pointer}
+.opt.on{background:var(--soft);color:var(--focus)}
+@media (hover:hover){.opt:not(.on):hover{box-shadow:inset 0 0 0 1px var(--rule)}}
+.cur{visibility:hidden}
+.opt.on .cur{visibility:visible}
+.num{color:var(--ink-2)}
+.kh,.kc{margin-left:.6em;font-size:11px;color:var(--ink-2)}
+.kh{padding:0 .3em;border:1px solid var(--rule);border-radius:3px}
+.kc:empty{display:none}
+.cf{flex-basis:100%;display:flex;flex-wrap:wrap;gap:.4rem;padding:.15rem 0 .4rem 2.8em}
+.pf{margin:.5rem 0 .2rem;font-size:12px;color:var(--ink-2)}
+.prompt .sim{margin:.35rem 0 0}
+.status{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .7rem;padding:.5rem .9rem .65rem;border-top:1px solid var(--rule)}
+.mode{font-weight:700}
+.m0{color:var(--m0)}.m1{color:var(--m1)}.m2{color:var(--m2)}.m3{color:var(--m3)}
+.mdesc{flex:1 1 15rem;font:12.5px/1.4 var(--sans);color:var(--ink-2)}
+.mhint{flex-basis:100%;font:12.5px/1.4 var(--sans);color:var(--clay)}
+.mhint:empty{display:none}
+.key,.mini{font:600 11.5px/1.3 var(--mono);color:var(--ink);background:var(--panel);border:1px solid var(--rule);border-bottom-width:2px;border-radius:5px;padding:.22rem .5rem;cursor:pointer}
+.key[aria-disabled=true]{opacity:.55;cursor:not-allowed}
+@media (pointer:coarse){.key,.mini{min-height:2.3rem}.opt{min-height:2.5rem}}
+.rail{display:grid;gap:1rem;min-width:0}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:.85rem .95rem 1rem;font-size:13.5px;line-height:1.5}
+.card h2{display:flex;justify-content:space-between;gap:.5rem;margin:0 0 .6rem;font:700 11.5px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+.card h2 span{letter-spacing:.03em;text-transform:none}
+.try{list-style:none;margin:0;padding:0;display:grid;gap:.6rem}
+.try li{display:grid;grid-template-columns:1.2rem minmax(0,1fr);gap:.55rem}
+.try p{margin:0}
+.tick{display:grid;place-items:center;width:1.05rem;height:1.05rem;margin-top:.17rem;border:1.5px solid var(--rule);border-radius:50%;font:700 11px/1 var(--sans);color:var(--panel)}
+.try li.ok .tick{background:var(--add);border-color:var(--add)}
+.try li.ok .tick::after{content:"✓"}
+.try li.ok b{color:var(--add)}
+.fname{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.1rem .6rem;margin:.2rem 0 .4rem;font-weight:600}
+.fname span{font-weight:400;font-size:12px;color:var(--ink-2)}
+.rules{list-style:none;margin:0 0 .5rem;padding:0;display:grid;gap:.35rem}
+.rule{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.3rem .5rem;padding:.35rem .5rem;border:1px solid var(--rule);border-radius:5px;background:var(--term);font:12.5px/1.4 var(--mono)}
+.rule code{min-width:0;overflow-wrap:anywhere}
+.until{font:12px var(--sans);color:var(--ink-2)}
+.empty{margin:0 0 .6rem;font-size:12.5px;color:var(--ink-2)}
+.json{margin:0 0 .9rem;padding:.5rem .6rem;border-radius:5px;background:var(--soft);font:11.5px/1.45 var(--mono);color:var(--ink-2);overflow-x:auto}
+.flash{animation:fl 1.6s ease-out}
+@keyframes fl{0%,35%{background:var(--add-bg);border-color:var(--add)}}
+code{font-family:var(--mono);font-size:.92em}
+.keys{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.45rem .7rem;margin:0}
+.keys dt{white-space:nowrap}
+.keys dd{margin:0}
+kbd{display:inline-block;padding:0 .35em;font:600 11px/1.4 var(--mono);color:var(--ink);background:var(--term);border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px}
+.small{margin:.7rem 0 0;font-size:12.5px;color:var(--ink-2)}
+footer{max-width:52rem;margin-top:1.75rem;padding-top:1rem;border-top:1px solid var(--rule);font-size:13px;color:var(--ink-2)}
+footer p{margin:.45rem 0}
+footer ul{margin:.3rem 0 .8rem;padding-left:1.1rem}
+footer li{margin:.15rem 0}
+a{color:var(--ink);text-underline-offset:2px}
+a:hover{color:var(--clay)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.opt:focus-visible,.log:focus-visible{outline-offset:-2px}
+.vh{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+@media (max-width:600px){.term{font-size:12.5px}.log{max-height:22rem;min-height:8rem;padding:.7rem .7rem .3rem}.ask .log{max-height:12rem;min-height:0}.prompt{padding:.65rem .7rem .7rem}.line{width:calc(100% - 1.4rem);margin:.55rem .7rem .2rem}.hint{margin:.2rem .7rem .5rem}.reply{padding:.55rem .7rem .2rem}.status{padding:.5rem .7rem .6rem}.cf{padding-left:0}.sim,.planbox{margin-left:0}}
+@media (prefers-reduced-motion:reduce){.spin,.flash{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<p class="kick"><span class="badge">Simulation</span><span>Not the real Claude Code · everything runs in this page</span></p>
+<h1>Claude Code permission prompts — a working prototype</h1>
+<p class="lede">A scripted Claude Code session in a fictional repo. Claude proposes an edit, a shell command and a web fetch, and you answer each permission prompt the way the Claude Code docs describe: allow once, save a rule, decline with a comment, cycle permission modes, or plan first.</p>
+</header>
+<main class="grid">
+<section class="term" id="term" aria-labelledby="h-term">
+<h2 id="h-term" class="vh">Simulated session</h2>
+<div class="bar"><span class="path">~/code/slugsmith</span><span class="tag">simulated</span><button id="new" class="mini" type="button">New session</button></div>
+<div id="log" class="log" role="log" aria-live="off" aria-label="Session transcript" tabindex="0"></div>
+<div id="dock"></div>
+<div class="status"><span id="mode" class="mode m0"></span><button id="cycle" class="key" type="button" aria-label="Cycle permission mode (Shift+Tab)">shift+tab</button><span id="mdesc" class="mdesc"></span><span id="mhint" class="mhint"></span></div>
+</section>
+<aside class="rail" aria-label="Guide">
+<section class="card" aria-labelledby="h-try">
+<h2 id="h-try">Try these <span id="prog">0 of 5</span></h2>
+<ul class="try">
+<li data-k="once"><span class="tick" aria-hidden="true"></span><p><span class="st vh"></span><b>Allow once.</b> Choose <em>Yes</em> on any prompt. The next prompt still asks.</p></li>
+<li data-k="again"><span class="tick" aria-hidden="true"></span><p><span class="st vh"></span><b>Don’t ask again.</b> Option 2 on the <code>npm test</code> or fetch prompt saves a rule below, and the next test run doesn’t ask.</p></li>
+<li data-k="fb"><span class="tick" aria-hidden="true"></span><p><span class="st vh"></span><b>Decline with feedback.</b> On the edit prompt, move to <em>No</em>, press <kbd>Tab</kbd>, type a note and press <kbd>Enter</kbd>. Claude revises.</p></li>
+<li data-k="cycle"><span class="tick" aria-hidden="true"></span><p><span class="st vh"></span><b>Cycle modes.</b> At the input, press <kbd>Shift</kbd>+<kbd>Tab</kbd> and watch the mode under it change.</p></li>
+<li data-k="plan"><span class="tick" aria-hidden="true"></span><p><span class="st vh"></span><b>Plan first.</b> Cycle to plan mode before you send. Claude plans, and edits wait until you approve.</p></li>
+</ul>
+</section>
+<section class="card" aria-labelledby="h-rules">
+<h2 id="h-rules" tabindex="-1">Permission rules</h2>
+<p class="fname"><code>.claude/settings.local.json</code><span>saved · future sessions in this repo</span></p>
+<ul id="saved" class="rules"></ul>
+<p id="saved-empty" class="empty">None yet. “Yes, and don’t ask again” on the <code>npm test</code> or fetch prompt saves one here.</p>
+<pre id="json" class="json"></pre>
+<p class="fname">This session only<span>not saved to a file</span></p>
+<ul id="sess" class="rules"></ul>
+<p id="sess-empty" class="empty">Nothing yet. Option 2 on the edit prompt allows edits until the session ends.</p>
+<button id="reset" class="mini" type="button">Reset rules and checklist</button>
+</section>
+<section class="card" aria-labelledby="h-keys">
+<h2 id="h-keys">Keys</h2>
+<dl class="keys">
+<dt><kbd>Enter</kbd></dt><dd>Send the prompt, or choose the highlighted option</dd>
+<dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move between options; <kbd>1</kbd>–<kbd>4</kbd> choose directly</dd>
+<dt><kbd>Tab</kbd></dt><dd>On <em>Yes</em> or <em>No</em>: open a comment field, and again to close it</dd>
+<dt><kbd>Shift</kbd>+<kbd>Tab</kbd></dt><dd>At the input: cycle permission modes. On an edit prompt: choose option 2</dd>
+<dt><kbd>Esc</kbd></dt><dd>On a prompt: decline, the same as <em>No</em> without a comment. While Claude works: interrupt</dd>
+<dt><kbd>Ctrl</kbd>+<kbd>G</kbd></dt><dd>On the plan prompt: open the plan in your editor (CLI only)</dd>
+</dl>
+<p class="small">The mouse works too: click an option, use <em>+ comment</em> for a note, and the <kbd>shift+tab</kbd> button under the input to cycle modes.</p>
+</section>
+</aside>
+</main>
+<footer>
+<p>Facts about modes, prompts and keys come from these Claude Code docs pages:</p>
+<ul>
+<li><a href="https://code.claude.com/docs/en/permissions" target="_blank" rel="noopener">Configure permissions</a>: prompt options, comments on answers, where “don’t ask again” rules are saved</li>
+<li><a href="https://code.claude.com/docs/en/permission-modes" target="_blank" rel="noopener">Choose a permission mode</a>: the Shift+Tab cycle, the mode indicator, plan approval</li>
+<li><a href="https://code.claude.com/docs/en/interactive-mode" target="_blank" rel="noopener">Interactive mode</a>: Esc, Tab and Shift+Tab on prompts</li>
+<li><a href="https://code.claude.com/docs/en/keybindings" target="_blank" rel="noopener">Customize keyboard shortcuts</a>: keys in confirmation dialogs</li>
+<li><a href="https://code.claude.com/docs/en/tools-reference" target="_blank" rel="noopener">Tools reference</a>: the WebFetch prompt and its options</li>
+</ul>
+<p>The repo, code, test output and fetched page are fictional, and Claude’s replies are scripted. The docs describe the edit prompt’s second option (it “allows the action for the rest of the session”) without quoting its label, so that label is paraphrased. Prompt titles, layout and colors are approximations.</p>
+<p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html-prototype" target="_blank" rel="noopener">html-prototype</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+<div id="sr" class="vh" aria-live="polite" aria-atomic="true"></div>
+<noscript><p style="text-align:center">This prototype needs JavaScript.</p></noscript>
+<script>
+(function(){
+'use strict';
+function $(i){return document.getElementById(i)}
+var log=$('log'),dock=$('dock'),term=$('term'),sr=$('sr'),live=false,CANCEL={},saved=[],done={},st=null,q=[];
+var BR='Bash(npm test *)',WR='WebFetch(domain:www.unicode.org)';
+var TASK='slugify mangles accented titles: “Crème brûlée” becomes “cr-me-br-l-e”. Make the new accent tests in test/slugify.test.js pass.';
+var MODES=[['⏸︎ manual mode on','Asks before most edits, shell commands and network requests. Reads run freely.'],
+['⏵⏵ accept edits on','File edits and common filesystem commands run without asking. Other commands still ask.'],
+['⏸︎ plan mode on','Claude reads and proposes a plan. Edits stay blocked until you approve it.'],
+['⏵⏵ auto mode on','No routine prompts. A background classifier checks commands and network requests first.']];
+var SUG={e1:['Use /\\p{M}/gu so every combining mark goes, not just U+0300–036F',/p\{m|combining|mark|propert/i],
+e1b:['Leave slugify.js as it is for now',/leave|stop|as it is|don.?t|no change|skip|revert/i],
+b1:['Skip the tests for now',/skip|later|not now|don.?t|no test|myself|without/i],
+f:['Skip the web lookup and map the letters yourself',/skip|no fetch|don.?t|yourself|without|map|offline/i],
+e2:['Leave the map out for now',/leave|skip|without|don.?t|no map|later/i],
+b2:['I’ll run the tests myself',/myself|skip|later|don.?t|not now|ll run/i],
+p:['Use /\\p{M}/gu to strip every combining mark',/p\{m|combining|mark|propert/i],
+p2:['Looks good, go ahead',/./],
+i:['Carry on',/./]};
+var TESTS=[['keeps plain ASCII titles'],['collapses spaces and punctuation'],['strips accents: Crème brûlée'],['strips accents: São Paulo'],['maps ß: Straße',"expected 'strasse', got 'stra-e'"],['maps ø: Smørrebrød',"expected 'smorrebrod', got 'sm-rrebr-d'"]];
+var TRY={once:'Allow once',again:'Don’t ask again',fb:'Decline with feedback',cycle:'Cycle modes',plan:'Plan first'};
+
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function put(n){log.appendChild(n);log.scrollTop=log.scrollHeight;return n}
+function row(c,g,x){var d=el('div','ln '+c),b=el('div','tx');d.appendChild(el('span','g',g));if(x!=null)b.textContent=x;d.appendChild(b);d.tx=b;return put(d)}
+function claude(x){return row('cl','●',x)}
+function you(x){return row('you','>',x)}
+function sys(x){return row('sys','⎿',x)}
+function note(x){var d=el('div','sim');d.appendChild(el('b',null,'Sim note'));d.appendChild(document.createTextNode(x));return put(d)}
+function tool(n,a){var d=row('tool','●');d.tx.appendChild(el('b',null,n));d.tx.appendChild(document.createTextNode('('+a+')'));return d}
+function res(t,rs,ok){var r=el('div','rs');if(ok!=null)t.classList.add(ok?'ok':'no');rs.forEach(function(x){r.appendChild(el('div','r '+x[0],x[1]))});t.tx.appendChild(r);log.scrollTop=log.scrollHeight}
+function say(m){q.push(m);clearTimeout(say.t);say.t=setTimeout(function(){sr.textContent=q.join(' ');q=[]},80)}
+function hint(m){var h=$('mhint');h.textContent=m;say(m);clearTimeout(hint.t);hint.t=setTimeout(function(){h.textContent=''},4500)}
+function wait(ms){var r=st.run;return new Promise(function(ok,no){setTimeout(function(){r===st.run?ok():no(CANCEL)},ms)})}
+function go(f){f().catch(function(e){if(e!==CANCEL)throw e})}
+function scripted(k,v){if(!SUG[k][1].test(v))note('Scripted: this simulation can’t act on free text, so Claude takes the suggested path (“'+SUG[k][0]+'”).')}
+
+/* modes, checklist, rules */
+function renderMode(){var m=$('mode'),c=$('cycle'),dis=st.phase==='prompt';m.textContent=MODES[st.mode][0];m.className='mode m'+st.mode;$('mdesc').textContent=MODES[st.mode][1];c.setAttribute('aria-disabled',dis?'true':'false');c.title=dis?'Answer the prompt first':'Cycle permission mode'}
+function setMode(i){st.mode=i;renderMode();say('Permission mode: '+MODES[i][0].slice(3)+'.')}
+function cycle(){if(st.phase==='prompt'){hint('Answer the prompt first. Shift+Tab cycles modes from the input.');return}setMode((st.mode+1)%4);tick('cycle')}
+function tick(k){if(done[k])return;done[k]=1;renderTry();say('Checked off: '+TRY[k]+'.')}
+function renderTry(){var n=0;Object.keys(TRY).forEach(function(k){var li=document.querySelector('[data-k="'+k+'"]');li.classList.toggle('ok',!!done[k]);li.querySelector('.st').textContent=done[k]?'Done: ':'Not yet: ';if(done[k])n++});$('prog').textContent=n+' of 5'}
+function addRule(r){if(saved.indexOf(r)<0)saved.push(r);renderRules(r);say('Saved '+r+' to .claude/settings.local.json.')}
+function renderRules(fl){var u=$('saved'),s=$('sess'),li;u.textContent='';s.textContent='';
+saved.forEach(function(r){var b=el('button','mini','Remove');li=el('li','rule'+(r===fl?' flash':''));li.appendChild(el('code',null,r));b.type='button';b.setAttribute('aria-label','Remove rule '+r);b.onclick=function(){saved.splice(saved.indexOf(r),1);renderRules();$('h-rules').focus();say('Removed '+r+'.')};li.appendChild(b);u.appendChild(li)});
+$('saved-empty').hidden=saved.length>0;$('json').textContent=JSON.stringify({permissions:{allow:saved}},null,2);
+if(st.edits){li=el('li','rule'+(fl==='s'?' flash':''));li.appendChild(el('code',null,'Edit files'));li.appendChild(el('span','until','until this session ends'));s.appendChild(li)}$('sess-empty').hidden=!!st.edits}
+
+/* the dock: input line, permission prompt or reply field */
+function inTerm(){var a=document.activeElement;return live&&(!a||a===document.body||term.contains(a))}
+function phase(p){st.phase=p;renderDock()}
+function renderDock(){var f=inTerm(),t;dock.textContent='';term.classList.toggle('ask',st.phase==='prompt');t=st.phase==='prompt'?buildPrompt():st.phase==='stopped'?buildReply():buildLine();log.scrollTop=log.scrollHeight;renderMode();if(f&&t)t.focus()}
+function buildLine(){var p=st.phase,w=p==='working',b=el('button','line'),c=el('span','car'+(w?' spin':''),w?'✻':'>');b.type='button';b.id='line';c.setAttribute('aria-hidden','true');b.appendChild(c);
+b.appendChild(el('span',null,p==='idle'?TASK:w?'Working…':'Task finished. Press Enter for a new session.'));
+b.setAttribute('aria-label',p==='idle'?'Send prompt: '+TASK:w?'Claude is working. Escape interrupts.':'Start a new session');if(w)b.setAttribute('aria-disabled','true');
+b.onclick=function(){if(st.phase==='idle')send();else if(st.phase==='done')newSession()};
+b.onkeydown=function(e){if(e.key==='Tab'&&e.shiftKey){e.preventDefault();cycle()}else if(e.key==='Escape'&&st.phase==='working'){e.preventDefault();interrupt()}};
+dock.appendChild(b);dock.appendChild(el('p','hint',p==='idle'?'Enter sends · Shift+Tab cycles permission modes · the task is scripted':w?'Esc interrupts · Shift+Tab cycles permission modes':'Saved rules carry over to the next session.'));return b}
+function buildReply(){var s=st.stop,sg=SUG[s.sug],f=el('div','reply'),i=el('input'),lab=el('label','vh',s.ph),b=el('button','key','Send'),h=el('p','hint'),u=el('button','mini','Use suggestion');
+i.id='reply';lab.htmlFor='reply';i.type='text';i.autocomplete='off';i.placeholder=s.ph;b.type='button';u.type='button';
+f.appendChild(lab);f.appendChild(el('span','car','>'));f.appendChild(i);f.appendChild(b);
+function sub(){var v=i.value.trim();if(!v){hint('Type a reply first, or use the suggestion.');i.focus();return}reply(v)}
+i.onkeydown=function(e){if(e.key==='Enter'&&!e.isComposing){e.preventDefault();sub()}};b.onclick=sub;
+h.appendChild(document.createTextNode('Enter sends. Suggestion: “'+sg[0]+'” '));u.onclick=function(){i.value=sg[0];i.focus()};h.appendChild(u);
+dock.appendChild(f);dock.appendChild(h);return i}
+function rows(){return dock.querySelectorAll('.orow')}
+function opt(i){return dock.querySelectorAll('.opt')[i]}
+function paint(){var p=st.prompt;[].forEach.call(dock.querySelectorAll('.opt'),function(b,i){b.classList.toggle('on',i===p.hi);b.tabIndex=i===p.hi?0:-1})}
+function kept(w,i){w.querySelector('.kc').textContent=(st.prompt.c[i]||'').trim()?'comment kept':''}
+function shut(){var p=st.prompt,any=false;[].forEach.call(rows(),function(w,i){var f=w.querySelector('.cf');if(f&&!f.hidden){p.c[i]=f.querySelector('input').value;f.hidden=true;kept(w,i);any=true}});return any}
+function field(i,open){var p=st.prompt,w=rows()[i],f=w&&w.querySelector('.cf'),inp;if(!f)return;inp=f.querySelector('input');
+if(open){shut();f.hidden=false;inp.value=p.c[i]||'';w.querySelector('.kc').textContent='';p.hi=i;paint();inp.focus()}else{p.c[i]=inp.value;f.hidden=true;kept(w,i);opt(i).focus()}}
+function buildPrompt(){var p=st.prompt,s=el('section','prompt k-'+p.kind),h=el('h3','pt',p.title),L=el('div','opts'),n=el('p','sim');
+s.setAttribute('aria-labelledby','pt');h.id='pt';s.appendChild(h);p.body(s);s.appendChild(el('p','pq',p.q));
+p.opts.forEach(function(o,i){var w=el('div','orow'),b=el('button','opt'),lb=el('span','ol',o[1]),a,f,inp,u;b.type='button';
+b.appendChild(el('span','cur','❯'));b.appendChild(el('span','num',(i+1)+'.'));if(o[3])lb.appendChild(el('span','kh',o[3]));lb.appendChild(el('span','kc'));b.appendChild(lb);
+b.onclick=function(){choose(i)};b.onfocus=function(){p.hi=i;paint()};w.appendChild(b);
+if(o[2]){a=el('button','mini','+ comment');f=el('div','cf');inp=el('input');a.type='button';a.tabIndex=-1;a.setAttribute('aria-label','Add a comment to '+o[1]);a.onclick=function(){field(i,1)};w.appendChild(a);
+f.hidden=true;inp.type='text';inp.autocomplete='off';inp.dataset.i=i;inp.setAttribute('aria-label','Comment on '+o[1]+'. Enter answers, Tab closes the field.');inp.placeholder=o[0]==='no'?'e.g. '+SUG[p.sug][0]:'Sent to Claude after the result';f.appendChild(inp);
+if(o[0]==='no'){u=el('button','mini','Use suggestion');u.type='button';u.tabIndex=-1;u.onclick=function(){inp.value=SUG[p.sug][0];inp.focus()};f.appendChild(u)}w.appendChild(f)}
+L.appendChild(w)});
+s.appendChild(L);s.appendChild(el('p','pf',p.foot));n.appendChild(el('b',null,'Sim note'));n.appendChild(document.createTextNode(p.note));s.appendChild(n);
+s.addEventListener('keydown',pkey);dock.appendChild(s);p.hi=0;paint();return opt(0)}
+function pkey(e){var p=st.prompt,t=e.target,k=e.key,n;if(!p)return;
+if(t.tagName==='INPUT'){n=+t.dataset.i;if(k==='Enter'){e.preventDefault();p.c[n]=t.value;choose(n)}else if(k==='Tab'){e.preventDefault();field(n,0)}else if(k==='Escape'){e.preventDefault();decline()}return}
+if(k==='ArrowDown'||k==='ArrowUp'){e.preventDefault();n=p.hi+(k==='ArrowDown'?1:-1);if(n>=0&&n<p.opts.length){shut();opt(n).focus()}}
+else if(k==='Tab'&&e.shiftKey){if(p.kind==='edit'){e.preventDefault();if(shut())opt(p.hi).focus();else choose(1)}}
+else if(k==='Tab'){if(p.opts[p.hi][2]){e.preventDefault();field(p.hi,1)}}
+else if(k==='Escape'){e.preventDefault();decline()}
+else if(/^[1-9]$/.test(k)&&!e.ctrlKey&&!e.metaKey&&!e.altKey){n=+k-1;if(n<p.opts.length){e.preventDefault();choose(n)}}
+else if((k==='g'||k==='G')&&e.ctrlKey&&p.kind==='plan'){e.preventDefault();hint('In the CLI, Ctrl+G opens the plan in your text editor. Not simulated here.')}}
+function ask(c){c.c={};st.prompt=c;phase('prompt');say(c.title+' prompt. '+c.q+' Arrow keys move, Enter chooses.')}
+function choose(i){var p=st.prompt,w,f,o,c;if(!p||st.phase!=='prompt')return;w=rows()[i];f=w&&w.querySelector('.cf');if(f&&!f.hidden)p.c[i]=f.querySelector('input').value;
+o=p.opts[i];c=o[2]?(p.c[i]||'').trim():'';st.prompt=null;phase('working');p.on(o[0],c)}
+function decline(){var p=st.prompt,n=p.opts.length-1;shut();p.c[n]='';choose(n)}
+
+/* the scripted task */
+function sugFor(s){return s===1?(st.d1||st.pM?'e1b':'e1'):['','','b1','f','e2','b2'][s]}
+function editFree(){return st.edits?'No prompt: you allowed edits for the rest of this session.':st.mode===1?'No prompt: accept edits mode approves file edits in the working directory.':st.mode===3?'No prompt: in auto mode, edits inside the working directory skip the classifier.':''}
+function netFree(r,w){return saved.indexOf(r)>=0?'No prompt: matches '+r+' in .claude/settings.local.json.':st.mode===3?'No prompt: in auto mode the background classifier reviewed this '+w+' and, in this simulation, allowed it.':''}
+function D1(){return[[' ',2,'export function slugify(title) {'],[' ',3,'  return title'],['+',4,"    .normalize('NFKD')"],['+',5,st.pM?"    .replace(/\\p{M}/gu, '')":"    .replace(/[\\u0300-\\u036f]/g, '')"],[' ',6,'    .toLowerCase()'],[' ',7,"    .replace(/[^a-z0-9]+/g, '-')"]]}
+function D2(){return[['+',1,'const FOLD = {'],['+',2,"  ß: 'ss', æ: 'ae', œ: 'oe', ø: 'o',"],['+',3,"  ł: 'l', đ: 'd', þ: 'th',"],['+',4,'};'],['+',5,''],[' ',6,'// Turn a title into a URL slug.'],['…'],[' ',11,'    .toLowerCase()'],['+',12,'    .replace(/[ßæœøłđþ]/g, (c) => FOLD[c])'],[' ',13,"    .replace(/[^a-z0-9]+/g, '-')"]]}
+function diff(s,L){var d=el('div','diff');s.appendChild(el('p','pp','src/slugify.js'));L.forEach(function(l){var r=el('div','dl'+(l[0]==='+'?' add':l[0]==='…'?' gap':''));r.appendChild(el('span','dn',l[1]==null?'':String(l[1])));r.appendChild(el('span','dm',l[0]==='…'?'':l[0]));r.appendChild(el('span',null,l[0]==='…'?'⋯':l[2]));d.appendChild(r)});s.appendChild(d)}
+function edited(n,t){res(t,[['',n===1?'Updated src/slugify.js · 2 lines added':'Updated src/slugify.js · 6 lines added']],1);st.step=n===1?2:5;say('Edit applied.')}
+function tests(t,pass){var r=[['dim','> slugsmith@0.4.0 test'],['dim','> node --test']];TESTS.forEach(function(x,i){var ok=pass||i<4;r.push([ok?'ok':'no',(ok?'✔︎ ':'✖︎ ')+x[0]+(ok?'':' · '+x[1])])});
+r.push(['dim',pass?'ℹ︎ tests 6 · pass 6 · fail 0':'ℹ︎ tests 6 · pass 4 · fail 2']);res(t,r,!!pass);st.ran=1;st.step=pass?6:3;say(pass?'Tests: 6 of 6 pass.':'Tests: 4 pass, 2 fail.')}
+function fetched(t){res(t,[['','Fetched www.unicode.org/reports/tr15/']],1);claude('The spec confirms NFKD only applies the decomposition mappings in the Unicode Character Database. ß, æ, œ, ø, ł, đ and þ have none, so I’ll map those seven before the ASCII filter.');st.step=4}
+function ack(c){claude('Noted: “'+c+'”.');note('Scripted: a comment on Yes reaches Claude after the result. This simulation acknowledges it without changing course.')}
+function no(t,s,c,why){res(t,[['no',c?'Declined · comment sent: “'+c+'”':'Declined']],0);if(c)follow(s,c);else stopTurn(s,why)}
+function stopTurn(s,why){st.stop={k:'d',step:s,sug:sugFor(s),ph:'Tell Claude what to do differently'};note(why);phase('stopped');say('Turn stopped. Tell Claude what to do differently.')}
+function editP(n,t){var s=n===1?1:4;return{kind:'edit',title:'Edit file',q:'Do you want to proceed?',foot:'Esc to cancel · Tab to amend',sug:sugFor(s),
+opts:[['yes','Yes',1],['session',"Yes, and don't ask again this session",0,'shift+tab'],['no','No',1]],
+note:'Option 2 lasts until the session ends and isn’t saved to a file. Esc is the same as No without a comment, which stops the turn.',
+body:function(b){diff(b,n===1?D1():D2())},
+on:function(id,c){if(id==='no')return no(t,s,c,'No without a comment stops the turn.');if(id==='session'){st.edits=true;renderRules('s');tick('again');res(t,[['dim','Approved · edits allowed for the rest of this session']])}else tick('once');go(async function(){await wait(350);edited(n,t);if(c)ack(c);advance()})}}}
+function bashP(s,t){return{kind:'bash',title:'Bash command',q:'Do you want to proceed?',foot:'Esc to cancel · Tab to amend',sug:sugFor(s),
+opts:[['yes','Yes',1],['rule',"Yes, and don't ask again for: npm test *"],['auto','Yes, and switch to auto mode'],['no','No',1]],
+note:'Option 2 saves '+BR+' to .claude/settings.local.json, so later sessions in this repo skip this prompt too. Option 3 appears because auto mode is available.',
+body:function(b){b.appendChild(el('p','pp','Run the test suite'));b.appendChild(el('div','cmdx','npm test'));b.appendChild(el('p','pp dim','This command requires approval'))},
+on:function(id,c){if(id==='no')return no(t,s,c,'No without a comment stops the turn.');if(id==='rule'){addRule(BR);tick('again');res(t,[['dim','Approved · saved '+BR]])}else if(id==='auto'){setMode(3);res(t,[['dim','Approved · switched to auto mode']])}else tick('once');go(async function(){await wait(800);tests(t,s===5);if(c)ack(c);advance()})}}}
+function fetchP(t){return{kind:'fetch',title:'Fetch',q:'Do you want to proceed?',foot:'Esc to cancel',
+opts:[['yes','Yes'],['rule',"Yes, and don't ask again for www.unicode.org"],['no','No, and tell Claude what to do differently']],
+note:'Fetch prompts take no comment, so No stops the turn and you tell Claude what to do instead. Option 2 saves '+WR+'.',
+body:function(b){b.appendChild(el('div','cmdx','https://www.unicode.org/reports/tr15/'))},
+on:function(id){if(id==='no')return no(t,3,'','A fetch prompt has no comment field, so No stops the turn.');if(id==='rule'){addRule(WR);tick('again');res(t,[['dim','Approved · saved '+WR]])}else tick('once');go(async function(){await wait(800);fetched(t);advance()})}}}
+function planLines(){var L=[],s=st.step;
+if(s<=1)L.push('In src/slugify.js, decompose with normalize(\'NFKD\') and strip '+(st.pM?'every combining mark with /\\p{M}/gu.':'the combining marks it splits off.'));
+if(s<=2)L.push('Run npm test to see which letters still fail.');if(s<=3)L.push('Check the Unicode normalization spec (UAX #15) for letters NFKD can’t split.');
+if(s<=4)L.push('Map those letters to ASCII in src/slugify.js.');L.push('Run npm test to confirm the fix.');return L}
+async function plan(){var o=el('ol','plan'),b=el('div','planbox');claude(st.plans?'Updated plan:':'Here’s my plan. Nothing gets edited until you approve it.');
+planLines().forEach(function(x){o.appendChild(el('li',null,x))});b.appendChild(el('p','pbh','Plan: fix accented slugs'));b.appendChild(o);put(b);await wait(300);
+ask({kind:'plan',title:'Plan ready',q:'How should Claude proceed?',foot:'Esc to cancel',opts:[['auto','Yes, and use auto mode'],['manual','Yes, manually approve edits'],['keep','No, keep planning']],
+note:'Approving exits plan mode and switches to the mode the option names. In the CLI, Ctrl+G opens the plan in your text editor; not simulated here.',body:function(){},
+on:function(id){if(id==='keep'){sys('Still in plan mode');st.stop={k:'p',sug:st.plans?'p2':'p',ph:'Tell Claude what to change'};phase('stopped');say('Still in plan mode. Tell Claude what to change.');return}
+tick('plan');setMode(id==='auto'?3:0);sys(id==='auto'?'Plan approved · switched to auto mode':'Plan approved · Manual mode: you approve each edit');advance()}})}
+function replan(v){var k=st.plans?'p2':'p';st.plans++;go(async function(){await wait(500);scripted(k,v);
+if(k==='p'){st.pM=true;tick('fb');claude('Updated step 1 to strip every combining mark with \\p{M}, not just U+0300–036F.')}else claude('Noted: “'+v+'”.');
+if(st.mode===2){await wait(400);await plan()}else{claude('We’re out of plan mode now, so I’ll start.');advance()}})}
+function follow(s,v){var k=sugFor(s);go(async function(){await wait(500);scripted(k,v);tick('fb');
+if(k==='e1'){st.d1++;st.pM=true;claude('Revised: strip with \\p{M}, which matches every combining mark, not only the U+0300–036F block.');st.skip=true;return advance()}
+if(s===1)return finish('Understood. I’ll leave src/slugify.js as it is, so the four accent tests will keep failing.');
+if(s===2){claude('OK, no test run for now. The likely gap is letters NFKD can’t split, like the ß and ø in your tests. I’ll check the normalization spec.');st.step=3;st.skip=true;return advance()}
+if(s===3){claude('OK, no fetch. ß, æ, œ, ø, ł, đ and þ have no decomposition in the Unicode data, so I’ll map those.');st.step=4;return advance()}
+if(s===4)return finish('Leaving the map out. The ß and ø tests will keep failing until something maps those letters.');
+finish('Not running it. The change is in src/slugify.js, and npm test will confirm it.')})}
+async function s1(){await wait(550);if(!st.skip)claude('The ASCII filter drops every accented letter. NFKD splits “è” into “e” plus a combining accent, so I can strip the marks and keep the letters.');st.skip=false;
+var t=tool('Edit','src/slugify.js'),w=editFree();if(!w){ask(editP(1,t));return 1}await wait(350);note(w);edited(1,t)}
+async function s2(){await wait(500);if(!st.skip)claude('Now the tests.');st.skip=false;var t=tool('Bash','npm test'),w=netFree(BR,'command');if(!w){ask(bashP(2,t));return 1}note(w);await wait(800);tests(t,0)}
+async function s3(){await wait(600);if(!st.skip)claude('Four pass. ß and ø survive because NFKD has nothing to split: neither is a base letter plus a mark. I’ll check the Unicode normalization spec before mapping letters by hand.');st.skip=false;
+var t=tool('Fetch','https://www.unicode.org/reports/tr15/'),w=netFree(WR,'fetch');if(!w){ask(fetchP(t));return 1}note(w);await wait(800);fetched(t)}
+async function s4(){await wait(550);st.skip=false;var t=tool('Edit','src/slugify.js'),w=editFree();if(!w){ask(editP(2,t));return 1}await wait(350);note(w);edited(2,t)}
+async function s5(){await wait(500);if(!st.skip)claude(st.ran?'Running the tests again.':'Now the tests.');st.skip=false;var t=tool('Bash','npm test'),w=netFree(BR,'command');if(!w){ask(bashP(5,t));return 1}note(w);await wait(800);tests(t,1)}
+var STEP=[null,s1,s2,s3,s4,s5];
+function advance(){go(async function(){var a,b;if(st.phase!=='working')phase('working');for(;;){
+if(!st.step){await wait(450);claude('I’ll read the slug function and the new tests first.');a=tool('Read','src/slugify.js');await wait(300);res(a,[['','Read 7 lines']],1);b=tool('Read','test/slugify.test.js');await wait(300);res(b,[['','Read 18 lines']],1);note('File reads inside the working directory don’t prompt.');st.step=1}
+if(st.step>5)return finish('Done. slugify now decomposes to NFKD, strips combining marks and maps the seven letters NFKD can’t split. All 6 tests pass.');
+if(st.mode===2){await wait(500);return plan()}
+if(await STEP[st.step]())return}})}
+function finish(m){if(m)claude(m);st.step=6;phase('done');say('Task finished. Enter starts a new session.')}
+function send(){if(st.phase!=='idle')return;you(TASK);advance()}
+function reply(v){var s=st.stop;st.stop=null;you(v);phase('working');if(s.k==='d')follow(s.step,v);else if(s.k==='p')replan(v);else go(async function(){await wait(400);claude('Picking up where I left off.');st.skip=true;advance()})}
+function interrupt(){if(st.phase!=='working')return;st.run++;sys('Interrupted');st.stop={k:'i',sug:'i',ph:'Tell Claude what to do instead'};phase('stopped');say('Interrupted. Tell Claude what to do instead.')}
+function newSession(){var r=st?st.run+1:1;st={mode:0,step:0,pM:false,edits:false,phase:'idle',run:r,d1:0,plans:0,ran:0,prompt:null,stop:null,skip:false};log.textContent='';
+put(el('div','cmd','$ claude --permission-mode manual'));note('Manual mode: Claude asks before most edits, shell commands and network requests. Files, commands, pages and test output here are canned.');
+if(saved.length)note('Saved rules carry over to new sessions: '+saved.join(', ')+'.');renderRules();phase('idle')}
+
+$('cycle').onclick=cycle;$('new').onclick=function(){newSession()};$('reset').onclick=function(){saved=[];done={};renderTry();newSession();say('Rules and checklist cleared.')};
+['pointerdown','keydown','focusin'].forEach(function(e){term.addEventListener(e,function(){live=true})});
+renderTry();newSession();
+})();
+</script>
+</body>
+</html>

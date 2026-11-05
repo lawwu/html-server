@@ -7,6 +7,42 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Random page.** A Random link in the sidebar opens a random page you can see, never the
+  one you're on (unless it's the only one). `/random?folder=…` or `?category=…` picks one
+  in a folder or with a tag. `random` is now a reserved page name.
+- **Popular pages on `/stats`,** in place of the all-time most viewed: the pages with the
+  most visits over the last 2 weeks, or the period picked beside the list (1 week to a year,
+  or all time; `?weeks=` takes any number up to 520). A visit counts each visitor once a day
+  per page, so reloading a page while you edit it doesn't make it popular. Hover a page for
+  its visits and views. `/api/stats` has the list as `popular`; `most_viewed` stays, all time.
+- **⌘K works inside HTML pages in the frame.** A framed page runs sandboxed, so once you had
+  clicked into it, its key presses never reached the search. Now ⌘K and Ctrl+K open it from
+  there too, unless the page uses those keys itself.
+- **Links in a framed HTML page open in the tab.** Following a link from one page to another
+  loaded the next page inside the first one's frame, under its title, address and sidebar;
+  `target="_top"` links did nothing, and other sites opened inside the frame. Now the tab
+  goes there, as it would without the frame. The frame follows a link only just after a
+  click or key press in the page, so a page still can't send the tab anywhere by itself.
+  Links to a place on the page, new-tab links and ⌘-clicks work as before.
+- **Hide the sidebar.** A button at the sidebar's top left hides it and brings it back from
+  the same place, and the choice is kept like light/dark (sandboxed notes get it by
+  cookie). On a phone the sidebar stays above the page.
+- **HTML pages in the frame use the whole width** beside the sidebar (all of it with the
+  sidebar hidden), instead of the 750px that notes keep for reading.
+- **Skills in the sidebar, with 16 new gallery examples.** A Skills section lists the eight
+  skills of [effective-html](https://github.com/plannotator/effective-html) (MIT), each with
+  two examples in the gallery, one on data, data science or machine learning and one on
+  Claude Code (drawn from its docs), and a link to the skill. The gallery groups them as
+  Effective HTML, and each example's title bar names the skill it shows, linked to it.
+- **Two showcases and three maps in the gallery.** With the `html` skill: Google's
+  [Rules of Machine Learning](https://developers.google.com/machine-learning/guides/rules-of-ml)
+  (CC BY 4.0) as a field reference you can search and filter, and a tour of the
+  [Agentic ML plugin](https://github.com/lawwu/agentic-ml-plugin). Maps of content for machine
+  learning, Claude Code and effective-html link the related gallery pages, in their own
+  Maps of content group, which the gallery shows right after Featured.
+- **Gallery examples open in the site's frame,** like your own pages: the sidebar, a title
+  bar, ⌘K, and links that move the tab. `?raw=1` is the example alone.
+
 ## 0.10.1 (2026-10-30)
 
 - **A malformed link no longer stops a note publishing, or the server starting.** A

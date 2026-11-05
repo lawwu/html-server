@@ -137,11 +137,14 @@
 .graph-panel-bar a { font-size: .9rem; }
 .graph-stage { flex: 1; min-height: 0; }
 
-/* an HTML page in the frame: a title bar, the page at window height, then graph and backlinks */
-.page > main.framed { padding: 2.2rem 1.5rem 1rem 1rem; }
+/* an HTML page in the frame: a title bar, the page at window height, then graph and backlinks.
+   It gets the whole width beside the sidebar; the 750px reading width is for notes. */
+.page > main.framed { padding: 2.2rem 1.5rem 1rem 1rem; max-width: none; }
 .frame-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: .4rem 1.5rem; margin-bottom: .9rem; }
 .frame-head .article-title { font-size: 1.6rem; margin: .3rem 0 .15rem; }
 .frame-head .note-tags { margin: 0 0 .1rem; }
+.skill-line { margin: .35rem 0 0; font-size: 13px; color: var(--mute); }
+.skill-line a { font-weight: 600; }
 .page-frame { display: block; width: 100%; height: calc(100vh - 11rem); min-height: 28rem; border: 1px solid var(--line);
   border-radius: 8px; background: #fff; }
 /* Sized to the page (see FRAME_SIZE in src/pages.js): natively where the browser can,

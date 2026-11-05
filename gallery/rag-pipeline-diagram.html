@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG pipeline — from documents to cited answers</title>
+<meta name="description" content="An interactive diagram of a retrieval-augmented generation system for an internal documentation assistant: the nightly ingestion path, the query path from question to cited answer with its latency trace, and the feedback loop, with each component's typical latency and most common failure.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  --ground:#edf1ef; --sheet:#fbfcfb; --tint:#e4ebe9; --ink:#13211f; --ink-2:#4b5d5a; --rule:#c3cfcc;
+  --mark:#ffdc45; --mark-ink:#231d00; --risk:#b3302a; --focus:#1f5bd6;
+  --display:"DIN Alternate","Bahnschrift","D-DIN","DIN 2014","Roboto Condensed","Arial Narrow",sans-serif;
+  --text:"Charter","Bitstream Charter","Sitka Text",Cambria,"Noto Serif",Georgia,serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0e1413; --sheet:#151c1b; --tint:#1c2625; --ink:#e1eae7; --ink-2:#9aaca8; --rule:#2e3b39;
+    --mark:#e8cb43; --mark-ink:#1b1600; --risk:#ff8070; --focus:#8db2ff; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0e1413; --sheet:#151c1b; --tint:#1c2625; --ink:#e1eae7; --ink-2:#9aaca8; --rule:#2e3b39;
+  --mark:#e8cb43; --mark-ink:#1b1600; --risk:#ff8070; --focus:#8db2ff; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font:16.5px/1.55 var(--text)}
+.wrap{max-width:75rem;margin:0 auto;padding:28px 16px 32px}
+.eyebrow{margin:0 0 8px;font:600 11.5px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+h1{margin:0 0 10px;font:700 clamp(1.75rem,4.2vw,2.6rem)/1.06 var(--display);letter-spacing:-.01em;text-wrap:balance}
+.lede{margin:0;max-width:65ch;color:var(--ink-2)}
+.bar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between;margin:22px 0 10px}
+.seg{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.lbl{font:600 11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);margin-right:4px}
+button{font:700 13px/1.1 var(--display);letter-spacing:.02em;color:var(--ink);background:var(--sheet);border:1.5px solid var(--rule);border-radius:3px;padding:8px 11px;min-height:34px;cursor:pointer}
+button:hover{border-color:var(--ink-2)}
+button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--sheet)}
+#lens[aria-pressed="true"]{background:var(--risk);border-color:var(--risk);color:var(--sheet)}
+button:disabled{opacity:.4;cursor:default;border-color:var(--rule)}
+:focus-visible{outline:2.5px solid var(--focus);outline-offset:2px}
+figure{margin:0}
+.fig{position:relative;background:var(--sheet);border:1px solid var(--rule);border-radius:3px}
+.fig svg{display:block;width:100%;height:auto}
+.lane{fill:var(--tint)}
+.lane-t{font:700 10.5px var(--display);letter-spacing:.13em;fill:var(--ink-2)}
+.note{font:10.5px var(--mono);fill:var(--ink-2)}
+.note.dim{opacity:.3}
+.node{cursor:pointer}
+.node:focus{outline:none}
+.sh,.sh2{fill:var(--sheet);stroke:var(--ink-2);stroke-width:1.3}
+.sh2{stroke-width:1.1}
+.rim{fill:none;stroke:var(--ink-2);stroke-width:1.1}
+.node .t{font:700 13px var(--display);fill:var(--ink)}
+.node .s,.node .f{font:10.5px var(--mono);fill:var(--ink-2)}
+.node .f{visibility:hidden}
+.warn{display:none}
+.warn path{fill:var(--risk)}
+.warn text{font:700 9.5px var(--mono);fill:var(--sheet)}
+.lens .node .s{visibility:hidden}
+.lens .node .f{visibility:visible;fill:var(--risk)}
+.lens .warn{display:inline}
+.node:hover .sh{stroke:var(--ink)}
+.node.dim{opacity:.3}
+.node.tune .sh{stroke:var(--ink);stroke-width:1.7;stroke-dasharray:4 3}
+.node.done .sh{stroke:var(--ink);stroke-width:1.8}
+.node.cur .sh{fill:var(--mark);stroke:var(--ink);stroke-width:2}
+.node.cur .t,.node.cur .s,.lens .node.cur .f{fill:var(--mark-ink)}
+.node:focus-visible .sh{stroke:var(--focus);stroke-width:3}
+.edge .ln{fill:none;stroke:var(--ink-2);stroke-width:1.3}
+.edge .ah{fill:var(--ink-2)}
+.edge.dash .ln{stroke-dasharray:5 4}
+.edge.on .ln{stroke:var(--ink);stroke-width:2.1}
+.edge.on .ah{fill:var(--ink)}
+.edge.dim{opacity:.16}
+.edge.flow .ln{stroke-dasharray:7 5;animation:flow .7s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-12}}
+.el{font:10.5px var(--mono);fill:var(--ink-2);paint-order:stroke;stroke:var(--sheet);stroke-width:4px;stroke-linejoin:round}
+.el.in{stroke:var(--tint)}
+.edge.on .el{fill:var(--ink)}
+.conn circle{fill:var(--sheet);stroke:var(--ink-2);stroke-width:1.2}
+.conn text{font:700 9.5px var(--mono);fill:var(--ink-2)}
+.edge.on circle{stroke:var(--ink)}
+.edge.on.conn text{fill:var(--ink)}
+.card{position:absolute;z-index:3;width:min(520px,calc(100% - 16px));background:var(--sheet);border:1.5px solid var(--ink);border-radius:3px;padding:11px 14px 10px;box-shadow:0 12px 30px -14px rgb(0 0 0 / .4);pointer-events:none;font-size:14.5px;line-height:1.42}
+.card[hidden]{display:none}
+.card .k{margin:0;font:600 10.5px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.card h3{margin:2px 0 8px;font:700 17px/1.15 var(--display)}
+.card dl{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 10px}
+.card dt{font:600 10px/2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.card dt.r{color:var(--risk)}
+.card dd{margin:0}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin:10px 0 0;padding:0;list-style:none;font:12px/1.4 var(--mono);color:var(--ink-2)}
+.legend li{display:flex;align-items:center;gap:7px}
+.legend svg{width:26px;height:16px;flex:none}
+.legend svg *{fill:var(--sheet);stroke:var(--ink-2);stroke-width:1.2}
+.legend .dsh{fill:none;stroke-dasharray:3 2.5}
+.cap{margin:8px 0 0;max-width:72ch;font-size:15px;color:var(--ink-2)}
+.steps{margin-top:30px}
+.sh-row{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;margin-bottom:12px}
+h2{margin:0;font:700 1.3rem/1.2 var(--display)}
+.stepper{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.count{font:600 12.5px var(--mono);color:var(--ink-2);min-width:6.5em;text-align:center;font-variant-numeric:tabular-nums}
+.sb{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;align-items:start}
+@media (max-width:780px){.sb{grid-template-columns:minmax(0,1fr)}}
+.narr,.trace{background:var(--sheet);border:1px solid var(--rule);border-radius:3px}
+.narr{padding:15px 18px 6px;min-height:15.5rem}
+.narr .k{margin:0;font:600 11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.narr h3{margin:4px 0 8px;font:700 1.2rem/1.2 var(--display)}
+.narr p{margin:0 0 10px;max-width:65ch}
+.narr .ex,.narr .rk{font-size:15px}
+.tag{display:block;font:600 10.5px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.rk .tag{color:var(--risk)}
+.cb{color:var(--ink-2)}
+.trace{padding:12px 10px 10px}
+.trace .hd{display:flex;justify-content:space-between;gap:8px;margin:0 6px 4px;font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.trace ol{list-style:none;margin:0;padding:0}
+.tb,.axis{display:grid;grid-template-columns:7.6rem minmax(0,1fr) 4.4rem;gap:10px;align-items:center;width:100%;padding:4px 6px}
+.tb{min-height:32px;border:0;border-radius:2px;background:none;text-align:left;font:700 13px/1.15 var(--display);letter-spacing:.01em}
+.tb:hover{background:var(--tint)}
+.tb[aria-current="step"]{background:var(--mark);color:var(--mark-ink)}
+.tb .ms{font:12.5px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.tr{position:relative;height:12px}
+.tr::before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px solid var(--rule)}
+.tr i{position:absolute;top:1px;bottom:1px;min-width:2px;background:var(--ink-2);border-radius:1px}
+.tb[aria-current="step"] .tr i{background:var(--mark-ink)}
+.tr b{position:absolute;top:-6px;bottom:-6px;border-left:1.5px dashed var(--ink)}
+.axis{padding-top:0;padding-bottom:0;font:11px/1.2 var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.axis .tr{height:16px}
+.axis .tr::before{display:none}
+.axis .tr span{position:absolute;top:2px;white-space:nowrap}
+.axis .tk{transform:translateX(-50%)}
+.axis .tk:first-child{transform:none}
+.axis .ft{left:0;padding-left:5px;border-left:1.5px dashed var(--ink);color:var(--ink)}
+.tcap{margin:10px 6px 2px;font-size:14.5px;color:var(--ink-2)}
+@media (max-width:480px){.tb,.axis{grid-template-columns:6.4rem minmax(0,1fr) 3.9rem;gap:8px}}
+details.tv{margin-top:28px;border-top:1px solid var(--rule);padding-top:12px}
+.tv summary{cursor:pointer;font:700 15px var(--display);width:max-content;max-width:100%}
+.tv h3{margin:16px 0 6px;font:700 12px var(--display);letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)}
+.tv ul{margin:0;padding-left:18px;max-width:72ch;font-size:15px}
+.tv li{margin-bottom:6px}
+footer{margin-top:26px;padding-top:12px;border-top:1px solid var(--rule);font:12.5px/1.6 var(--mono);color:var(--ink-2)}
+footer p{margin:0 0 4px}
+footer a{color:inherit}
+@media (prefers-reduced-motion:reduce){.edge.flow .ln{animation:none;stroke-dasharray:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <p class="eyebrow">Internal docs assistant · system diagram</p>
+  <h1>RAG pipeline — from documents to cited answers</h1>
+  <p class="lede">Two paths share one index. Each night, changed documents are cleaned, chunked and embedded into it; each question is embedded, matched against it, reranked and handed to a language model with the six best chunks. A feedback loop of thumbs, golden questions and retrieval hit rate decides what to tune.</p>
+</header>
+<main>
+<div class="bar">
+  <div class="seg" role="group" aria-label="Highlight a path">
+    <span class="lbl" aria-hidden="true">Highlight</span>
+    <button type="button" data-path="all" aria-pressed="true">All</button>
+    <button type="button" data-path="ingest" aria-pressed="false">Ingestion</button>
+    <button type="button" data-path="query" aria-pressed="false">Query</button>
+    <button type="button" data-path="feedback" aria-pressed="false">Feedback loop</button>
+  </div>
+  <button type="button" id="lens" aria-pressed="false">Show failure points</button>
+</div>
+<figure>
+  <div class="fig" id="fig">
+    <svg id="dia" role="group" aria-label="RAG pipeline: ingestion, query and feedback paths around a shared index" aria-describedby="cap" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="card" id="card" hidden aria-hidden="true"></div>
+  </div>
+  <ul class="legend" aria-label="Shapes in the diagram">
+    <li><svg viewBox="0 0 26 16" aria-hidden="true"><rect x="1" y="2" width="24" height="12" rx="6"/></svg>question or answer</li>
+    <li><svg viewBox="0 0 26 16" aria-hidden="true"><rect x="1" y="2" width="24" height="12" rx="1.5"/></svg>code step</li>
+    <li><svg viewBox="0 0 26 16" aria-hidden="true"><path d="M5 2H21L25 6V10L21 14H5L1 10V6Z"/></svg>model call</li>
+    <li><svg viewBox="0 0 26 16" aria-hidden="true"><path d="M1 5A12 3 0 0 1 25 5V11A12 3 0 0 1 1 11Z"/><path d="M1 5A12 3 0 0 0 25 5" fill="none"/></svg>stored data</li>
+    <li><svg viewBox="0 0 26 16" aria-hidden="true"><path d="M1 2H25V12Q19 9 13 12T1 12Z"/></svg>source documents</li>
+    <li><svg viewBox="0 0 26 16" aria-hidden="true"><path class="dsh" d="M1 8H25"/></svg>replay, not live traffic</li>
+  </ul>
+  <figcaption class="cap" id="cap"></figcaption>
+</figure>
+<section class="steps" aria-labelledby="sh">
+  <div class="sh-row">
+    <h2 id="sh">Follow one question</h2>
+    <div class="stepper">
+      <button type="button" id="prev" disabled>← Previous</button>
+      <span class="count" id="count">Overview</span>
+      <button type="button" id="next">Start →</button>
+      <button type="button" id="reset" hidden>Back to overview</button>
+    </div>
+  </div>
+  <div class="sb">
+    <div class="narr" id="narr" aria-live="polite"></div>
+    <div class="trace" role="group" aria-labelledby="th">
+      <p class="hd"><span id="th">Where the time goes · median</span><span>3,825 ms</span></p>
+      <div class="axis" aria-hidden="true"><span></span><span class="tr"><span class="ft" id="ft">first token · 663 ms</span></span><span></span></div>
+      <ol id="rows"></ol>
+      <div class="axis" aria-hidden="true"><span></span><span class="tr" id="ticks"></span><span></span></div>
+      <p class="tcap">Everything before the model takes 213 ms, about 6% of the wait; generation is the other 94%. That is why the answer streams: first words appear at 0.66 s.</p>
+    </div>
+  </div>
+</section>
+<details class="tv">
+  <summary>Read the diagram as text</summary>
+  <div id="tvb"></div>
+</details>
+</main>
+<footer>
+  <p>A fictional system: document counts, latencies and scores are illustrative, chosen to agree with each other.</p>
+  <p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html-diagram" target="_blank" rel="noopener">html-diagram</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+<script>
+"use strict";
+/* One fictional system. Every number below agrees with the others:
+   18,400 docs - 1,450 dropped = 16,950 docs x ~13.2 chunks = ~224k chunks; 224k x 768 x 4 B = ~0.7 GB.
+   Nightly: ~600 changed docs -> ~7.9k chunks; fetch 15 s + chunk 45 s + embed 20 s (400/s) + upsert 10 s = ~1.5 min.
+   Query (median, ms): 8 + 25 + 35 + 140 + 5 + 3,600 + 12 = 3,825; first token at 8+25+35+140+5+450 = 663.
+   Golden set: 250; recall@40 233 (0.93); hit rate @6 217 (0.87). Feedback: 3,100 answers/wk x 4% = 124 rated, ~30% down = ~37. */
+const N = [
+ {id:"docs", k:"doc", l:"i", t:"Documents", s:"18,400 docs", f:"stale duplicates",
+  r:"Holds", d:"12,900 wiki pages, 3,600 API reference pages, 1,100 runbooks and 800 policy PDFs.",
+  tl:"Volume", tm:"About 600 change on a typical day; fetching them takes ≈15 s.",
+  fl:"Stale or duplicated pages: two versions of a runbook disagree, and both get retrieved.",
+  cb:"Thumbs-down comments (“these steps are out of date”)."},
+ {id:"chunk", k:"code", l:"i", t:"Clean & chunk", s:"≤512-token chunks", f:"splits tables",
+  r:"Does", d:"Strips navigation and boilerplate, drops 1,450 near-duplicates, then splits on headings into chunks of up to 512 tokens with 64 overlapping. Every chunk keeps its page title and heading path.",
+  tm:"≈45 s for the nightly batch; PDF parsing is most of it.",
+  fl:"A table or code block split mid-way, so neither half answers the question on its own.",
+  cb:"Hit rate on golden questions about tables and config values."},
+ {id:"embedB", k:"model", l:"i", t:"Embed chunks", s:"768-d · batch", f:"model mismatch",
+  r:"Does", d:"Turns each chunk into a vector of 768 numbers with the embedding model, 256 chunks per batch.",
+  tm:"≈7.9k chunks a night in ≈20 s (400 a second). Re-embedding all 224k takes ≈9 min.",
+  fl:"The embedding model is upgraded here but not for questions, or the reverse. The vectors stop being comparable and retrieval quietly turns to noise.",
+  cb:"The nightly golden replay: hit rate falls off a cliff."},
+ {id:"index", k:"store", l:"x", t:"Vector index + metadata", tn:"Vector index", s:"224k chunks · HNSW · 0.7 GB", sn:"+ metadata · 224k", f:"stale after edits",
+  r:"Stores", d:"224k chunk vectors (≈0.7 GB as float32) in an HNSW graph, plus each chunk’s text, page title, heading path, URL, last-edited date and permission groups.",
+  tm:"Nightly upsert ≈10 s; one search ≈35 ms.",
+  fl:"Stale after edits: a runbook changed at 10:00 is answered from yesterday’s text until the next nightly run, and deleted pages linger unless deletes are synced too.",
+  cb:"Thumbs-down comments, and a nightly check that page counts match the sources."},
+ {id:"q", k:"io", l:"q", t:"Question", s:"auth · 8 ms", f:"vague, multi-part",
+  r:"Does", d:"Takes the question from the chat panel and looks up the asker’s permission groups. Golden questions enter here too when they are replayed.",
+  tm:"≈8 ms.",
+  fl:"Vague or multi-part questions (“what’s up with staging?”) retrieve a little of everything and not enough of anything.",
+  cb:"Thumbs-down; weekly triage tags them “ambiguous”.",
+  st:{a:0, ms:8, ex:"“How do I rotate the staging database password?” — asked by an engineer in the eng and platform groups."}},
+ {id:"embedQ", k:"model", l:"q", t:"Embed question", s:"768-d · 25 ms", f:"model mismatch",
+  r:"Does", d:"Embeds the question with the same model, and the same version, that embedded the chunks.",
+  tm:"≈25 ms.",
+  fl:"A model or version mismatch with the index: the most damaging failure in the pipeline, and the quietest.",
+  cb:"The nightly golden replay; hit rate collapses overnight.",
+  st:{a:8, ms:25, ex:"One vector of 768 numbers: [0.021, −0.113, 0.064, …]."}},
+ {id:"retrieve", k:"code", l:"q", t:"Retrieve top-k", s:"k = 40 · 35 ms", f:"misses exact IDs",
+  r:"Does", d:"Nearest-neighbour search over the index, limited to chunks the asker is allowed to read; returns the 40 closest with their similarity scores.",
+  tm:"≈35 ms.",
+  fl:"Exact identifiers (error codes, config keys, ticket numbers) embed poorly, so the chunk that names them never makes the 40. A keyword search alongside fixes most of it.",
+  cb:"Recall@40 on golden questions: 0.93 (233 of 250).",
+  st:{a:33, ms:35, ex:"40 candidates. Closest: “Rotating database credentials › Rotation”, similarity 0.82. 11 matching chunks from pages the asker can’t open were filtered out."}},
+ {id:"rerank", k:"model", l:"q", t:"Rerank", s:"40 → 6 · 140 ms", f:"drops best chunk",
+  r:"Does", d:"A cross-encoder reads the question together with each candidate, rescores all 40 and keeps the best 6.",
+  tm:"≈140 ms for 40 pairs, batched.",
+  fl:"It cuts the chunk that held the answer: 16 golden questions have an expected page in the 40 but not in the final 6.",
+  cb:"Hit rate after reranking (0.87) against recall@40 (0.93): the gap is what reranking loses.",
+  st:{a:68, ms:140, ex:"Keeps 6: Rotation (0.94), Secrets manager › Access policies (0.88), Staging › Services (0.71) and three more. A stale 2023 copy of the runbook drops to 19th."}},
+ {id:"assemble", k:"code", l:"q", t:"Assemble prompt", s:"3,640 tok · 5 ms", f:"over token budget",
+  r:"Does", d:"Builds the prompt: instructions, the 6 chunks numbered [1]–[6] with their titles and headings, then the question.",
+  tm:"≈5 ms.",
+  fl:"Too much context: the last chunk is truncated, or titles are dropped to save space and citations can no longer name their source.",
+  cb:"Answer checks on the golden set.",
+  st:{a:208, ms:5, ex:"380 tokens of instructions + 3,020 of chunks + 14 of question + 226 of formatting = 3,640 tokens."}},
+ {id:"llm", k:"model", l:"q", t:"LLM", s:"3.6 s · streams", f:"ungrounded claims",
+  r:"Does", d:"Reads the prompt and writes an answer that cites the chunks it used, streaming it to the chat panel.",
+  tm:"First token ≈450 ms after the prompt arrives; ≈220 tokens in ≈3.6 s (≈70 a second).",
+  fl:"Ungrounded claims: it fills gaps from general knowledge instead of the chunks, or answers when it should say the docs don’t cover this.",
+  cb:"Answer checks on the golden set (citations support their sentence 94% of the time), and thumbs-down.",
+  st:{a:213, ms:3600, ex:"First words on screen at 663 ms; ≈220 tokens by 3.81 s, citing chunks [1] and [2]."}},
+ {id:"answer", k:"io", l:"q", t:"Cited answer", s:"check · 12 ms", f:"wrong citation",
+  r:"Does", d:"Checks that every [n] points at a chunk that was in the prompt, links each to its page and section, then shows the answer.",
+  tm:"≈12 ms. The whole path: ≈3.8 s, with first words at ≈0.66 s.",
+  fl:"A citation that resolves but doesn’t support its sentence, which looks trustworthy and isn’t.",
+  cb:"Citation checks on golden answers; thumbs-down.",
+  st:{a:3813, ms:12, ex:"“Run the rotation job in the secrets manager, then restart the staging API so it reads the new password [1]. You need the db-admin role [2].” Both citations resolve and link to their sections."}},
+ {id:"thumbs", k:"store", l:"f", t:"Thumbs & comments", s:"≈4% rated", f:"sparse, skewed",
+  r:"Stores", d:"Each rating with its comment, the question, the 6 chunk IDs and the answer, so any thumbs-down can be replayed.",
+  tl:"Volume", tm:"≈3,100 answers a week; ≈124 rated, ≈37 of them thumbs-down.",
+  fl:"Sparse and skewed: mostly unhappy people rate, so it is not a satisfaction score.",
+  cbl:"Then", cb:"Weekly triage names the failing step for each thumbs-down; ≈10 a week become golden questions."},
+ {id:"golden", k:"store", l:"f", t:"Golden questions", s:"250 questions", f:"goes stale",
+  r:"Stores", d:"250 real questions, each with the pages that should be retrieved and a reference answer.",
+  tl:"Runs", tm:"Replayed through the query path nightly and on every change: ≈1.6 min, 10 at a time.",
+  fl:"Goes stale: pages move, expected IDs break, and the set stops looking like what people ask.",
+  cbl:"Kept fresh by", cb:"New cases from weekly triage; a quarterly review retires dead ones."},
+ {id:"hitrate", k:"code", l:"f", t:"Retrieval hit rate", s:"0.87 @ top 6", f:"blind to answers",
+  r:"Measures", d:"Share of golden questions with an expected page in the final 6: 0.87 (217 of 250). Before reranking, recall@40 is 0.93.",
+  tl:"Runs", tm:"Scored nightly from the replay.",
+  fl:"Blind to answer quality: retrieval can be perfect and the answer still ungrounded. Read it next to the answer checks.",
+  cbl:"Gate", cb:"A change to chunking, the embedder, k, the reranker or the prompt ships only if hit rate stays at 0.85 or above and no passing question regresses."}
+];
+const E = [
+ {id:"e1", a:"docs", b:"chunk"},
+ {id:"e2", a:"chunk", b:"embedB"},
+ {id:"e3", a:"embedB", b:"index", w:"upsert"},
+ {id:"e4", a:"q", b:"embedQ"},
+ {id:"e5", a:"embedQ", b:"retrieve"},
+ {id:"e6", a:"index", b:"retrieve", w:"search"},
+ {id:"e7", a:"retrieve", b:"rerank"},
+ {id:"e8", a:"rerank", b:"assemble"},
+ {id:"e9", a:"assemble", b:"llm"},
+ {id:"e10", a:"llm", b:"answer"},
+ {id:"e11", a:"answer", b:"thumbs", w:"rating"},
+ {id:"e12", a:"thumbs", b:"golden", w:"weekly triage → new golden questions"},
+ {id:"e13", a:"golden", b:"q", w:"replayed nightly", dash:1},
+ {id:"e14", a:"rerank", b:"hitrate", w:"top 6 compared"},
+ {id:"e15", a:"golden", b:"hitrate", w:"expected pages"}
+];
+const PATHS = {
+ all: null,
+ ingest: {n:["docs","chunk","embedB","index"], e:["e1","e2","e3"]},
+ query: {n:["q","embedQ","retrieve","rerank","assemble","llm","answer","index"], e:["e4","e5","e6","e7","e8","e9","e10"]},
+ feedback: {n:["answer","thumbs","golden","hitrate","q","rerank"], e:["e11","e12","e13","e14","e15"],
+   tune:["chunk","embedB","embedQ","retrieve","rerank","assemble"]}
+};
+const CAP = {
+ all: "Hover or tab to any component for what it holds, how long it takes and how it usually fails. Click a step in the query lane to follow one question through it below.",
+ ingest: "Ingestion runs nightly at 02:00: about 600 changed documents become ≈7.9k chunks, embedded and upserted in about 1.5 minutes. Until the next run, the index is up to a day behind the wiki.",
+ query: "Per question: seven steps and ≈3.8 s at the median, with first words at 0.66 s. This path only reads the index; it never writes to it.",
+ feedback: "Thumbs-down answers are triaged weekly into new golden questions; all 250 are replayed nightly and scored on hit rate. Dashed outlines mark what the loop tunes: chunking, the embedder, k, the reranker and the prompt."
+};
+const KIND = {doc:"Source documents", code:"Code step", model:"Model call", store:"Stored data", io:"Question or answer"};
+const LANE = {i:"Ingestion", x:"Shared index", q:"Query time", f:"Feedback loop"};
+const TOTAL = 3825, TTFT = 663;
+</script>
+<script>
+"use strict";
+(() => {
+const $ = s => document.querySelector(s);
+const svg = $("#dia"), fig = $("#fig"), card = $("#card"), narr = $("#narr"), rows = $("#rows");
+const byId = Object.fromEntries(N.map(n => [n.id, n]));
+const EBY = Object.fromEntries(E.map(e => [e.id, e]));
+const STEPS = N.filter(n => n.st).map(n => n.id);
+const state = {path: "all", lens: false, step: -1};
+let geo = null, lastW = 0, hoverId = null, focusId = null, raf = 0;
+const r1 = v => Math.round(v * 10) / 10;
+const fmt = v => v.toLocaleString("en-US");
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+
+/* ---------- layout: one grid for wide figures, a two-column one for narrow ---------- */
+function anchor(r, side){
+  const [x, y, w, h] = r;
+  return side === "r" ? [x + w, y + h / 2] : side === "l" ? [x, y + h / 2] : side === "t" ? [x + w / 2, y] : [x + w / 2, y + h];
+}
+function route(g, S){
+  for (const e of E){
+    const s = S[e.id];
+    if (!s) continue;
+    const A = anchor(g.rects[e.a], s[0]), B = anchor(g.rects[e.b], s[1]), ch = s[3];
+    const pts = ch != null ? [A, [A[0], ch], [B[0], ch], B] : [A, B];
+    let label = null;
+    if (s[2]){
+      const L = s[2], P = ch != null ? pts[1] : pts[0], Q = ch != null ? pts[2] : pts[1];
+      const mx = (P[0] + Q[0]) / 2, my = (P[1] + Q[1]) / 2;
+      label = L.s === "r" ? {x: mx + 7, y: my + 4, a: "start"} : L.s === "l" ? {x: mx - 7, y: my + 4, a: "end"}
+        : L.s === "above" ? {x: mx, y: my - 6, a: "middle"} : {x: mx, y: my + 15, a: "middle"};
+      label.t = L.t || e.w;
+      label.in = L.in;
+    }
+    g.routes[e.id] = {pts, label};
+  }
+}
+function layout(W){
+  const g = {W, rects: {}, lanes: [], notes: [], routes: {}, conn: null};
+  if (W >= 980){
+    g.mode = "wide";
+    const px = 10, gap = 18, cw = (W - 2 * px) / 7, nw = cw - gap, H = 52;
+    const X = c => px + c * cw + gap / 2;
+    const yI = 36, yX = 128, yQ = 228, yE = 352, ch = 422;
+    const R = (id, c, y, w = nw, h = H) => { g.rects[id] = [X(c), y, w, h]; };
+    ["docs", "chunk", "embedB"].forEach((id, i) => R(id, i, yI));
+    R("index", 1, yX, 3 * cw - gap, 44);
+    STEPS.forEach((id, i) => R(id, i, yQ));
+    R("golden", 0, yE);
+    g.rects.hitrate = [X(3) - cw * 0.25, yE, nw + cw * 0.5, H];
+    R("thumbs", 6, yE);
+    g.lanes = [
+      {x: 4, y: 8, w: W - 8, h: 92, t: "Ingestion — nightly batch", lx: X(0), ly: 26},
+      {x: 4, y: 200, w: W - 8, h: 92, t: "Query — per question", lx: X(0), ly: 218},
+      {x: 4, y: 324, w: W - 8, h: 122, t: "Feedback loop", lx: X(1), ly: 342}
+    ];
+    const hr = g.rects.hitrate, nx = hr[0] + hr[2] + 14;
+    g.notes = [
+      {x: X(3) + 2, y: 66, p: "ingest", t: "Nightly at 02:00 · ≈600 changed docs → ≈7.9k chunks · ≈1.5 min"},
+      {x: X(1) - 10, y: 147, p: "x", t: "shared by", a: "end"},
+      {x: X(1) - 10, y: 161, p: "x", t: "both paths", a: "end"},
+      {x: nx, y: 374, p: "feedback", t: "Hit rate gates every change"},
+      {x: nx, y: 390, p: "feedback", t: "≈10 new golden questions a week"}
+    ];
+    route(g, {
+      e1: ["r", "l"], e2: ["r", "l"], e3: ["b", "t", {s: "r"}], e4: ["r", "l"], e5: ["r", "l"], e6: ["b", "t", {s: "r"}],
+      e7: ["r", "l"], e8: ["r", "l"], e9: ["r", "l"], e10: ["r", "l"], e11: ["b", "t", {s: "l"}],
+      e12: ["b", "b", {s: "below", in: 1}, ch], e13: ["t", "b", {s: "r"}], e14: ["b", "t", {s: "r"}],
+      e15: ["r", "l", {s: "above", in: 1}]
+    });
+    g.H = 452;
+  } else {
+    g.mode = "narrow";
+    const Wi = Math.min(W, 560), off = (W - Wi) / 2;
+    const px = 6, gut = 30, cw = (Wi - 2 * px - gut) / 2, nw = cw - 8, H = 50;
+    const XL = off + px + 4, XR = off + px + cw + gut + 4;
+    const ys = [30, 104, 178, 252, 346, 420, 494, 568];
+    const R = (id, x, r) => { g.rects[id] = [x, ys[r], nw, H]; };
+    R("docs", XL, 0); R("chunk", XL, 1); R("embedB", XL, 2); R("index", XL, 3);
+    STEPS.forEach((id, i) => R(id, XR, i + 1));
+    R("hitrate", XL, 4); R("golden", XL, 5); R("thumbs", XL, 7);
+    g.lanes = [
+      {x: off + px, y: 6, w: cw, h: 232, t: "Ingestion", lx: XL, ly: 22},
+      {x: off + px + cw + gut, y: 6, w: cw, h: 622, t: "Query time", lx: XR, ly: 22},
+      {x: off + px, y: 320, w: cw, h: 308, t: "Feedback loop", lx: XL, ly: 336}
+    ];
+    route(g, {
+      e1: ["b", "t"], e2: ["b", "t"], e3: ["b", "t", {s: "r"}], e6: ["r", "l"],
+      e4: ["b", "t"], e5: ["b", "t"], e7: ["b", "t"], e8: ["b", "t"], e9: ["b", "t"], e10: ["b", "t"],
+      e14: ["l", "r"], e11: ["l", "r"], e15: ["t", "b", {s: "r", t: "expected", in: 1}],
+      e12: ["t", "b", {s: "r", t: "weekly triage", in: 1}]
+    });
+    /* The replay edge would cross the whole figure here, so it becomes a pair of "A" connectors. */
+    const gr = g.rects.golden, qr = g.rects.q;
+    g.conn = {a: [gr[0] + nw, gr[1] + H / 2], ca: [off + px + cw + gut / 2, gr[1] + H / 2], cb: [qr[0] + nw / 2, 70], b: [qr[0] + nw / 2, qr[1]]};
+    g.H = 640;
+  }
+  return g;
+}
+
+/* ---------- drawing ---------- */
+function head(P, Q){
+  const dx = P[0] - Q[0], dy = P[1] - Q[1], len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len, s = 7, w = 3.6;
+  const bx = P[0] - ux * s, by = P[1] - uy * s;
+  return {d: `M${r1(P[0])} ${r1(P[1])}L${r1(bx - uy * w)} ${r1(by + ux * w)}L${r1(bx + uy * w)} ${r1(by - ux * w)}Z`, base: [bx + ux, by + uy]};
+}
+function pathD(pts){
+  let d = `M${r1(pts[0][0])} ${r1(pts[0][1])}`;
+  for (let i = 1; i < pts.length - 1; i++){
+    const [px, py] = pts[i - 1], [x, y] = pts[i], [nx, ny] = pts[i + 1];
+    const r = Math.min(7, Math.hypot(x - px, y - py) / 2, Math.hypot(nx - x, ny - y) / 2);
+    d += `L${r1(x + Math.sign(px - x) * r)} ${r1(y + Math.sign(py - y) * r)}Q${r1(x)} ${r1(y)} ${r1(x + Math.sign(nx - x) * r)} ${r1(y + Math.sign(ny - y) * r)}`;
+  }
+  const L = pts[pts.length - 1];
+  return d + `L${r1(L[0])} ${r1(L[1])}`;
+}
+function edgeSVG(e){
+  const R = geo.routes[e.id];
+  if (!R) return "";
+  const pts = R.pts.map(p => p.slice()), hd = head(pts[pts.length - 1], pts[pts.length - 2]);
+  pts[pts.length - 1] = hd.base;
+  const L = R.label;
+  const lab = L ? `<text class="el${L.in ? " in" : ""}" x="${r1(L.x)}" y="${r1(L.y)}" text-anchor="${L.a}">${esc(L.t)}</text>` : "";
+  return `<g class="edge${e.dash ? " dash" : ""}" data-id="${e.id}"><path class="ln" d="${pathD(pts)}"/><path class="ah" d="${hd.d}"/>${lab}</g>`;
+}
+function connSVG(){
+  const c = geo.conn;
+  if (!c) return "";
+  const hd = head(c.b, [c.cb[0], c.cb[1] + 8]);
+  const dot = ([x, y]) => `<circle cx="${r1(x)}" cy="${r1(y)}" r="8"/><text x="${r1(x)}" y="${r1(y + 3.5)}" text-anchor="middle">A</text>`;
+  return `<g class="edge dash conn" data-id="e13"><path class="ln" d="M${r1(c.a[0])} ${r1(c.a[1])}H${r1(c.ca[0] - 8)}"/>${dot(c.ca)}${dot(c.cb)}`
+    + `<path class="ln" d="M${r1(c.cb[0])} ${r1(c.cb[1] + 8)}V${r1(hd.base[1])}"/><path class="ah" d="${hd.d}"/>`
+    + `<text class="el" x="${r1(c.cb[0] - 14)}" y="${r1(c.cb[1] + 4)}" text-anchor="end">replay</text></g>`;
+}
+function shapeSVG(k, x, y, w, h){
+  if (k === "io" || k === "code") return `<rect class="sh" x="${r1(x)}" y="${y}" width="${r1(w)}" height="${h}" rx="${k === "io" ? h / 2 : 3}"/>`;
+  if (k === "model"){
+    const c = 9;
+    return `<path class="sh" d="M${r1(x + c)} ${y}H${r1(x + w - c)}L${r1(x + w)} ${y + c}V${y + h - c}L${r1(x + w - c)} ${y + h}H${r1(x + c)}L${r1(x)} ${y + h - c}V${y + c}Z"/>`;
+  }
+  if (k === "store"){
+    const ry = 6, a = `${r1(w / 2)} ${ry} 0 0`;
+    return `<path class="sh" d="M${r1(x)} ${y + ry}A${a} 1 ${r1(x + w)} ${y + ry}V${y + h - ry}A${a} 1 ${r1(x)} ${y + h - ry}Z"/>`
+      + `<path class="rim" d="M${r1(x)} ${y + ry}A${a} 0 ${r1(x + w)} ${y + ry}"/>`;
+  }
+  const doc = (x, y) => `M${r1(x)} ${y}H${r1(x + w)}V${y + h - 6}Q${r1(x + w * 0.75)} ${y + h - 13} ${r1(x + w / 2)} ${y + h - 6}T${r1(x)} ${y + h - 6}Z`;
+  return `<path class="sh2" d="${doc(x + 4, y - 4)}"/><path class="sh" d="${doc(x, y)}"/>`;
+}
+function nodeSVG(n){
+  const [x, y, w, h] = geo.rects[n.id], cx = r1(x + w / 2), narrow = geo.mode === "narrow";
+  const dy = n.k === "store" ? 3 : n.k === "doc" ? -3 : 0, ty = r1(y + h / 2 - 3 + dy), sy = r1(y + h / 2 + 12 + dy);
+  const t = narrow && n.tn ? n.tn : n.t, s = narrow && n.sn ? n.sn : n.s;
+  const act = n.st ? "activate to follow this step below" : n.l === "x" ? "read by the query path, written by ingestion" : "activate to highlight its path";
+  const lab = `${n.t}, ${KIND[n.k].toLowerCase()}, ${LANE[n.l].toLowerCase()}; ${act}`;
+  return `<g class="node" data-id="${n.id}" tabindex="0" role="button" aria-label="${esc(lab)}" aria-describedby="tv-${n.id}">${shapeSVG(n.k, x, y, w, h)}`
+    + `<text class="t" x="${cx}" y="${ty}" text-anchor="middle">${esc(t)}</text>`
+    + `<text class="s" x="${cx}" y="${sy}" text-anchor="middle">${esc(s)}</text>`
+    + `<text class="f" x="${cx}" y="${sy}" text-anchor="middle">${esc(n.f)}</text>`
+    + `<g class="warn" transform="translate(${r1(x + w - 8)} ${y - 7})"><path d="M7 0L14 12H0Z"/><text x="7" y="10.5" text-anchor="middle">!</text></g></g>`;
+}
+/* Shrink any label that does not fit its shape, whatever font the system substitutes. */
+function fit(){
+  svg.querySelectorAll(".node").forEach(g => {
+    const n = byId[g.dataset.id], w = geo.rects[n.id][2], h = geo.rects[n.id][3];
+    const avail = n.k === "io" ? w - h * 0.55 : n.k === "model" ? w - 22 : w - 14;
+    g.querySelectorAll("text.t, text.s, text.f").forEach(t => {
+      const len = t.getComputedTextLength();
+      if (len <= avail) return;
+      const fs = parseFloat(getComputedStyle(t).fontSize), min = t.classList.contains("t") ? 10.5 : 9.5;
+      t.style.fontSize = Math.max(min, Math.floor(fs * avail / len * 10) / 10) + "px";
+      if (t.getComputedTextLength() > avail){ t.setAttribute("textLength", r1(avail)); t.setAttribute("lengthAdjust", "spacingAndGlyphs"); }
+    });
+  });
+}
+function build(){
+  const W = fig.clientWidth;
+  if (!W) return;
+  const a = document.activeElement, fid = a && svg.contains(a) && a.closest(".node") ? a.closest(".node").dataset.id : null;
+  geo = layout(W);
+  let s = "";
+  for (const L of geo.lanes) s += `<rect class="lane" x="${r1(L.x)}" y="${L.y}" width="${r1(L.w)}" height="${L.h}" rx="3"/><text class="lane-t" x="${r1(L.lx)}" y="${L.ly}">${esc(L.t.toUpperCase())}</text>`;
+  for (const t of geo.notes) s += `<text class="note" data-p="${t.p}" x="${r1(t.x)}" y="${t.y}"${t.a ? ` text-anchor="${t.a}"` : ""}>${esc(t.t)}</text>`;
+  for (const e of E) s += edgeSVG(e);
+  s += connSVG();
+  for (const n of N) s += nodeSVG(n);
+  svg.setAttribute("viewBox", `0 0 ${W} ${geo.H}`);
+  svg.setAttribute("height", geo.H);
+  svg.innerHTML = s;
+  fit();
+  paint();
+  if (fid){ const g = svg.querySelector(`[data-id="${fid}"]`); if (g) g.focus(); }
+  showCard();
+}
+
+/* ---------- state ---------- */
+function paint(){
+  const st = state.step, path = st >= 0 ? "query" : state.path, P = PATHS[path], cur = st >= 0 ? STEPS[st] : null;
+  svg.classList.toggle("lens", state.lens);
+  svg.querySelectorAll(".node").forEach(g => {
+    const id = g.dataset.id, si = STEPS.indexOf(id), tune = !!(P && P.tune && P.tune.includes(id));
+    g.classList.toggle("dim", !!P && !P.n.includes(id) && !tune);
+    g.classList.toggle("tune", tune);
+    g.classList.toggle("cur", id === cur);
+    g.classList.toggle("done", st >= 0 && si >= 0 && si < st);
+  });
+  svg.querySelectorAll(".edge").forEach(g => {
+    const e = EBY[g.dataset.id], inP = !!P && P.e.includes(e.id), bi = STEPS.indexOf(e.b);
+    g.classList.toggle("dim", !!P && !inP);
+    g.classList.toggle("on", inP && (st < 0 || (bi >= 0 && bi <= st)));
+    g.classList.toggle("flow", st >= 0 && inP && e.b === cur);
+  });
+  /* A lane's notes fade with its nodes; the "shared" note belongs to both main paths. */
+  svg.querySelectorAll(".note").forEach(t => {
+    const p = t.dataset.p;
+    t.classList.toggle("dim", !!P && p !== path && !(p === "x" && path !== "feedback"));
+  });
+}
+function narrate(){
+  const st = state.step, prev = $("#prev"), next = $("#next"), reset = $("#reset"), active = document.activeElement;
+  if (st < 0){
+    narr.innerHTML = `<p class="k">Overview</p><h3>One question, seven steps</h3>`
+      + `<p>Press Start, pick a row in the trace, or click a step in the diagram to follow <q>How do I rotate the staging database password?</q> from question to cited answer.</p>`
+      + `<p class="ex"><span class="tag">Where it goes wrong</span>On the golden set, 33 of 250 questions fail before the model sees anything: 17 never reach the top 40, and the reranker cuts another 16.</p>`;
+    $("#count").textContent = "Overview";
+  } else {
+    const n = byId[STEPS[st]], s = n.st;
+    narr.innerHTML = `<p class="k">Step ${st + 1} of ${STEPS.length} · ${fmt(s.a)} → ${fmt(s.a + s.ms)} ms</p><h3>${esc(n.t)}</h3><p>${esc(n.d)}</p>`
+      + `<p class="ex"><span class="tag">This question</span>${esc(s.ex)}</p>`
+      + `<p class="rk"><span class="tag">Can go wrong</span>${esc(n.fl)} <span class="cb">Caught by: ${esc(n.cb)}</span></p>`;
+    $("#count").textContent = `Step ${st + 1} of ${STEPS.length}`;
+  }
+  prev.disabled = st < 0;
+  next.disabled = st >= STEPS.length - 1;
+  next.textContent = st < 0 ? "Start →" : "Next →";
+  reset.hidden = st < 0;
+  if (active === prev && prev.disabled) next.focus();
+  else if (active === next && next.disabled) prev.focus();
+  else if (active === reset && reset.hidden) next.focus();
+  rows.querySelectorAll(".tb").forEach((b, i) => { if (i === st) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current"); });
+}
+function update(){
+  paint();
+  const path = state.step >= 0 ? "query" : state.path;
+  document.querySelectorAll("[data-path]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.path === path)));
+  $("#lens").setAttribute("aria-pressed", String(state.lens));
+  $("#cap").textContent = CAP[path] + (state.lens ? " Red labels name each component’s most common failure; its card says how that is caught." : "");
+  narrate();
+}
+function go(i){
+  state.step = Math.max(-1, Math.min(STEPS.length - 1, i));
+  state.path = state.step >= 0 ? "query" : "all";
+  update();
+}
+function activate(id){
+  const i = STEPS.indexOf(id);
+  if (i >= 0) return go(i);
+  const l = byId[id].l;
+  state.step = -1;
+  state.path = l === "i" ? "ingest" : l === "f" ? "feedback" : "all";
+  update();
+}
+
+/* ---------- the card shown on hover or focus ---------- */
+function showCard(){
+  /* Keyboard focus beats a pointer that happens to rest on another node; otherwise hover wins. */
+  const fe = focusId ? svg.querySelector(`[data-id="${focusId}"]`) : null;
+  const id = fe && fe.matches(":focus-visible") ? focusId : hoverId || focusId;
+  if (!id || !geo || !geo.rects[id]){ card.hidden = true; return; }
+  const n = byId[id];
+  card.innerHTML = `<p class="k">${esc(KIND[n.k])} · ${esc(LANE[n.l])}</p><h3>${esc(n.t)}</h3><dl>`
+    + `<dt>${esc(n.r)}</dt><dd>${esc(n.d)}</dd><dt>${esc(n.tl || "Time")}</dt><dd>${esc(n.tm)}</dd>`
+    + `<dt class="r">Fails</dt><dd>${esc(n.fl)}</dd><dt>${esc(n.cbl || "Caught by")}</dt><dd>${esc(n.cb)}</dd></dl>`;
+  card.hidden = false;
+  const [x, y, w, h] = geo.rects[id], cw = card.offsetWidth, ch = card.offsetHeight;
+  const above = y, below = geo.H - y - h;
+  card.style.left = Math.max(8, Math.min(fig.clientWidth - cw - 8, x + w / 2 - cw / 2)) + "px";
+  card.style.top = (below >= ch + 12 || below >= above ? y + h + 10 : y - ch - 10) + "px";
+}
+
+/* ---------- static parts: trace rows, ticks, text version ---------- */
+const pct = v => (v / TOTAL * 100).toFixed(2) + "%";
+rows.innerHTML = STEPS.map((id, i) => {
+  const n = byId[id], s = n.st;
+  return `<li><button type="button" class="tb" data-step="${i}" aria-label="Step ${i + 1}, ${esc(n.t)}: ${fmt(s.ms)} ms, from ${fmt(s.a)} to ${fmt(s.a + s.ms)} ms">`
+    + `<span>${esc(n.t)}</span><span class="tr"><i style="left:${pct(s.a)};width:${pct(s.ms)}"></i><b style="left:${pct(TTFT)}"></b></span>`
+    + `<span class="ms">${fmt(s.ms)} ms</span></button></li>`;
+}).join("");
+$("#ft").style.left = pct(TTFT);
+$("#ticks").innerHTML = [0, 1000, 2000, 3000].map(t => `<span class="tk" style="left:${pct(t)}">${t ? t / 1000 + " s" : "0"}</span>`).join("");
+$("#tvb").innerHTML = [["i", "Ingestion, nightly"], ["x", "Shared index"], ["q", "Query, per question"], ["f", "Feedback loop"]].map(([k, t]) =>
+  `<h3>${t}</h3><ul>` + N.filter(n => n.l === k).map(n =>
+    `<li id="tv-${n.id}"><b>${esc(n.t)}</b> (${esc(KIND[n.k].toLowerCase())}). ${esc(n.r)}: ${esc(n.d)} ${esc(n.tl || "Time")}: ${esc(n.tm)} Fails: ${esc(n.fl)} ${esc(n.cbl || "Caught by")}: ${esc(n.cb)}</li>`).join("") + `</ul>`).join("")
+  + `<h3>Connections</h3><ul>` + E.map(e => `<li>${esc(byId[e.a].t)} → ${esc(byId[e.b].t)}${e.w ? ` (${esc(e.w)})` : ""}</li>`).join("") + `</ul>`;
+
+/* ---------- events ---------- */
+svg.addEventListener("pointerover", e => { const g = e.target.closest(".node"); if (g && g.dataset.id !== hoverId){ hoverId = g.dataset.id; showCard(); } });
+svg.addEventListener("pointerout", e => { const g = e.target.closest(".node"); if (g && !(e.relatedTarget && g.contains(e.relatedTarget))){ hoverId = null; showCard(); } });
+/* Focus listeners sit on the HTML wrapper: Chromium makes an <svg> with focus listeners a tab stop. */
+fig.addEventListener("focusin", e => { const g = e.target.closest(".node"); focusId = g ? g.dataset.id : null; showCard(); });
+fig.addEventListener("focusout", e => { if (!(e.relatedTarget && svg.contains(e.relatedTarget))){ focusId = null; showCard(); } });
+svg.addEventListener("click", e => { const g = e.target.closest(".node"); if (g) activate(g.dataset.id); });
+svg.addEventListener("keydown", e => {
+  const g = e.target.closest(".node");
+  if (!g) return;
+  if (e.key === "Enter" || e.key === " "){ e.preventDefault(); activate(g.dataset.id); }
+  else if (e.key === "Escape"){ hoverId = null; focusId = null; showCard(); }
+});
+document.querySelectorAll("[data-path]").forEach(b => b.addEventListener("click", () => { state.path = b.dataset.path; state.step = -1; update(); }));
+$("#lens").addEventListener("click", () => { state.lens = !state.lens; update(); });
+$("#prev").addEventListener("click", () => go(state.step - 1));
+$("#next").addEventListener("click", () => go(state.step + 1));
+$("#reset").addEventListener("click", () => go(-1));
+rows.addEventListener("click", e => { const b = e.target.closest("[data-step]"); if (b) go(+b.dataset.step); });
+/* Rebuild only when the width changes; the frame around this page changes its height often. */
+addEventListener("resize", () => {
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(() => { const w = fig.clientWidth; if (w && w !== lastW){ lastW = w; build(); } });
+});
+lastW = fig.clientWidth;
+build();
+update();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model monitoring — three wireframe directions</title>
+<meta name="description" content="Three low-fidelity wireframe directions for the screen an on-call data scientist opens when a demand-forecast model may be unhealthy: an alert-first triage list, a grid of health signals and a change timeline. Each comes with what it tests and its trade-offs, plus how the triage list collapses on a phone.">
+<meta name="category" content="effective-html">
+<script>document.documentElement.classList.add('js')</script>
+<style>
+:root{--paper:#f1f1ef;--sheet:#fff;--ink:#1b1b1b;--ink-2:#5b5b58;--line:#c2c2be;--line-2:#e0e0dc;--fill:#e7e7e4;--hatch:rgba(0,0,0,.1);
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#141414;--sheet:#1e1e1e;--ink:#ebebe8;--ink-2:#a7a7a3;--line:#4b4b48;--line-2:#31312f;--fill:#292927;--hatch:rgba(255,255,255,.12);color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#141414;--sheet:#1e1e1e;--ink:#ebebe8;--ink-2:#a7a7a3;--line:#4b4b48;--line-2:#31312f;--fill:#292927;--hatch:rgba(255,255,255,.12);color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 var(--sans)}
+.page{max-width:78rem;margin:0 auto;padding:1.5rem 1rem 2rem}
+@media (min-width:48rem){.page{padding:2.25rem 1.5rem 2.5rem}}
+h1,h2,h3,h4{line-height:1.2;text-wrap:balance;margin:0}
+p,ul,ol,dl,dd{margin:0}
+ul,ol{padding:0;list-style:none}
+code,.m{font-family:var(--mono);font-size:.9em;overflow-wrap:break-word}
+b{font-weight:650}
+a{color:inherit;text-underline-offset:2px}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.kicker{font:600 .7rem/1.4 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.sub{color:var(--ink-2)}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+/* review page */
+.top{display:grid;gap:1.25rem 3rem;align-items:start}
+@media (min-width:62rem){.top{grid-template-columns:minmax(0,1fr) minmax(0,27rem)}}
+h1{font-size:clamp(1.45rem,1.1rem + 1.6vw,2.1rem);font-weight:700;letter-spacing:-.012em;margin:.4rem 0 .7rem}
+.lede{max-width:60ch;color:var(--ink-2);font-size:1rem}
+.brief{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.45rem .9rem;font-size:.86rem;border:1.5px solid var(--line);background:var(--sheet);padding:.85rem 1rem;border-radius:3px}
+.brief dt,.tests dt{font:600 .66rem/1.95 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2)}
+.key{margin-top:1.1rem;border:1.5px dashed var(--line);border-radius:3px;padding:.55rem .85rem;font-size:.9rem}
+.key summary{cursor:pointer;font-weight:600}
+.key ul{list-style:disc;padding-left:1.2rem;margin:.55rem 0 .45rem;display:grid;gap:.35rem;max-width:84ch}
+.key p{color:var(--ink-2)}
+.sec{margin-top:2.25rem}
+.sec-h{border-top:1.5px solid var(--ink);padding-top:.85rem;display:flex;flex-wrap:wrap;gap:.6rem 2.5rem;justify-content:space-between;align-items:baseline}
+h2{font-size:1.15rem;font-weight:700}
+.sec-h p{color:var(--ink-2);font-size:.9rem;max-width:64ch}
+.legend{display:flex;flex-wrap:wrap;gap:.4rem 1rem;font-size:.76rem;color:var(--ink-2)}
+.legend li{display:inline-flex;gap:.35rem;align-items:center}
+.sw-ph{width:1.5rem;height:1rem;border:1.5px dashed var(--line);background:linear-gradient(to top right,transparent 45%,var(--line) 47% 53%,transparent 55%),linear-gradient(to bottom right,transparent 45%,var(--line) 47% 53%,transparent 55%)}
+.tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.45rem;margin:1rem 0 1.25rem}
+.tab{font:inherit;color:var(--ink);background:transparent;border:1.5px solid var(--line);border-bottom-width:4px;border-radius:3px;padding:.45rem .7rem .4rem;text-align:left;cursor:pointer;display:grid;gap:.05rem;min-width:0}
+.tab:hover{border-color:var(--ink-2)}
+.tab[aria-selected="true"]{border-color:var(--ink);background:var(--sheet)}
+.tab .l{font:700 .64rem/1.4 var(--mono);letter-spacing:.1em;color:var(--ink-2)}
+.tab b{font-size:.95rem;line-height:1.25}
+.tab small{font-size:.76rem;color:var(--ink-2)}
+html:not(.js) .tabs{display:none}
+html:not(.js) .panel[hidden],html:not(.js) .ed[hidden]{display:block}
+.panel+.panel{margin-top:2.5rem}
+.panel-h{display:grid;gap:.2rem;margin-bottom:.85rem}
+.panel-h h3{font-size:1.05rem}
+.panel-h p{color:var(--ink-2);max-width:70ch}
+.fl{display:flex;justify-content:space-between;gap:1rem;font:600 .64rem/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin-bottom:.35rem}
+.notes{display:grid;gap:1.1rem 3rem;margin-top:1.1rem}
+@media (min-width:56rem){.notes{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)}}
+.tests{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.45rem .9rem;font-size:.9rem;align-content:start}
+.annos{display:grid;gap:.5rem;align-content:start}
+.annos ol,.pn{display:grid;gap:.5rem;counter-reset:n;font-size:.88rem}
+.annos li,.pn li{display:grid;grid-template-columns:1.15rem minmax(0,1fr);gap:.55rem;counter-increment:n}
+.annos li::before,.pn li::before{content:counter(n)}
+.anno,.annos li::before,.pn li::before,.vp [data-pn]::after{display:inline-grid;place-items:center;width:1.15rem;height:1.15rem;border-radius:50%;background:var(--ink);color:var(--sheet);font:700 .62rem/1 var(--mono);flex:none}
+.anno{vertical-align:.12em;margin-right:.35rem}
+.annos li::before,.pn li::before{margin-top:.12rem}
+
+/* wireframe vocabulary */
+.wf{container-type:inline-size}
+.screen{background:var(--sheet);border:1.5px solid var(--ink-2);border-radius:4px;font-size:.84rem;line-height:1.45;overflow-wrap:break-word}
+.screen h4{font-size:.86rem;font-weight:700}
+.bar{display:flex;flex-wrap:wrap;gap:.25rem 1rem;align-items:center;justify-content:space-between;padding:.5rem .85rem;background:var(--fill);border-bottom:1.5px solid var(--line);border-radius:3px 3px 0 0}
+.crumb{font-weight:650}
+.meta{font:.72rem/1.4 var(--mono);color:var(--ink-2)}
+.pill{display:inline-block;font:700 .62rem/1.3 var(--mono);letter-spacing:.07em;text-transform:uppercase;padding:.08rem .36rem;border:1.5px solid var(--ink);border-radius:2px;white-space:nowrap;vertical-align:.1em}
+.pill.crit{background:var(--ink);color:var(--sheet)}
+.pill.watch{border-style:dashed;border-color:var(--ink-2);color:var(--ink-2)}
+.pill.ok{border-color:transparent;color:var(--ink-2);padding-inline:0}
+.pill.pend,.hatch{background-image:repeating-linear-gradient(135deg,var(--hatch) 0 4px,transparent 4px 8px)}
+.pill.pend{border-color:var(--ink-2);color:var(--ink-2)}
+.btn{font:600 .75rem/1.2 var(--sans);color:var(--ink);background:var(--sheet);border:1.5px solid var(--ink-2);border-radius:3px;padding:.38rem .58rem;cursor:default;white-space:nowrap}
+.btn.pri{border:2px solid var(--ink);background:var(--fill)}
+.ph{display:grid;place-items:center;min-height:6.5rem;border:1.5px dashed var(--line);padding:.5rem;text-align:center;background:linear-gradient(to top right,transparent calc(50% - 1px),var(--line-2) 50%,transparent calc(50% + 1px)),linear-gradient(to bottom right,transparent calc(50% - 1px),var(--line-2) 50%,transparent calc(50% + 1px))}
+.ph span{background:var(--sheet);padding:.15rem .45rem;font:.7rem/1.4 var(--mono);color:var(--ink-2)}
+.tw{overflow-x:auto}
+.tbl{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.tbl th{font:600 .6rem/1.3 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:.2rem .5rem .3rem 0;border-bottom:1.5px solid var(--line)}
+.tbl td{padding:.3rem .5rem .3rem 0;border-bottom:1px solid var(--line-2);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .r{text-align:right}
+.tbl .tot td{border-top:1.5px solid var(--line)}
+.d{display:block;font-size:.72rem;color:var(--ink-2)}
+.evi{display:grid;gap:.1rem .9rem;margin-top:.4rem}
+.evi dt{font:600 .6rem/1.7 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.evi dd{margin-bottom:.3rem}
+@container (min-width:40rem){.evi{grid-template-columns:9.5rem minmax(0,1fr)}.evi dd{margin:0}}
+.chg{display:grid;gap:.4rem}
+.chg li{display:grid;grid-template-columns:4.4rem minmax(0,1fr);gap:.5rem}
+.chg .t{font:.72rem/1.65 var(--mono);color:var(--ink-2)}
+.k{font:600 .58rem/1.2 var(--mono);letter-spacing:.07em;text-transform:uppercase;border:1px solid var(--line);padding:.05rem .25rem;border-radius:2px;margin-right:.3rem;color:var(--ink-2);vertical-align:.1em}
+.tag{font:600 .66rem var(--mono);border-bottom:1.5px solid var(--ink);margin-left:.2rem}
+
+/* A: triage list */
+.sa{display:flex;flex-direction:column}
+.sa .verdict{display:grid;gap:.3rem;padding:.8rem .9rem;border-bottom:1px solid var(--line);background:var(--sheet)}
+.v1{display:flex;flex-wrap:wrap;gap:.3rem .55rem;align-items:center;font-size:.95rem}
+.v2{font-weight:650;font-size:.92rem;max-width:64ch}
+.v3{color:var(--ink-2)}
+.sa .acts{order:9;display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;padding:.6rem .9rem;border-top:1px solid var(--line);background:var(--sheet)}
+.sa .cols{display:grid}
+.sa .main{padding:.8rem .9rem;display:grid;gap:.55rem;align-content:start}
+.sa .main small{font:400 .7rem var(--mono);color:var(--ink-2);margin-left:.5rem}
+.alerts{display:grid;gap:.55rem}
+.alert{border:1.5px solid var(--line);border-radius:3px}
+.alert.sev{border:2px solid var(--ink)}
+.ah{display:flex;gap:.6rem;align-items:flex-start;padding:.55rem .65rem}
+.ah p{flex:1;min-width:0}
+.alert details{border-top:1px dashed var(--line);padding:.35rem .65rem .55rem}
+.alert summary,.fold summary{cursor:pointer}
+.alert summary{font-size:.78rem;font-weight:600;color:var(--ink-2)}
+.sa .side{padding:.8rem .9rem;border-top:1px solid var(--line);display:grid;gap:1rem;align-content:start}
+.fold summary h4{display:inline}
+.quiet{display:grid;gap:.45rem;margin:.55rem 0 .65rem}
+.quiet li{padding-left:.65rem;border-left:2px solid var(--line-2)}
+.fold .chg{margin-top:.55rem}
+.sa .wide{display:none}
+@container (min-width:46rem){
+  .sa{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"bar bar" "v acts" "cols cols"}
+  .sa .bar{grid-area:bar}
+  .sa .verdict{grid-area:v}
+  .sa .acts{grid-area:acts;order:0;border-top:0;border-bottom:1px solid var(--line);align-content:flex-start;justify-content:flex-end;max-width:28rem}
+  .sa .cols{grid-area:cols;grid-template-columns:minmax(0,1.75fr) minmax(0,1fr)}
+  .sa .side{border-top:0;border-left:1px solid var(--line)}
+  .sa .wide{display:revert}
+  .sa .narrow{display:none}
+}
+
+/* B: signal grid */
+.bacts{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.rollup{display:flex;flex-wrap:wrap;gap:.4rem 1.1rem;padding:.6rem .85rem;border-bottom:1px solid var(--line);font-size:.8rem;align-items:center}
+.rollup li{display:inline-flex;gap:.35rem;align-items:center}
+.cap{padding:.6rem .85rem 0;color:var(--ink-2);font-size:.78rem}
+.grid{display:grid;gap:.7rem;padding:.6rem .85rem .85rem}
+@container (min-width:38rem){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container (min-width:62rem){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.tile{border:1.5px solid var(--line);border-radius:3px;padding:.6rem .7rem .7rem;display:flex;flex-direction:column;gap:.45rem;min-width:0}
+.tile.hot{border:2px solid var(--ink)}
+.th{display:flex;flex-wrap:wrap;gap:.3rem .6rem;justify-content:space-between;align-items:center}
+.asof{font:.68rem/1.4 var(--mono);color:var(--ink-2)}
+.psi{display:block;height:.6rem;margin-top:.35rem;min-width:3rem;border:1px solid var(--line);position:relative;background:linear-gradient(var(--ink-2),var(--ink-2)) left/calc(var(--v) * 200%) 100% no-repeat}
+.psi::after{content:"";position:absolute;left:50%;top:-4px;bottom:-4px;border-left:1.5px dashed var(--ink)}
+.tbl .bc{width:34%}
+.stat{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.2rem .8rem;font-variant-numeric:tabular-nums}
+.stat dd{text-align:right}
+.stat dt{color:var(--ink-2)}
+.list{display:grid;gap:.45rem}
+.list li{display:flex;gap:.5rem;align-items:flex-start;padding-bottom:.45rem;border-bottom:1px solid var(--line-2)}
+.list li:last-child{border-bottom:0;padding-bottom:0}
+.list li>span:nth-child(2){flex:1;min-width:0}
+.more{font:.7rem var(--mono);color:var(--ink-2)}
+
+/* C: change timeline */
+.ctop{display:flex;flex-wrap:wrap;gap:.55rem 1rem;justify-content:space-between;align-items:center;padding:.6rem .85rem;border-bottom:1px solid var(--line)}
+.nowl{display:flex;flex-wrap:wrap;gap:.25rem 1rem;align-items:center;font-size:.8rem}
+.nowl dt{font-weight:700}
+.cctl{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.tl .lanes{display:none}
+.tl .day{display:flex;flex-wrap:wrap;gap:.25rem .9rem;padding:.55rem .85rem;border-bottom:1px solid var(--line-2)}
+.tl .dh{flex-basis:100%;font-weight:700;font-size:.8rem}
+.tl .e,.tl .q{display:none}
+.tl .x{flex-basis:100%;display:grid;gap:.3rem}
+.tl .pend{background-image:repeating-linear-gradient(135deg,var(--hatch) 0 4px,transparent 4px 8px);padding:0 .3rem;color:var(--ink-2)}
+.ln{font:600 .6rem var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);margin-right:.35rem}
+.ev{display:block;width:100%;font:inherit;font-size:.78rem;line-height:1.3;text-align:left;color:var(--ink);background:var(--sheet);border:1.5px solid var(--ink-2);border-radius:3px;padding:.25rem .4rem;cursor:pointer}
+.ev:hover{border-color:var(--ink)}
+.ev[aria-pressed="true"]{border:2px solid var(--ink);background:var(--fill);font-weight:650}
+.tm{font:.92em var(--mono);margin-right:.3rem}
+.edw{border-top:1.5px solid var(--line);padding:.75rem .85rem .9rem;display:grid;gap:.35rem}
+.ed{display:grid;gap:.3rem}
+.ed[hidden]{display:none}
+@container (min-width:52rem){
+  .tl{display:grid;grid-template-columns:8.6rem repeat(7,minmax(0,1fr));grid-template-rows:repeat(7,auto)}
+  .tl .lanes,.tl .day{display:grid;grid-row:1 / -1;grid-template-rows:subgrid;gap:0;padding:0;border-bottom:0}
+  .tl .day{border-left:1px solid var(--line-2)}
+  .tl .day.now{border-left:2px solid var(--ink)}
+  .tl .lanes>span,.tl .dh,.tl .c{display:block;padding:.4rem .45rem;border-bottom:1px solid var(--line-2);min-width:0}
+  .tl .lanes>span{font:600 .6rem/1.35 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2)}
+  .tl .lanes>span:first-child,.tl .dh{background:var(--fill)}
+  .tl .dh{font-size:.76rem}
+  .tl .e{color:var(--ink-2)}
+  .tl .x{display:grid}
+  .tl .pend{padding:.4rem .45rem;font-size:.76rem}
+  .ln{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+}
+
+/* phone */
+.phone-wrap{display:grid;grid-template-columns:minmax(0,1fr);gap:1.5rem 3rem;margin-top:1.1rem;align-items:start}
+@media (min-width:50rem){.phone-wrap{grid-template-columns:23.7rem minmax(0,1fr)}}
+.phone{width:min(100%,23.7rem);border:2px solid var(--ink-2);border-radius:20px;padding:.7rem .5rem 1rem;background:var(--fill)}
+.phone .fl{padding:0 .35rem}
+.vp{height:40rem;overflow-y:auto;background:var(--sheet);border:1.5px solid var(--line);border-radius:8px}
+.vp .screen{border:0;border-radius:0}
+.vp .bar{border-radius:0}
+.vp .sa .verdict{position:sticky;top:0;z-index:2;border-bottom:1.5px solid var(--ink)}
+.vp .sa .acts{position:sticky;bottom:0;z-index:2;border-top:1.5px solid var(--ink)}
+.vp [data-pn]{padding-right:1.8rem}
+.vp [data-pn]:not(.verdict):not(.acts){position:relative}
+.vp [data-pn]::after{content:attr(data-pn);position:absolute;top:.35rem;right:.3rem;z-index:1}
+.vp dt[data-pn]::after{top:-.15rem}
+.nojs{padding:1rem;color:var(--ink-2)}
+.pside{display:grid;gap:.9rem;max-width:58ch}
+.lost{font-size:.88rem;color:var(--ink-2)}
+.duo{display:grid;gap:0 3rem}
+@media (min-width:56rem){.duo{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.prose{list-style:disc;padding-left:1.15rem;display:grid;gap:.45rem;margin-top:.8rem;font-size:.92rem}
+footer{margin-top:2.75rem;padding-top:.9rem;border-top:1px solid var(--line);font-size:.78rem;color:var(--ink-2)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="top">
+  <div>
+    <p class="kicker">Wireframe · low fidelity · fictional data</p>
+    <h1>Model monitoring — three wireframe directions</h1>
+    <p class="lede">The screen an on-call data scientist opens when the store demand forecast may be unhealthy. It has one job: answer <q>Is the model healthy, and if not, why?</q> Each direction carries the same scenario and content; only the structure changes.</p>
+  </div>
+  <dl class="brief">
+    <dt>Who</dt><dd>On-call data scientist, arriving from a page</dd>
+    <dt>When</dt><dd>Tue Nov 3, 07:42 PT. Store demand forecast <code>v4.2.1</code>: the 04:00 run is done, three alerts are open, and forecasts publish to replenishment at 10:00.</dd>
+    <dt>Shows</dt><dd>Data freshness per source · feature drift (PSI) · prediction distribution shift · accuracy vs actuals (MAPE by region; actuals land 2 days after the sales day) · active alerts · recent deploys and data changes</dd>
+  </dl>
+</header>
+<details class="key">
+  <summary>Answer key: what a good screen should let the on-call conclude</summary>
+  <ul>
+    <li>Today's forecasts for promoted items are inflated. The promo feed switched <code>discount</code> from 0–1 to 0–100 at Mon 21:05, and <code>promo_depth</code> drifted (PSI 0.41).</li>
+    <li>The late weather file and Mountain's slow MAPE rise are real but separate: data platform has acked the first, and four new stores explain the second.</li>
+    <li>Friday's model deploy is not the cause, and accuracy can't show the problem until Thu Nov 5. Holding the 10:00 publish beats rolling back the model.</li>
+  </ul>
+  <p>Judge each direction by how fast it gets there, and by what it might let the on-call get wrong.</p>
+</details>
+
+<main>
+<section class="sec" aria-labelledby="h-dirs">
+  <div class="sec-h">
+    <h2 id="h-dirs">Three directions, one scenario</h2>
+    <ul class="legend" aria-label="Wireframe key">
+      <li><span class="pill crit">Crit</span>critical</li>
+      <li><span class="pill">Warn</span>warning or late</li>
+      <li><span class="pill watch">Watch</span>near a threshold</li>
+      <li><span class="pill ok">OK</span>healthy</li>
+      <li><span class="pill pend">Pending</span>not known yet</li>
+      <li><span class="sw-ph"></span>chart placeholder</li>
+      <li><span class="btn">Button</span>placement only</li>
+      <li><span class="anno">1</span>annotation</li>
+    </ul>
+  </div>
+  <div class="tabs" role="tablist" aria-label="Wireframe directions">
+    <button type="button" class="tab" role="tab" id="ta" aria-controls="pa" aria-selected="true"><span class="l">A</span><b>Triage list</b><small>alert-first</small></button>
+    <button type="button" class="tab" role="tab" id="tb" aria-controls="pb" aria-selected="false" tabindex="-1"><span class="l">B</span><b>Signal grid</b><small>overview</small></button>
+    <button type="button" class="tab" role="tab" id="tc" aria-controls="pc" aria-selected="false" tabindex="-1"><span class="l">C</span><b>Change timeline</b><small>incident view</small></button>
+  </div>
+
+  <!-- A -->
+  <section class="panel" id="pa" role="tabpanel" aria-labelledby="ta" tabindex="0">
+    <div class="panel-h">
+      <h3>A · Triage list</h3>
+      <p>Lead with what fired. Every other signal hangs off an alert or folds into a single line.</p>
+    </div>
+    <div class="wf" role="region" aria-label="Direction A wireframe">
+      <p class="fl"><span>Screen</span><span>reflows with width</span></p>
+      <div class="screen sa">
+        <div class="bar">
+          <span class="crumb">Model monitor › demand-forecast</span>
+          <span class="meta wide">v4.2.1 · prod · daily run 04:00 PT</span>
+          <span class="meta"><span class="wide">As of Tue Nov 3, </span>07:42 PT</span>
+        </div>
+        <div class="verdict" data-pn="1">
+          <p class="v1"><span class="pill crit">Unhealthy</span><b>3 open alerts · 1 critical</b></p>
+          <p class="v2"><span class="anno" aria-hidden="true">1</span>Likely cause: <code>promo_calendar</code> changed Mon 21:05. Today's forecasts for promoted items run about 41% high.</p>
+          <p class="v3">Publishes to replenishment at 10:00 PT, in 2&nbsp;h&nbsp;18&nbsp;m.<span class="wide"> Accuracy can't confirm until Thu Nov 5.</span></p>
+        </div>
+        <div class="acts" data-pn="5">
+          <span class="anno" aria-hidden="true">3</span>
+          <button class="btn narrow">Ack all (2)</button>
+          <button class="btn pri"><span class="wide">Hold 10:00 publish</span><span class="narrow">Hold publish</span></button>
+          <button class="btn wide">Roll back model…</button>
+          <button class="btn wide">Runbook</button>
+          <button class="btn narrow">More ▾</button>
+        </div>
+        <div class="cols">
+          <section class="main" aria-label="Active alerts">
+            <h4>Active alerts (3)<small>by severity, then time</small></h4>
+            <ol class="alerts">
+              <li class="alert sev" data-pn="2">
+                <div class="ah"><span class="pill crit">Crit</span><p><b>Feature drift · <code>promo_depth</code></b><br><span class="sub">PSI 0.41, alert at ≥ 0.25 · fired 04:22 · not acked</span></p><button class="btn wide">Ack</button></div>
+                <details open><summary>Evidence</summary>
+                  <dl class="evi">
+                    <dt>PSI by run</dt><dd class="m">Wed 0.02 · Thu 0.02 · Fri 0.03 · Sat 0.02 · Sun 0.03 · Mon 0.02 · <b>Tue 0.41</b></dd>
+                    <dt>Values</dt><dd>Median <code>20.0</code> today vs <code>0.20</code> over 28 days: a percent where a fraction is expected</dd>
+                    <dt data-pn="3">In the 24 h before</dt><dd><b>Mon 21:05</b> · <code>promo_calendar</code> moved to vendor schema v2: <code>discount</code> now 0–100, was 0–1. Schema check passed (still a float).</dd>
+                    <dt>Related</dt><dd>The prediction shift below is confined to promoted items</dd>
+                  </dl>
+                </details>
+              </li>
+              <li class="alert">
+                <div class="ah"><span class="pill">Warn</span><p><b>Prediction shift</b><br><span class="sub">Mean forecast +14.1% vs 28 days, limit ±10% · fired 04:24 · not acked</span></p><button class="btn wide">Ack</button></div>
+                <details><summary>Evidence</summary>
+                  <dl class="evi">
+                    <dt>Mean forecast</dt><dd>4.62 units per store-SKU-day, vs 4.05</dd>
+                    <dt>By segment</dt><dd>Promoted items (15% of rows) +41% · not promoted +0.4%</dd>
+                    <dt>Tail</dt><dd>6.4% of forecasts exceed 3× the item's 28-day mean (usually 0.8%)</dd>
+                    <dt>In the 24 h before</dt><dd><b>Mon 21:05</b> · <code>promo_calendar</code> schema v2</dd>
+                  </dl>
+                </details>
+              </li>
+              <li class="alert">
+                <div class="ah"><span class="pill">Warn</span><p><b>Source late · <code>weather_forecast</code></b><br><span class="sub">Due 02:00, last file Mon 01:48 · fired 02:30 · acked 03:05 by data-platform on-call</span></p></div>
+                <details><summary>Evidence</summary>
+                  <dl class="evi">
+                    <dt>Effect</dt><dd>The 04:00 run reused Monday's file. <code>temp_max_7d</code> PSI 0.11: watch, seasonal, 9 days running.</dd>
+                    <dt>In the 24 h before</dt><dd>No changes recorded for this source</dd>
+                  </dl>
+                </details>
+              </li>
+            </ol>
+          </section>
+          <div class="side">
+            <details class="fold" open>
+              <summary data-pn="4"><h4><span class="anno" aria-hidden="true">2</span>Not alerting</h4></summary>
+              <ul class="quiet">
+                <li><b>Freshness</b> 5 of 6 sources on time; the late one is alerting.</li>
+                <li><b>Feature drift</b> 2 of 42 features in watch: <code>days_to_holiday</code> 0.18, <code>temp_max_7d</code> 0.11. The other 39 are stable.</li>
+                <li><b>Accuracy</b> MAPE 12.2% vs 12.0% baseline, sales day Sun Nov 1; actuals land 2 days later. <span class="pill watch">Watch</span> Mountain 14.6% vs 12.9%, rising since Wed.</li>
+              </ul>
+              <button class="btn">All signals →</button>
+            </details>
+            <details class="fold" open>
+              <summary><h4>Recent changes · 7 days (4)</h4></summary>
+              <ol class="chg">
+                <li><span class="t">Mon 21:05</span><span><span class="k">Data</span><code>promo_calendar</code> schema v2<span class="tag">before 2 alerts</span></span></li>
+                <li><span class="t">Sun 22:40</span><span><span class="k">Data</span><code>price_book</code> weekly update (routine)</span></li>
+                <li><span class="t">Fri 14:00</span><span><span class="k">Deploy</span>Model v4.2.1 to 100%, canary from 10:15</span></li>
+                <li><span class="t">Wed 09:30</span><span><span class="k">Data</span><code>store_master</code>: 4 new stores, Mountain</span></li>
+              </ol>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <dl class="tests">
+        <dt>Tests</dt><dd>Whether starting from the alerts, each carrying its own evidence and the change just before it, gets the on-call from page to decision fastest.</dd>
+        <dt>Trade-off</dt><dd>Quick when a rule catches the problem. Anything not alerting shrinks to a line, so slow failures like Mountain's MAPE creep are easy to skim past, and the screen is only as good as its alert rules.</dd>
+        <dt>Phone</dt><dd>Collapses cleanly; <a href="#h-phone">drawn below</a>.</dd>
+      </dl>
+      <div class="annos">
+        <p class="kicker">Annotations</p>
+        <ol>
+          <li><span>“Likely cause” is matched by timing (a change in the 24 h before an alert), not by data lineage. Is that strong enough for the headline?</span></li>
+          <li><span>Signals that aren't alerting get one line each. Is that enough to notice Mountain?</span></li>
+          <li><span>Holding the publish leads because it beats the 10:00 deadline; rollback sits second because the deploy came days before the problem.</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section class="panel" id="pb" role="tabpanel" aria-labelledby="tb" tabindex="0" hidden>
+    <div class="panel-h">
+      <h3>B · Signal grid</h3>
+      <p>Every signal in the same place every time, read left to right from inputs to outcomes.</p>
+    </div>
+    <div class="wf" role="region" aria-label="Direction B wireframe">
+      <p class="fl"><span>Screen</span><span>reflows with width</span></p>
+      <div class="screen sb">
+        <div class="bar">
+          <span class="crumb">Model monitor › demand-forecast</span>
+          <span class="meta">v4.2.1 · prod · as of Tue Nov 3, 07:42 PT</span>
+          <span class="bacts"><span class="anno" aria-hidden="true">3</span><button class="btn pri">Hold 10:00 publish</button><button class="btn">Roll back model…</button></span>
+        </div>
+        <ul class="rollup" aria-label="Signal summary">
+          <li><span class="pill">Late</span>Freshness</li>
+          <li><span class="pill crit">Crit</span>Feature drift</li>
+          <li><span class="pill">Warn</span>Predictions</li>
+          <li><span class="pill ok">OK</span>Accuracy<span class="pill pend">2 days behind</span></li>
+          <li><b>3</b>open alerts</li>
+          <li><b>1</b>change in 24 h</li>
+        </ul>
+        <p class="cap"><span class="anno" aria-hidden="true">1</span>Read left to right: inputs → model → outcomes, then what's firing and what changed.</p>
+        <div class="grid">
+          <section class="tile">
+            <div class="th"><h4>Data freshness</h4><span class="pill">1 late</span></div>
+            <p class="asof">6 sources · checked 07:40</p>
+            <div class="tw"><table class="tbl">
+              <thead><tr><th>Source</th><th>Last landed</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td><code>pos_sales_daily</code></td><td>Tue&nbsp;05:31<span class="d">due 06:00</span></td><td><span class="pill ok">OK</span></td></tr>
+                <tr><td><code>inventory_snapshot</code></td><td>Tue&nbsp;01:12<span class="d">due 02:00</span></td><td><span class="pill ok">OK</span></td></tr>
+                <tr><td><code>promo_calendar</code></td><td>Mon&nbsp;21:05<span class="d">due 23:00</span></td><td><span class="pill ok">OK</span></td></tr>
+                <tr><td><code>weather_forecast</code><span class="d">29&nbsp;h&nbsp;54&nbsp;m old</span></td><td>Mon&nbsp;01:48<span class="d">due 02:00</span></td><td><span class="pill">Late</span></td></tr>
+                <tr><td><code>price_book</code></td><td>Sun&nbsp;22:40<span class="d">weekly</span></td><td><span class="pill ok">OK</span></td></tr>
+                <tr><td><code>store_master</code></td><td>Mon&nbsp;23:40<span class="d">due 02:00</span></td><td><span class="pill ok">OK</span></td></tr>
+              </tbody>
+            </table></div>
+          </section>
+          <section class="tile hot">
+            <div class="th"><h4>Feature drift</h4><span class="pill crit">1 alert</span></div>
+            <p class="asof">PSI vs training window Aug 1–Oct 25 · watch ≥ 0.10 · alert ≥ 0.25</p>
+            <div class="tw"><table class="tbl">
+              <thead><tr><th>Feature</th><th class="r">PSI</th><th class="bc"><span class="vh">Bar, dashed line at 0.25</span></th></tr></thead>
+              <tbody>
+                <tr><td><code>promo_depth</code> <span class="pill crit">Alert</span></td><td class="r"><b>0.41</b></td><td><span class="psi" style="--v:.41"></span></td></tr>
+                <tr><td><code>days_to_holiday</code> <span class="pill watch">Watch</span></td><td class="r">0.18</td><td><span class="psi" style="--v:.18"></span></td></tr>
+                <tr><td><code>temp_max_7d</code> <span class="pill watch">Watch</span></td><td class="r">0.11</td><td><span class="psi" style="--v:.11"></span></td></tr>
+                <tr><td><code>store_traffic_idx</code></td><td class="r">0.06</td><td><span class="psi" style="--v:.06"></span></td></tr>
+                <tr><td><code>price_index</code></td><td class="r">0.04</td><td><span class="psi" style="--v:.04"></span></td></tr>
+                <tr><td><code>lag_7_units</code></td><td class="r">0.03</td><td><span class="psi" style="--v:.03"></span></td></tr>
+              </tbody>
+            </table></div>
+            <p class="more">+ 36 more features, all ≤ 0.03</p>
+          </section>
+          <section class="tile">
+            <div class="th"><h4>Prediction distribution</h4><span class="pill">Shifted</span></div>
+            <p class="asof">Run 04:00 vs trailing 28 days · alert at ±10% mean shift</p>
+            <div class="ph"><span>Histogram: forecast units per store-SKU-day, today over the 28-day baseline, log scale</span></div>
+            <dl class="stat">
+              <dt>Mean units</dt><dd>4.62 vs 4.05 <b>+14.1%</b></dd>
+              <dt>Above 3× item mean</dt><dd>6.4% vs 0.8%</dd>
+              <dt>Promoted, 15% of rows</dt><dd>+41%</dd>
+              <dt>Not promoted</dt><dd>+0.4%</dd>
+            </dl>
+          </section>
+          <section class="tile">
+            <div class="th"><h4>Accuracy vs actuals</h4><span><span class="pill ok">OK</span> <span class="pill pend">2 days behind</span></span></div>
+            <p class="asof">MAPE · sales day Sun Nov 1 · baseline = prior 28 days</p>
+            <div class="tw"><table class="tbl">
+              <thead><tr><th>Region</th><th class="r">MAPE</th><th class="r">Baseline</th><th><span class="vh">Status</span></th></tr></thead>
+              <tbody>
+                <tr><td>West</td><td class="r">11.8%</td><td class="r">11.5%</td><td></td></tr>
+                <tr><td>Mountain</td><td class="r"><b>14.6%</b></td><td class="r">12.9%</td><td><span class="pill watch">Watch</span></td></tr>
+                <tr><td>Central</td><td class="r">12.1%</td><td class="r">12.0%</td><td></td></tr>
+                <tr><td>Northeast</td><td class="r">10.9%</td><td class="r">11.2%</td><td></td></tr>
+                <tr><td>Southeast</td><td class="r">13.4%</td><td class="r">13.1%</td><td></td></tr>
+                <tr class="tot"><td><b>All regions</b></td><td class="r"><b>12.2%</b></td><td class="r">12.0%</td><td></td></tr>
+              </tbody>
+            </table></div>
+            <p><span class="anno" aria-hidden="true">2</span><span class="pill pend">Pending</span> Mon Nov 2 and Tue Nov 3. Forecasts made after Mon 21:05 are first scored Thu Nov 5, ~05:30.</p>
+          </section>
+          <section class="tile">
+            <div class="th"><h4>Active alerts</h4><span class="pill crit">3 open</span></div>
+            <ol class="list">
+              <li><span class="pill crit">Crit</span><span><b>Drift: <code>promo_depth</code></b><br><span class="sub">04:22 · not acked</span></span><button class="btn">Ack</button></li>
+              <li><span class="pill">Warn</span><span><b>Prediction shift +14.1%</b><br><span class="sub">04:24 · not acked</span></span><button class="btn">Ack</button></li>
+              <li><span class="pill">Warn</span><span><b>Late: <code>weather_forecast</code></b><br><span class="sub">02:30 · acked 03:05 by data platform</span></span></li>
+            </ol>
+          </section>
+          <section class="tile">
+            <div class="th"><h4>Deploys &amp; data changes</h4><span class="sub">7 days</span></div>
+            <ol class="chg">
+              <li><span class="t">Mon 21:05</span><span><span class="k">Data</span><code>promo_calendar</code> schema v2</span></li>
+              <li><span class="t">Sun 22:40</span><span><span class="k">Data</span><code>price_book</code> weekly update</span></li>
+              <li><span class="t">Fri 14:00</span><span><span class="k">Deploy</span>Model v4.2.1 to 100%</span></li>
+              <li><span class="t">Wed 09:30</span><span><span class="k">Data</span><code>store_master</code>: 4 new stores</span></li>
+            </ol>
+          </section>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <dl class="tests">
+        <dt>Tests</dt><dd>Whether a complete overview with fixed positions builds a dependable mental model, and surfaces what no rule flags, like Mountain.</dd>
+        <dt>Trade-off</dt><dd>Nothing is hidden, but nothing is ranked. The on-call has to connect drift, prediction shift and the feed change across three tiles, and the actions sit in the bar, away from the evidence.</dd>
+        <dt>Phone</dt><dd>Tiles stack in pipeline order: about five screens of scrolling before the change list.</dd>
+      </dl>
+      <div class="annos">
+        <p class="kicker">Annotations</p>
+        <ol>
+          <li><span>Tiles keep pipeline order even when something breaks. Should a failing tile jump to the top, or is a fixed position worth more at 3 a.m.?</span></li>
+          <li><span>Accuracy reads OK, but it is two days behind. Without the pending line this tile says all-clear.</span></li>
+          <li><span>Actions are global and live in the bar. Is that distance from the evidence enough to invite a wrong rollback?</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- C -->
+  <section class="panel" id="pc" role="tabpanel" aria-labelledby="tc" tabindex="0" hidden>
+    <div class="panel-h">
+      <h3>C · Change timeline</h3>
+      <p>Changes and symptoms on one time axis; the cause is wherever they line up.</p>
+    </div>
+    <div class="wf" role="region" aria-label="Direction C wireframe">
+      <p class="fl"><span>Screen</span><span>reflows with width</span></p>
+      <div class="screen sc">
+        <div class="bar">
+          <span class="crumb">Model monitor › demand-forecast</span>
+          <span class="meta">v4.2.1 · prod · as of Tue Nov 3, 07:42 PT</span>
+        </div>
+        <div class="ctop">
+          <dl class="nowl">
+            <dt>Now</dt>
+            <dd><span class="pill crit">Crit</span> 3 open alerts</dd>
+            <dd>5 of 6 sources on time</dd>
+            <dd>Drift: 1 alert, 2 watch</dd>
+            <dd>MAPE 12.2% (Sun) · Mountain 14.6% <span class="pill watch">Watch</span></dd>
+          </dl>
+          <div class="cctl"><span class="anno" aria-hidden="true">1</span><button class="btn">Window: last 7 days ▾</button><button class="btn pri">Hold 10:00 publish</button><button class="btn">Roll back model…</button></div>
+        </div>
+        <ol class="tl" aria-label="Last 7 days, one entry per day">
+          <li class="lanes" aria-hidden="true"><span></span><span>Deploys &amp; data changes</span><span>Data freshness</span><span>Feature drift · highest PSI</span><span>Prediction shift · mean vs 28 d</span><span>Accuracy · MAPE by sales day</span><span>Alerts</span></li>
+          <li class="day">
+            <p class="dh">Wed Oct 28</p>
+            <div class="c x"><span class="ln">Change</span><button type="button" class="ev" data-ev="stores" aria-pressed="false"><span class="tm">09:30</span>4 new stores, Mountain</button></div>
+            <div class="c q"><span class="ln">Freshness</span>6 of 6 on time</div>
+            <div class="c"><span class="ln">Highest PSI</span>0.14</div>
+            <div class="c"><span class="ln">Mean shift</span>+0.6%</div>
+            <div class="c"><span class="ln">MAPE</span>12.1%</div>
+            <div class="c e"><span class="ln">Alerts</span>—</div>
+          </li>
+          <li class="day">
+            <p class="dh">Thu Oct 29</p>
+            <div class="c e"><span class="ln">Change</span>—</div>
+            <div class="c q"><span class="ln">Freshness</span>6 of 6 on time</div>
+            <div class="c"><span class="ln">Highest PSI</span>0.15</div>
+            <div class="c"><span class="ln">Mean shift</span>+0.9%</div>
+            <div class="c"><span class="ln">MAPE</span>11.9%</div>
+            <div class="c e"><span class="ln">Alerts</span>—</div>
+          </li>
+          <li class="day">
+            <p class="dh">Fri Oct 30</p>
+            <div class="c x"><span class="ln">Change</span><button type="button" class="ev" data-ev="deploy" aria-pressed="false"><span class="tm">14:00</span>Model v4.2.1 to 100%</button></div>
+            <div class="c q"><span class="ln">Freshness</span>6 of 6 on time</div>
+            <div class="c"><span class="ln">Highest PSI</span>0.15</div>
+            <div class="c"><span class="ln">Mean shift</span>−0.8%</div>
+            <div class="c"><span class="ln">MAPE</span>12.0%</div>
+            <div class="c e"><span class="ln">Alerts</span>—</div>
+          </li>
+          <li class="day">
+            <p class="dh">Sat Oct 31</p>
+            <div class="c e"><span class="ln">Change</span>—</div>
+            <div class="c q"><span class="ln">Freshness</span>6 of 6 on time</div>
+            <div class="c"><span class="ln">Highest PSI</span>0.13</div>
+            <div class="c"><span class="ln">Mean shift</span>+1.1%</div>
+            <div class="c"><span class="ln">MAPE</span>12.3%</div>
+            <div class="c e"><span class="ln">Alerts</span>—</div>
+          </li>
+          <li class="day">
+            <p class="dh">Sun Nov 1</p>
+            <div class="c x"><span class="ln">Change</span><button type="button" class="ev" data-ev="price" aria-pressed="false"><span class="tm">22:40</span><code>price_<wbr>book</code> weekly update</button></div>
+            <div class="c q"><span class="ln">Freshness</span>6 of 6 on time</div>
+            <div class="c"><span class="ln">Highest PSI</span>0.15</div>
+            <div class="c"><span class="ln">Mean shift</span>+1.4%</div>
+            <div class="c"><span class="ln">MAPE</span>12.2%</div>
+            <div class="c e"><span class="ln">Alerts</span>—</div>
+          </li>
+          <li class="day">
+            <p class="dh">Mon Nov 2 <span class="anno" aria-hidden="true">2</span></p>
+            <div class="c x"><span class="ln">Change</span><button type="button" class="ev" data-ev="promo" aria-pressed="true"><span class="tm">21:05</span><code>promo_<wbr>calendar</code> schema v2</button></div>
+            <div class="c q"><span class="ln">Freshness</span>6 of 6 on time</div>
+            <div class="c"><span class="ln">Highest PSI</span>0.17</div>
+            <div class="c"><span class="ln">Mean shift</span>+1.2%</div>
+            <div class="c pend"><span class="ln">MAPE</span>Pending · actuals land Wed ~05:30</div>
+            <div class="c e"><span class="ln">Alerts</span>—</div>
+          </li>
+          <li class="day now">
+            <p class="dh">Tue Nov 3 · now 07:42</p>
+            <div class="c e"><span class="ln">Change</span>—</div>
+            <div class="c"><span class="ln">Freshness</span><span class="pill">Late</span> <code>weather_<wbr>forecast</code></div>
+            <div class="c"><span class="ln">Highest PSI</span><span class="pill crit">0.41</span> <code>promo_<wbr>depth</code></div>
+            <div class="c"><span class="ln">Mean shift</span><span class="pill">+14.1%</span></div>
+            <div class="c pend"><span class="ln">MAPE</span><span class="anno" aria-hidden="true">3</span>Pending · lands Thu ~05:30 · first affected</div>
+            <div class="c x"><span class="ln">Alerts</span><button type="button" class="ev" data-ev="weather" aria-pressed="false"><span class="tm">02:30</span>Late: <code>weather_<wbr>forecast</code> · acked</button><button type="button" class="ev" data-ev="drift" aria-pressed="false"><span class="tm">04:22</span>Drift: <code>promo_<wbr>depth</code></button><button type="button" class="ev" data-ev="shift" aria-pressed="false"><span class="tm">04:24</span>Prediction shift</button></div>
+          </li>
+        </ol>
+        <div class="edw" aria-live="polite">
+          <p class="fl"><span>Selected event</span></p>
+          <div class="ed" data-ev="stores" hidden>
+            <p class="sub m">Wed Oct 28, 09:30 PT · data change</p>
+            <h4><code>store_master</code>: 4 new stores in Mountain</h4>
+            <dl class="evi"><dt>What changed</dt><dd>Four stores opened with no sales history; their forecasts start from regional averages.</dd><dt>After it</dt><dd>Mountain MAPE rose from 13.0% (Wed) to 14.6% (Sun) against a 12.9% baseline: watch, no alert.</dd><dt>Unchanged</dt><dd>Other regions within 0.3 points of baseline.</dd></dl>
+          </div>
+          <div class="ed" data-ev="deploy" hidden>
+            <p class="sub m">Fri Oct 30, 10:15–14:00 PT · deploy</p>
+            <h4>Model v4.2.1 to 100%</h4>
+            <dl class="evi"><dt>What changed</dt><dd>Retrained on data through Oct 25; canary at 10% from 10:15. Shadow MAPE 12.0% vs 12.2% for v4.2.0.</dd><dt>After it</dt><dd>Sat–Mon runs normal: mean shift +1.1% to +1.4%, highest PSI 0.13–0.17.</dd></dl>
+          </div>
+          <div class="ed" data-ev="price" hidden>
+            <p class="sub m">Sun Nov 1, 22:40 PT · data change</p>
+            <h4><code>price_book</code> weekly update</h4>
+            <dl class="evi"><dt>What changed</dt><dd>1,920 SKUs repriced; a typical week.</dd><dt>After it</dt><dd><code>price_index</code> PSI 0.04, the same as the week before.</dd></dl>
+          </div>
+          <div class="ed" data-ev="promo">
+            <p class="sub m">Mon Nov 2, 21:05 PT · data change</p>
+            <h4><code>promo_calendar</code> moved to vendor schema v2</h4>
+            <dl class="evi"><dt>What changed</dt><dd><code>discount</code> now arrives as 0–100 instead of 0–1. Still a float, so the schema check passed.</dd><dt>After it</dt><dd>Tue 04:00 run: <code>promo_depth</code> PSI 0.02 → 0.41; mean forecast +14.1%, promoted items +41%.</dd><dt>Unchanged</dt><dd>The feed arrived on time; every other feature is at 0.18 or below.</dd></dl>
+          </div>
+          <div class="ed" data-ev="weather" hidden>
+            <p class="sub m">Tue Nov 3, 02:30 PT · alert, warning, acked</p>
+            <h4>Source late: <code>weather_forecast</code></h4>
+            <dl class="evi"><dt>Detail</dt><dd>Due 02:00; last file Mon 01:48. Acked 03:05 by data-platform on-call.</dd><dt>Effect</dt><dd>The 04:00 run reused Monday's file. <code>temp_max_7d</code> PSI 0.11: watch, seasonal, 9 days running.</dd></dl>
+          </div>
+          <div class="ed" data-ev="drift" hidden>
+            <p class="sub m">Tue Nov 3, 04:22 PT · alert, critical</p>
+            <h4>Feature drift: <code>promo_depth</code></h4>
+            <dl class="evi"><dt>Detail</dt><dd>PSI 0.41, alert at ≥ 0.25. Median value 20.0 vs 0.20 over 28 days. Not acked.</dd><dt>Before it</dt><dd><code>promo_calendar</code> schema v2, 7 h earlier.</dd></dl>
+          </div>
+          <div class="ed" data-ev="shift" hidden>
+            <p class="sub m">Tue Nov 3, 04:24 PT · alert, warning</p>
+            <h4>Prediction shift: mean +14.1%</h4>
+            <dl class="evi"><dt>Detail</dt><dd>Limit ±10%. Promoted items +41%, not promoted +0.4%; 6.4% of forecasts above 3× the item mean (usually 0.8%). Not acked.</dd></dl>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <dl class="tests">
+        <dt>Tests</dt><dd>Whether putting changes above symptoms on one time axis answers “why” directly, and whether drawing the unscored days makes the actuals lag impossible to misread.</dd>
+        <dt>Trade-off</dt><dd>Strongest on cause, weakest on what is broken right now, which falls to the summary strip. The answer depends on the window, and per-source and per-feature detail sit a click away.</dd>
+        <dt>Phone</dt><dd>Lanes turn into a day-by-day feed that ends at now.</dd>
+      </dl>
+      <div class="annos">
+        <p class="kicker">Annotations</p>
+        <ol>
+          <li><span>The window defaults to 7 days so Friday's deploy is on screen and can be ruled out. At 72 h it would be off the left edge.</span></li>
+          <li><span>The screen never names a cause: the Mon 21:05 change sits one column before the Tue jumps. Is alignment enough at 3 a.m.?</span></li>
+          <li><span>The 2-day actuals lag shows up as unscored days, not as a footnote.</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+</section>
+
+<section class="sec" aria-labelledby="h-phone">
+  <div class="sec-h">
+    <h2 id="h-phone">Direction A on a phone</h2>
+    <p>The on-call usually opens this from a phone notification, so the triage list is the one that has to work at 360 px. Same markup as A above; scroll inside the frame.</p>
+  </div>
+  <div class="phone-wrap">
+    <div class="phone">
+      <p class="fl"><span>Phone · 360 × 640</span><span>scrolls inside</span></p>
+      <div class="vp" id="vp" tabindex="0" role="region" aria-label="Direction A at phone width, scrollable"><p class="nojs">The phone view is built from Direction A with JavaScript.</p></div>
+    </div>
+    <div class="pside">
+      <p class="kicker">What changes at phone width</p>
+      <ol class="pn">
+        <li><span>Status, the one-line cause and the 10:00 deadline pin to the top. The accuracy caveat moves into Not alerting.</span></li>
+        <li><span>Alerts become full-width cards; only the critical one opens its evidence.</span></li>
+        <li><span>The change just before each alert stays inside it, so the “why” survives the collapse.</span></li>
+        <li><span>Not alerting and Recent changes shrink to one-line disclosures.</span></li>
+        <li><span>Actions move to a bottom bar within thumb reach. Per-alert Ack becomes Ack all (2); Roll back moves under More, one tap further on purpose.</span></li>
+      </ol>
+      <p class="lost"><b>Lost on a phone:</b> evidence and the change list side by side, and the version and run details in the header.</p>
+      <p class="lost"><b>B and C, not drawn:</b> B's tiles stack in pipeline order; C's lanes become a day-by-day feed. Narrow the browser to watch both reflow.</p>
+    </div>
+  </div>
+</section>
+
+<div class="duo">
+  <section class="sec" aria-labelledby="h-q">
+    <div class="sec-h"><h2 id="h-q">Questions for the review</h2></div>
+    <ul class="prose">
+      <li>Should the screen name a likely cause? A does, by timing; C lets the alignment speak; B leaves it to the reader.</li>
+      <li>Where does “accuracy can't see this yet” belong: a state on the signal (B), unscored days (C), or a line in the verdict (A)?</li>
+      <li>Is holding the 10:00 publish this screen's primary action, or should it hand off to data platform first?</li>
+      <li>Do routine changes, like the weekly price update, belong in the change list?</li>
+      <li>Could A be the landing view with C one click away, or is that two screens to keep in sync?</li>
+    </ul>
+  </section>
+  <section class="sec" aria-labelledby="h-d">
+    <div class="sec-h"><h2 id="h-d">Deferred to the mockup</h2></div>
+    <ul class="prose">
+      <li>Status colors. Severity is carried here by fill, outline and dash alone.</li>
+      <li>Chart forms for PSI history, the prediction histogram and MAPE trends; placeholders and plain numbers stand in.</li>
+      <li>Type, density, icons and brand.</li>
+      <li>What Ack, Hold publish, Roll back and the window control actually do; here they only show placement.</li>
+      <li>Deep links from the paging tool, and how thresholds are explained.</li>
+    </ul>
+  </section>
+</div>
+</main>
+
+<footer>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html-wireframe" target="_blank" rel="noopener">html-wireframe</a> skill from effective-html (MIT) · HTML Server gallery</footer>
+</div>
+<script>
+(function(){
+  var $$=function(s,r){return [].slice.call((r||document).querySelectorAll(s));};
+  // Buttons inside the screens show placement only.
+  $$('.screen .btn').forEach(function(b){b.setAttribute('aria-disabled','true');b.tabIndex=-1;b.title='Placement only, not wired';});
+  // Direction tabs
+  var tabs=$$('[role="tab"]');
+  function pick(t,focus){
+    tabs.forEach(function(x){var on=x===t;x.setAttribute('aria-selected',on?'true':'false');x.tabIndex=on?0:-1;document.getElementById(x.getAttribute('aria-controls')).hidden=!on;});
+    if(focus)t.focus();
+  }
+  tabs.forEach(function(t,i){
+    t.addEventListener('click',function(){pick(t);});
+    t.addEventListener('keydown',function(e){
+      var n=tabs.length,j=e.key==='ArrowRight'?(i+1)%n:e.key==='ArrowLeft'?(i+n-1)%n:e.key==='Home'?0:e.key==='End'?n-1:-1;
+      if(j>=0){e.preventDefault();pick(tabs[j],true);}
+    });
+  });
+  // C: selected event
+  var evs=$$('.ev'),eds=$$('.ed');
+  function show(id){
+    evs.forEach(function(b){b.setAttribute('aria-pressed',b.getAttribute('data-ev')===id?'true':'false');});
+    eds.forEach(function(d){d.hidden=d.getAttribute('data-ev')!==id;});
+  }
+  evs.forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-ev'));});});
+  // Phone: the same A markup in a 360 px frame; container queries do the collapse.
+  var src=document.querySelector('#pa .wf'),vp=document.getElementById('vp');
+  if(src&&vp){
+    var c=src.cloneNode(true);
+    $$('.anno,.fl',c).forEach(function(n){n.remove();});
+    $$('details.fold',c).forEach(function(d){d.open=false;});
+    c.removeAttribute('role');c.removeAttribute('aria-label');
+    vp.replaceChildren(c);
+  }
+})();
+</script>
+</body>
+</html>

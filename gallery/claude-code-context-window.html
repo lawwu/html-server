@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code's context window, in pictures</title>
+<meta name="description" content="Step through one Claude Code session as its context window fills: what loads first, how /context shows it, when auto-compaction steps in, what /compact and /clear do, and why subagents and focused sessions help.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+  color-scheme:light;
+  --paper:#EDF0F4; --panel:#FAFBFD; --ink:#121B26; --ink-2:#526073; --rule:#D3DAE3; --chip:#E4E9F0;
+  --free:#DCE2EA; --zone:#F2D3D8; --red:#C2334A;
+  --start:#3A4658; --you:#1F8FA8; --claude:#E0662A; --tool:#7A55C9; --sum:#B98208; --sum-bg:#F3E1B0; --old:#97A2B1;
+  --term:#141D28; --term-ink:#E2E8F0; --term-dim:#94A1B3; --caret:#3FB6D2; --note:#E3B23C;
+  --focus:#1D63D8;
+  --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:"Avenir Next",Avenir,"Segoe UI","Helvetica Neue",system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --paper:#0E131A; --panel:#161E28; --ink:#E4E9F0; --ink-2:#9AA6B6; --rule:#2A3441; --chip:#212B37;
+    --free:#243040; --zone:#3D2029; --red:#F06A7C;
+    --start:#A3AFC0; --you:#2A9CB8; --claude:#DC6B34; --tool:#8A6AD8; --sum:#D7A321; --sum-bg:#3A2F0E; --old:#5E6979;
+    --term:#0A0E13; --term-ink:#E2E8F0; --term-dim:#8D9AAC; --caret:#3FB6D2; --note:#E3B23C;
+    --focus:#7EB0FF;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --paper:#0E131A; --panel:#161E28; --ink:#E4E9F0; --ink-2:#9AA6B6; --rule:#2A3441; --chip:#212B37;
+  --free:#243040; --zone:#3D2029; --red:#F06A7C;
+  --start:#A3AFC0; --you:#2A9CB8; --claude:#DC6B34; --tool:#8A6AD8; --sum:#D7A321; --sum-bg:#3A2F0E; --old:#5E6979;
+  --term:#0A0E13; --term-ink:#E2E8F0; --term-dim:#8D9AAC; --caret:#3FB6D2; --note:#E3B23C;
+  --focus:#7EB0FF;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 16px/1.55 var(--sans)}
+a{color:inherit;text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+code{font:600 .88em/1.3 var(--mono);background:var(--chip);padding:.1em .38em;border-radius:5px;overflow-wrap:anywhere}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+.wrap{max-width:70rem;margin:0 auto;padding:44px 16px 36px;display:flex;flex-direction:column;gap:60px}
+
+/* hero */
+.hero{display:flex;flex-direction:column;gap:16px;max-width:54rem}
+.eyebrow,.label{margin:0;font:700 12px/1.2 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+h1{margin:0;font:700 clamp(2.05rem,5.6vw,3.7rem)/1.22 var(--mono);letter-spacing:-.04em;text-wrap:balance}
+.cw{background-image:repeating-linear-gradient(90deg,transparent 0 9px,var(--paper) 9px 12px),linear-gradient(90deg,var(--start) 0 9%,var(--you) 9% 13%,var(--claude) 13% 29%,var(--tool) 29% 77%,var(--free) 77%);background-repeat:no-repeat;background-size:100% 7px;background-position:0 100%;padding-bottom:5px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.dek{margin:0;font-size:clamp(1.06rem,2.3vw,1.28rem);line-height:1.5;color:var(--ink-2);max-width:37rem}
+
+/* stage */
+.stage{background:var(--panel);border:1px solid var(--rule);border-radius:18px;padding:clamp(14px,2.6vw,30px);display:flex;flex-direction:column;gap:20px}
+.stage h2{margin:0}
+.stage-body{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);grid-template-areas:"viz story" "controls story" "legend story";grid-template-rows:auto auto 1fr;gap:20px clamp(20px,3.2vw,40px);align-items:start}
+.viz{grid-area:viz;position:relative;display:flex;flex-direction:column;gap:12px;min-width:0}
+.controls{grid-area:controls}
+.story{grid-area:story}
+.legend{grid-area:legend}
+@media (max-width:880px){
+  .stage-body{grid-template-columns:minmax(0,1fr);grid-template-areas:"viz" "controls" "story" "legend";grid-template-rows:auto}
+}
+.readout{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px}
+.ro-num{margin:0;font:700 clamp(1.7rem,4vw,2.5rem)/1 var(--mono);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.ro-of{font-size:.5em;letter-spacing:0;color:var(--ink-2);font-weight:600}
+.ro-pct{margin:0;font:700 15px/1 var(--mono);font-variant-numeric:tabular-nums}
+.ro-pct.hot{color:var(--red)}
+.ro-ill{margin:0 0 0 auto;font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);border:1px solid var(--rule);border-radius:999px;padding:5px 9px}
+.wins{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+.wins.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:560px){.wins.two{grid-template-columns:minmax(0,1fr)}}
+.win{margin:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+.win-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;font:600 12px/1.3 var(--mono);color:var(--ink-2)}
+.win-name{color:var(--ink);font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.win-head b{color:var(--ink);font-variant-numeric:tabular-nums}
+.wins.two .win-head{flex-direction:column}
+#win-sub{animation:rise .45s ease both}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.cells{display:grid;grid-template-columns:repeat(40,minmax(0,1fr));gap:2px}
+.wins.two .cells{gap:1px}
+@media (max-width:640px){.cells{gap:1px}}
+.c{aspect-ratio:1/1;border-radius:2px;background:var(--free);transition:background-color .3s ease}
+.wins.two .c{border-radius:1px}
+.c.z{background:var(--zone)}
+.c.start,.sw.start{background:var(--start)}
+.c.you,.sw.you{background:var(--you)}
+.c.claude,.sw.claude{background:var(--claude)}
+.c.tool,.sw.tool{background:var(--tool)}
+.c.sum,.sw.sum{background:repeating-linear-gradient(135deg,var(--sum) 0 2px,var(--sum-bg) 2px 4px)}
+.scale{margin:0;font-size:13px;color:var(--ink-2)}
+.tip{position:absolute;z-index:5;pointer-events:none;max-width:250px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--panel);font:500 12.5px/1.4 var(--sans);box-shadow:0 8px 24px rgba(10,16,24,.22)}
+.tip b{font:700 12px var(--mono)}
+
+/* controls */
+.controls{display:flex;flex-direction:column;gap:10px}
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(9,minmax(0,34px));gap:6px}
+.steps button{width:100%;height:32px;padding:0;border-radius:8px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);font:700 13px/1 var(--mono);cursor:pointer}
+.steps button.done{background:var(--chip)}
+.steps button[aria-current="step"]{background:var(--ink);border-color:var(--ink);color:var(--panel)}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.btn{height:38px;padding:0 15px;border-radius:9px;border:1px solid var(--ink);background:var(--ink);color:var(--panel);font:700 13.5px/1 var(--mono);cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--rule)}
+.btn[aria-disabled="true"]{opacity:.38;cursor:default}
+.hint{margin:0;font-size:12.5px;color:var(--ink-2)}
+
+/* story */
+.story{display:flex;flex-direction:column;gap:12px;min-width:0}
+.term{background:var(--term);color:var(--term-ink);border-radius:12px;padding:14px 16px;font:500 13px/1.6 var(--mono);min-height:10em;display:flex;flex-direction:column;gap:3px;overflow-wrap:anywhere}
+.term span{display:block}
+.term .tp::before{content:"> ";color:var(--caret);font-weight:700}
+.term .to{color:var(--term-dim)}
+.term .tn{color:var(--note);font-style:italic}
+.step-tag{margin:8px 0 0}
+.frame-title{margin:0;font:700 clamp(1.5rem,2.7vw,2rem)/1.15 var(--mono);letter-spacing:-.03em;text-wrap:balance}
+.frame-title code{font-size:1em;background:none;padding:0}
+.frame-text{margin:0;font-size:17px;line-height:1.5}
+.frame-details{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;font-size:14.5px;line-height:1.45;color:var(--ink-2)}
+.frame-details li{display:flex;gap:10px}
+.frame-details li::before{content:"";flex:none;width:7px;height:7px;margin-top:.5em;border-radius:2px;background:var(--ink-2)}
+
+/* legend = table view */
+.legend{list-style:none;margin:0;padding:12px 0 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,13rem),1fr));gap:7px 22px;font-size:14px}
+.legend li{display:flex;align-items:center;gap:9px;min-width:0}
+.sw{flex:none;width:13px;height:13px;border-radius:3px;background:var(--free)}
+.sw.zone{background:var(--zone);box-shadow:inset 0 0 0 1px var(--red)}
+.lg-val{margin-left:auto;font:700 13px var(--mono);font-variant-numeric:tabular-nums}
+
+/* sections */
+.sec{display:flex;flex-direction:column;gap:20px}
+h2{margin:0;font:700 clamp(1.5rem,3.2vw,2.1rem)/1.15 var(--mono);letter-spacing:-.03em;text-wrap:balance}
+.lede{margin:0;font-size:18px;line-height:1.5;color:var(--ink-2);max-width:40rem}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:18px}
+.fine{margin:0;font-size:13.5px;line-height:1.5;color:var(--ink-2)}
+.note-line{margin:0;font-size:15px;color:var(--ink-2);max-width:46rem}
+
+.bins{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+@media (max-width:1000px){.bins{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.bins{grid-template-columns:minmax(0,1fr)}}
+.bin{display:flex;flex-direction:column;gap:12px}
+.bin svg{width:36px;height:36px;color:var(--ink)}
+.bin.lost svg{color:var(--sum)}
+.bin-title{margin:0;font:700 16px/1.25 var(--mono)}
+.chips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.chips li{background:var(--chip);border-radius:6px;padding:3px 8px;font-size:13.5px;line-height:1.4}
+.bin.lost .chips li{background:repeating-linear-gradient(135deg,var(--chip) 0 6px,transparent 6px 9px);box-shadow:inset 0 0 0 1px var(--rule)}
+
+.vs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:760px){.vs{grid-template-columns:minmax(0,1fr)}}
+.card{display:flex;flex-direction:column;gap:14px}
+.cmd{margin:0;font:700 clamp(1.2rem,2.4vw,1.45rem)/1.2 var(--mono)}
+.card-sub{margin:-8px 0 0;font-size:16px;color:var(--ink-2)}
+.mini{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 12px;align-items:center}
+.mini span{font:700 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+.bar{display:flex;gap:2px;height:18px;min-width:0}
+.bar i{display:block;height:100%;border-radius:3px;min-width:3px}
+.bar .f{flex:1;background:var(--free)}
+.bar .s{background:var(--start)}.bar .y{background:var(--you)}.bar .k{background:var(--claude)}.bar .t{background:var(--tool)}
+.bar .m{background:repeating-linear-gradient(135deg,var(--sum) 0 2px,var(--sum-bg) 2px 4px)}
+.ticks{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:9px;font-size:15px;line-height:1.45}
+.ticks li{display:flex;gap:10px}
+.ticks li::before{content:"";flex:none;width:7px;height:7px;margin-top:.55em;border-radius:2px;background:var(--ink)}
+
+.focus-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:880px){.focus-grid{grid-template-columns:minmax(0,1fr)}}
+.fig{margin:0;display:flex;flex-direction:column;gap:16px}
+.fig-cap{margin:0;font-size:17px;line-height:1.45}
+.fig-cap b{font-family:var(--mono)}
+.fc-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;font:700 12.5px/1.3 var(--mono)}
+.fc-head span:last-child{color:var(--ink-2);font-variant-numeric:tabular-nums}
+.bars{display:flex;align-items:stretch;gap:3px;height:112px;border-bottom:1px solid var(--rule);margin-top:6px}
+.b{flex:1 1 0;min-width:0;display:flex;flex-direction:column-reverse}
+.b i{display:block;width:100%}
+.b i:last-child{border-radius:3px 3px 0 0}
+.b .s{background:var(--start)}.b .t{background:var(--tool)}
+.b .o{background:repeating-linear-gradient(135deg,var(--old) 0 2px,transparent 2px 4.5px)}
+.bars .gap,.tasks .gap{flex:0 0 10px}
+.tasks{display:flex;gap:3px;font:600 11.5px/1 var(--mono);color:var(--ink-2);margin-top:7px}
+.tasks span:not(.gap){flex:4 1 0;text-align:center;min-width:0}
+.fc-key{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13.5px;color:var(--ink-2)}
+.fc-key li{display:flex;align-items:center;gap:7px}
+.fc-key i{width:12px;height:12px;border-radius:3px}
+.fc-key .s{background:var(--start)}.fc-key .t{background:var(--tool)}
+.fc-key .o{background:repeating-linear-gradient(135deg,var(--old) 0 2px,transparent 2px 4.5px);box-shadow:inset 0 0 0 1px var(--old)}
+
+.sq{display:flex;align-items:flex-end;gap:clamp(10px,3vw,18px)}
+.sq figure{margin:0;display:flex;flex-direction:column;gap:8px;flex:none}
+.sq figure:last-child{flex:1 1 0;min-width:0}
+.box{background-color:var(--tool);background-image:linear-gradient(var(--panel) 1px,transparent 1px),linear-gradient(90deg,var(--panel) 1px,transparent 1px);background-size:8px 8px;border-radius:4px}
+.box.big{width:min(152px,40vw);height:min(152px,40vw)}
+.box.small{width:min(40px,10.5vw);height:min(40px,10.5vw)}
+.sq figcaption{font-size:13.5px;line-height:1.35;color:var(--ink-2)}
+.sq figcaption b{display:block;font:700 22px/1.1 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.arrow{font:700 26px/1 var(--mono);color:var(--ink-2);align-self:center;padding-bottom:28px}
+
+.cmds{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,14.5rem),1fr));gap:10px}
+.cmds li{display:flex;flex-direction:column;gap:5px;padding:14px 16px}
+.cmds code{background:none;padding:0;font-size:15.5px}
+.cmds span{font-size:14.5px;color:var(--ink-2)}
+
+.foot{border-top:1px solid var(--rule);padding-top:20px;display:flex;flex-direction:column;gap:10px;font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+.foot p{margin:0}
+.src{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px 16px}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">Claude Code · how it works</p>
+  <h1>Claude Code’s <span class="cw">context window</span>, in pictures</h1>
+  <p class="dek">Everything Claude knows in a session lives in one window of fixed size. Step through a session and watch it fill.</p>
+</header>
+
+<section class="stage" id="session" aria-labelledby="session-h">
+  <h2 id="session-h" class="label">One session, step by step</h2>
+  <div class="stage-body">
+    <div class="viz" id="viz">
+      <div class="readout">
+        <p class="ro-num"><span id="ro-used">≈10K</span><span class="ro-of"> / 1M tokens</span></p>
+        <p class="ro-pct" id="ro-pct">1% full</p>
+        <p class="ro-ill">Illustrative</p>
+      </div>
+      <div class="wins" id="wins">
+        <figure class="win" id="win-main">
+          <figcaption class="win-head"><span class="win-name" id="main-name">Your context window</span><span id="main-meta">1 square ≈ 1K tokens</span></figcaption>
+          <div class="cells" id="g-main" role="img" aria-label="Context window"></div>
+        </figure>
+        <figure class="win" id="win-sub" hidden>
+          <figcaption class="win-head"><span class="win-name">Subagent’s own window</span><span><b id="sub-used">≈0K</b> / 1M</span></figcaption>
+          <div class="cells" id="g-sub" role="img" aria-label="Subagent context window"></div>
+        </figure>
+      </div>
+      <p class="scale" id="scale">A 1M-token window, the default on most current models. Hover a square to see what it holds.</p>
+      <div class="tip" id="tip" hidden></div>
+      <noscript><p class="scale">Turn on JavaScript to step through the session.</p></noscript>
+    </div>
+
+    <nav class="controls" aria-label="Session steps">
+      <ol class="steps" id="steps"></ol>
+      <div class="btns">
+        <button type="button" class="btn ghost" id="prev">← Back</button>
+        <button type="button" class="btn" id="next">Next →</button>
+        <button type="button" class="btn ghost" id="play">▶ Play</button>
+      </div>
+      <p class="hint">Tip: ← and → keys step through, too.</p>
+    </nav>
+
+    <div class="story">
+      <p class="label">Your terminal, simplified</p>
+      <div class="term" id="term"></div>
+      <p class="label step-tag" id="step-tag">Step 1 of 9</p>
+      <p class="frame-title" id="frame-title"></p>
+      <p class="frame-text" id="frame-text"></p>
+      <ul class="frame-details" id="frame-details"></ul>
+    </div>
+
+    <ul class="legend" aria-label="What fills the window at this step">
+      <li><i class="sw start"></i>Loaded at start<span class="lg-val" id="v-start">—</span></li>
+      <li><i class="sw you"></i>You<span class="lg-val" id="v-you">—</span></li>
+      <li><i class="sw claude"></i>Claude<span class="lg-val" id="v-claude">—</span></li>
+      <li><i class="sw tool"></i>Files &amp; tool output<span class="lg-val" id="v-tool">—</span></li>
+      <li><i class="sw sum"></i>Summary<span class="lg-val" id="v-sum">—</span></li>
+      <li><i class="sw"></i>Free<span class="lg-val" id="v-free">—</span></li>
+      <li><i class="sw zone"></i>Past the auto-compact point</li>
+    </ul>
+  </div>
+  <p class="sr" id="live" aria-live="polite"></p>
+</section>
+
+<section class="sec" id="after-compaction" aria-labelledby="after-h">
+  <h2 id="after-h">What comes back after compaction</h2>
+  <p class="lede">What lives on disk reloads. The conversation itself becomes a summary.</p>
+  <div class="bins">
+    <div class="bin panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>
+      <p class="bin-title">Back right away</p>
+      <ul class="chips"><li>System prompt &amp; output style</li><li>Project-root CLAUDE.md</li><li>Rules without a path filter</li><li>Auto memory</li><li>Skill descriptions</li><li>Your plan from plan mode</li><li>Fresh git status, if you had one</li></ul>
+    </div>
+    <div class="bin panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><circle cx="11.5" cy="13.5" r="2.6"/><path d="m13.5 15.5 2.3 2.3"/></svg>
+      <p class="bin-title">Back when needed</p>
+      <ul class="chips"><li>Path-scoped rules</li><li>CLAUDE.md in subfolders</li></ul>
+      <p class="fine">They reload when Claude next touches a matching file.</p>
+    </div>
+    <div class="bin panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.5h19" stroke-dasharray="2.5 2.5"/><rect x="4" y="13" width="4" height="8" rx="1"/><rect x="10" y="10" width="4" height="11" rx="1"/><rect x="16" y="8" width="4" height="13" rx="1"/></svg>
+      <p class="bin-title">Partly back</p>
+      <ul class="chips"><li>Up to 5 recent files, re-read</li><li>Skills you used</li></ul>
+      <p class="fine">A file over 5,000 tokens returns as a path only. Skills: 5,000 tokens each, 25,000 in all, oldest dropped first.</p>
+    </div>
+    <div class="bin panel lost">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"/></svg>
+      <p class="bin-title">Summarized</p>
+      <ul class="chips"><li>Your messages</li><li>Claude’s replies</li><li>Tool output</li><li>Context added by hooks</li></ul>
+      <p class="fine"><b>Rules you only typed in chat may be lost.</b> Put them in CLAUDE.md.</p>
+    </div>
+  </div>
+  <p class="note-line">Background commands and subagents keep running through it.</p>
+</section>
+
+<section class="sec" id="compact-or-clear" aria-labelledby="cc-h">
+  <h2 id="cc-h">/compact or /clear?</h2>
+  <div class="vs">
+    <div class="card panel">
+      <p class="cmd"><code>/compact [focus]</code></p>
+      <p class="card-sub">Keep going, lighter.</p>
+      <div class="mini" aria-hidden="true">
+        <span>Before</span><div class="bar"><i class="s" style="width:5%"></i><i class="y" style="width:2%"></i><i class="k" style="width:12%"></i><i class="t" style="width:58%"></i><i class="f"></i></div>
+        <span>After</span><div class="bar"><i class="s" style="width:5%"></i><i class="m" style="width:4%"></i><i class="t" style="width:3%"></i><i class="f"></i></div>
+      </div>
+      <ul class="ticks">
+        <li><span>Same conversation, now a summary.</span></li>
+        <li><span>Steer it: <code>/compact focus on the auth bug fix</code>, or a “Compact instructions” section in CLAUDE.md.</span></li>
+        <li><span>A big request on a long session: it reads everything to summarize it.</span></li>
+      </ul>
+    </div>
+    <div class="card panel">
+      <p class="cmd"><code>/clear [name]</code></p>
+      <p class="card-sub">Start over, clean.</p>
+      <div class="mini" aria-hidden="true">
+        <span>Before</span><div class="bar"><i class="s" style="width:5%"></i><i class="y" style="width:2%"></i><i class="k" style="width:12%"></i><i class="t" style="width:58%"></i><i class="f"></i></div>
+        <span>After</span><div class="bar"><i class="s" style="width:5%"></i><i class="f"></i></div>
+      </div>
+      <ul class="ticks">
+        <li><span>New conversation, empty context.</span></li>
+        <li><span>Costs nothing.</span></li>
+        <li><span>Name it to come back: <code>/clear oauth-migration</code>, later <code>/resume</code>.</span></li>
+      </ul>
+    </div>
+  </div>
+  <p class="note-line">Compact at a natural break, not mid-task. To summarize only part of the history, <code>/rewind</code> to a message and choose a summarize option.</p>
+</section>
+
+<section class="sec" id="focus" aria-labelledby="focus-h">
+  <h2 id="focus-h">Why focus helps</h2>
+  <div class="focus-grid">
+    <figure class="fig panel">
+      <p class="fig-cap"><b>Focused sessions.</b> Every request re-sends the conversation so far, so old tasks keep costing.</p>
+      <div>
+        <div class="fc-head"><span>One session, three tasks</span><span>≈2.1M tokens sent</span></div>
+        <div class="bars" id="fc-one" role="img" aria-label="One session: requests grow from 35K to 310K tokens over 12 turns, about 2.1 million tokens sent in all (illustrative)."></div>
+      </div>
+      <div>
+        <div class="fc-head"><span>/clear between tasks</span><span>≈0.9M tokens sent</span></div>
+        <div class="bars" id="fc-clear" role="img" aria-label="Clear between tasks: requests reset after each task and peak at 110K, about 0.9 million tokens sent in all (illustrative)."></div>
+        <div class="tasks" aria-hidden="true"><span>Task 1</span><span class="gap"></span><span>Task 2</span><span class="gap"></span><span>Task 3</span></div>
+      </div>
+      <ul class="fc-key"><li><i class="s"></i>Loaded at start</li><li><i class="t"></i>This task</li><li><i class="o"></i>Earlier tasks, sent again</li></ul>
+      <p class="fine">Illustrative: 12 turns, about 25K new tokens each. Cached re-reads cost less, but they still count.</p>
+      <p class="fig-cap">A focused context gets better answers and costs less. Two corrections in and still wrong? <code>/clear</code> and write a better prompt.</p>
+    </figure>
+    <figure class="fig panel">
+      <p class="fig-cap"><b>Subagents.</b> Verbose work stays in their window; you get the summary.</p>
+      <div class="sq" role="img" aria-label="Docs example: the subagent read 6,100 tokens of files, and 420 tokens came back to the main conversation.">
+        <figure><div class="box big"></div><figcaption><b>6,100</b>tokens read, in its window</figcaption></figure>
+        <span class="arrow" aria-hidden="true">→</span>
+        <figure><div class="box small"></div><figcaption><b>420</b>tokens back, in yours</figcaption></figure>
+      </div>
+      <p class="fine">Numbers from the docs’ own walkthrough. Squares drawn to scale by area.</p>
+      <ul class="ticks">
+        <li><span>Good for test runs, log digging and wide searches.</span></li>
+        <li><span>Not free: each subagent sends its own requests.</span></li>
+        <li><span>Many detailed results can still fill your window. Ask for short ones.</span></li>
+        <li><span>One huge output can make auto-compaction give up. Move that work to a subagent.</span></li>
+      </ul>
+    </figure>
+  </div>
+</section>
+
+<section class="sec" id="commands" aria-labelledby="cmd-h">
+  <h2 id="cmd-h">Commands to remember</h2>
+  <ul class="cmds">
+    <li class="panel"><code>/context</code><span>See what’s using space</span></li>
+    <li class="panel"><code>/compact [focus]</code><span>Summarize, keep going</span></li>
+    <li class="panel"><code>/clear [name]</code><span>New, empty conversation</span></li>
+    <li class="panel"><code>/resume</code><span>Back to an earlier one</span></li>
+    <li class="panel"><code>/autocompact 500k</code><span>Compact sooner</span></li>
+    <li class="panel"><code>/usage</code><span>Session cost and usage</span></li>
+  </ul>
+  <p class="note-line">Want a gauge that never leaves? A custom status line can show context use all the time.</p>
+</section>
+
+<footer class="foot">
+  <p><b>Sources:</b> the Claude Code docs, read 2026-11-04.</p>
+  <ul class="src">
+    <li><a href="https://code.claude.com/docs/en/context-window" target="_blank" rel="noopener">Explore the context window</a></li>
+    <li><a href="https://code.claude.com/docs/en/how-claude-code-works" target="_blank" rel="noopener">How Claude Code works</a></li>
+    <li><a href="https://code.claude.com/docs/en/costs" target="_blank" rel="noopener">Manage costs effectively</a></li>
+    <li><a href="https://code.claude.com/docs/en/memory" target="_blank" rel="noopener">How Claude remembers your project</a></li>
+    <li><a href="https://code.claude.com/docs/en/commands" target="_blank" rel="noopener">Commands</a></li>
+    <li><a href="https://code.claude.com/docs/en/sub-agents" target="_blank" rel="noopener">Create custom subagents</a></li>
+    <li><a href="https://code.claude.com/docs/en/best-practices" target="_blank" rel="noopener">Best practices</a></li>
+    <li><a href="https://code.claude.com/docs/en/model-config" target="_blank" rel="noopener">Model configuration</a></li>
+    <li><a href="https://code.claude.com/docs/en/prompt-caching" target="_blank" rel="noopener">How Claude Code uses prompt caching</a></li>
+    <li><a href="https://code.claude.com/docs/en/troubleshooting" target="_blank" rel="noopener">Troubleshooting</a></li>
+    <li><a href="https://code.claude.com/docs/en/statusline" target="_blank" rel="noopener">Customize your status line</a></li>
+    <li><a href="https://code.claude.com/docs/en/glossary" target="_blank" rel="noopener">Glossary</a></li>
+  </ul>
+  <p>Token counts in the session and the bar chart are illustrative. From the docs: the 1M window, the ≈967K and 200K compaction points, the 200-line or 25KB memory load, the 5,000 and 25,000-token caps, and the 6,100 → 420 example.</p>
+  <p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/big-pics-little-words" target="_blank" rel="noopener">big-pics-little-words</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var N=1000, LIMIT=967;
+  var ORDER=['start','you','claude','tool','sum'];
+  var NAMES={start:'Loaded at start',you:'You',claude:'Claude',tool:'Files & tool output',sum:'Summary'};
+  function $(id){return document.getElementById(id);}
+
+  // Illustrative session, in thousands of tokens: [category, size, what it is]
+  var BOOT=[['start',6,'Claude Code’s system prompt and built-in tools'],['start',2,'Your CLAUDE.md files'],['start',1,'Auto memory (MEMORY.md)'],['start',1,'Skill descriptions, MCP tool names, git status']];
+  var T1=[['you',1,'Your prompt: a few words, rounded up to one square'],['tool',24,'File reads: auth.ts, tokens.ts, middleware.ts …'],['tool',1,'Rules scoped to those paths'],['claude',3,'Claude’s analysis and edits'],['tool',12,'Test output and hook output'],['claude',1,'Claude’s wrap-up']];
+  var T2=[['you',1,'Follow-up: handle session timeouts'],['tool',85,'More file reads and searches'],['claude',12,'Replies and edits'],['tool',60,'Test runs'],['you',1,'Another follow-up'],['tool',110,'A long config file and a fetched docs page'],['claude',15,'Replies and edits']];
+  var T3=[['you',1,'New task: update the billing page'],['tool',150,'Reads, searches and build output'],['claude',30,'Replies and edits'],['you',2,'An error message you pasted'],['tool',130,'More test runs and build logs']];
+  var T4=[['you',1,'Follow-up: check the server log'],['tool',270,'A very long log file'],['claude',30,'Replies and edits']];
+  var F2=BOOT.concat(T1), F3=F2.concat(T2), F5=F3.concat(T3), F6=F5.concat(T4);
+
+  var FRAMES=[
+    {tag:'Start',segs:BOOT,term:[['tc','$ claude'],['to','(waiting for your first prompt)']],
+     title:'Never empty',
+     text:'Before you type, Claude Code loads its own instructions, your CLAUDE.md files, auto memory, and lists of your tools and skills.',
+     details:['MCP: tool names and server instructions only, until a tool is used','Skills: one-line descriptions, until one is invoked','Auto memory: the first 200 lines or 25KB of MEMORY.md']},
+    {tag:'First task',segs:F2,term:[['tp','Fix the auth bug where users get 401 after token refresh'],['to','Read src/api/auth.ts'],['to','Read src/lib/tokens.ts'],['to','Edit src/api/auth.ts'],['to','Running npm test…']],
+     title:'Reading fills it',
+     text:'Your prompt is a few words. The files Claude reads, the commands it runs and its replies take up the room.',
+     details:['Your terminal shows “Read src/api/auth.ts”. The window holds the whole file.','Rules scoped to those paths load alongside them','Hook output can land here too']},
+    {tag:'Follow-ups',segs:F3,term:[['tp','Now handle session timeouts too'],['to','Read src/auth/session.ts'],['to','Search “timeout”'],['to','Read config/default.yaml']],
+     title:'Follow-ups stack up',
+     text:'Each follow-up adds to the same window, along with everything Claude reads for it.',
+     details:['File reads usually take the most room','A specific prompt means fewer files to read']},
+    {tag:'/context',segs:F3,grouped:true,term:[['tp','/context'],['to','(colored grid, breakdown by category, suggestions)']],
+     title:'Look inside: <code>/context</code>',
+     text:'<code>/context</code> draws the window as a colored grid, broken down by category, with suggestions for what to trim.',
+     details:['It lists which CLAUDE.md and memory files loaded','It warns as you near capacity','The grid here is regrouped by category to match (stylized, not real output)']},
+    {tag:'Long day',segs:F5,term:[['tp','Next: update the billing page'],['to','Read src/billing/page.tsx'],['to','Running npm run build…']],
+     title:'Every turn sends it all',
+     text:'Each request carries the whole conversation. A one-line question late in the day still pays for everything above it.',
+     details:['Re-reads are discounted while the prompt cache is warm','Finished tasks ride along until you clear or compact']},
+    {tag:'Near full',segs:F6,term:[['tp','Check the server log for that error'],['to','Read logs/server.log']],
+     title:'Near the top, it compacts',
+     text:'As the window nears its limit, Claude Code compacts the conversation automatically, so a full window doesn’t end the session.',
+     details:['Most current models (1M window): at about 967K by default','200K windows: at the 200K mark','<code>/autocompact 500k</code> makes it happen sooner','With 1M tokens, few sessions get this far']},
+    {tag:'Compacted',segs:[['start',10,'Startup layer: the system prompt still applies; CLAUDE.md and memory reload from disk'],['sum',14,'Structured summary: your requests and key code'],['tool',12,'Up to five recent files, re-read']],term:[['tn','· the conversation is compacted ·']],
+     title:'History becomes a summary',
+     text:'The conversation is replaced by a structured summary of your requests and key code. CLAUDE.md and memory reload from disk; recent files are re-read.',
+     details:['Rules given only in chat can get lost. Put them in CLAUDE.md.','Same thing on demand: <code>/compact focus on the auth bug fix</code>','Writing the summary means reading the whole conversation once more']},
+    {tag:'/clear',segs:[['start',10,'Startup layer, loaded fresh']],term:[['tp','/clear auth-and-billing']],
+     title:'<code>/clear</code>: a clean slate',
+     text:'Switching to unrelated work? <code>/clear</code> starts a new conversation. Only what loads at startup comes back.',
+     details:['Costs nothing: there is no summary to write','The name labels the old conversation; <code>/resume</code> brings it back','CLAUDE.md edits made mid-session load now']},
+    {tag:'Subagent',segs:[['start',10,'Startup layer'],['you',1,'Your prompt: use a subagent to research upload retries'],['claude',1,'Claude hands the task to a subagent'],['tool',2,'The subagent’s summary, returned'],['claude',4,'Claude’s answer and fix']],
+     sub:[['start',4,'The subagent’s own system prompt, CLAUDE.md and git status'],['claude',1,'The task message Claude wrote for it'],['tool',130,'Its file reads and searches'],['claude',2,'Its final summary: the only part that comes back']],
+     term:[['tp','Use a subagent to research how uploads retry, then fix the flaky one'],['to','Subagent working…'],['to','Subagent done: summary returned']],
+     title:'A second window',
+     text:'A subagent works in its own context window. Its file reads stay there; only its summary comes back to yours.',
+     details:['Docs example: 6,100 tokens read, 420 returned','Starts without your chat history (forks are the exception)','Its requests still count toward your usage']}
+  ];
+
+  var mainG=$('g-main'), subG=$('g-sub'), viz=$('viz'), tip=$('tip');
+  function build(g){
+    var f=document.createDocumentFragment(), els=[];
+    for(var i=0;i<N;i++){var d=document.createElement('div');d.className='c'+(i>=LIMIT?' z':'');d.setAttribute('data-i',i);f.appendChild(d);els.push(d);}
+    g.appendChild(f); return els;
+  }
+  var mainEls=build(mainG), subEls=build(subG);
+  var prevMain=new Array(N), prevSub=new Array(N), layMain=null, laySub=null, cur=-1;
+
+  function layout(segs,grouped){
+    var list=segs.slice(), cells=new Array(N), n=0;
+    if(grouped){list=[];ORDER.forEach(function(c){segs.forEach(function(s){if(s[0]===c)list.push(s);});});}
+    list.forEach(function(s){for(var k=0;k<Math.max(1,s[1])&&n<N;k++)cells[n++]=s;});
+    return {cells:cells,used:n};
+  }
+  function paint(els,lay,prev){
+    var first=-1;
+    for(var i=0;i<N;i++){
+      var s=lay.cells[i], cat=s?s[0]:'';
+      if(prev[i]===cat)continue;
+      if(first<0)first=i;
+      els[i].style.transitionDelay=Math.min(420,(i-first)*0.8)+'ms';
+      els[i].className='c'+(cat?' '+cat:'')+(i>=LIMIT?' z':'');
+      prev[i]=cat;
+    }
+  }
+  function sums(segs){var o={start:0,you:0,claude:0,tool:0,sum:0,total:0};segs.forEach(function(s){o[s[0]]+=s[1];o.total+=s[1];});return o;}
+  function k(v){return '≈'+v+'K';}
+  function plain(h){return h.replace(/<[^>]+>/g,'');}
+  function describe(o){return ORDER.filter(function(c){return o[c];}).map(function(c){return NAMES[c]+' '+o[c]+'K';}).join(', ');}
+
+  // controls
+  var stepsEl=$('steps'), prevB=$('prev'), nextB=$('next'), playB=$('play'), stepBtns=[];
+  FRAMES.forEach(function(f,i){
+    var li=document.createElement('li'), b=document.createElement('button');
+    b.type='button'; b.textContent=i+1; b.setAttribute('aria-label','Step '+(i+1)+': '+plain(f.tag)); b.title=plain(f.tag);
+    b.addEventListener('click',function(){go(i);});
+    li.appendChild(b); stepsEl.appendChild(li); stepBtns.push(b);
+  });
+
+  function render(i){
+    var f=FRAMES[i]; cur=i;
+    layMain=layout(f.segs,f.grouped); paint(mainEls,layMain,prevMain);
+    var o=sums(f.segs), pct=Math.round(o.total/10);
+    $('ro-used').textContent=k(o.total);
+    var p=$('ro-pct'); p.textContent=pct+'% full'; p.classList.toggle('hot',pct>=90);
+    ORDER.forEach(function(c){$('v-'+c).textContent=o[c]?k(o[c]):'—';});
+    $('v-free').textContent=k(N-o.total);
+    $('main-name').textContent=f.grouped?'Your window, by category':'Your context window';
+    mainG.setAttribute('aria-label','Your context window: about '+o.total+'K of 1M tokens used. '+describe(o)+'. Illustrative.');
+
+    var two=!!f.sub, wasHidden=$('win-sub').hidden;
+    $('wins').classList.toggle('two',two);
+    $('win-sub').hidden=!two;
+    $('main-meta').innerHTML=two?'<b>'+k(o.total)+'</b> / 1M':'1 square ≈ 1K tokens';
+    $('scale').textContent=two?'1 square ≈ 1K tokens in both. A subagent’s window is sized by its own model; here both are 1M.':'A 1M-token window, the default on most current models. Hover a square to see what it holds.';
+    if(two){
+      if(wasHidden){void subG.offsetWidth;}
+      laySub=layout(f.sub,false);
+      var so=sums(f.sub);
+      $('sub-used').textContent=k(so.total);
+      subG.setAttribute('aria-label','Subagent’s own context window: about '+so.total+'K tokens. '+describe(so)+'. Illustrative.');
+      if(wasHidden){requestAnimationFrame(function(){paint(subEls,laySub,prevSub);});}else{paint(subEls,laySub,prevSub);}
+    } else { laySub=null; paint(subEls,{cells:[]},prevSub); }
+
+    var t=$('term'); t.textContent='';
+    f.term.forEach(function(l){var s=document.createElement('span');s.className=l[0];s.textContent=l[1];t.appendChild(s);});
+    $('step-tag').textContent='Step '+(i+1)+' of '+FRAMES.length+' · '+plain(f.tag);
+    $('frame-title').innerHTML=f.title;
+    $('frame-text').innerHTML=f.text;
+    $('frame-details').innerHTML=f.details.map(function(d){return '<li><span>'+d+'</span></li>';}).join('');
+
+    prevB.setAttribute('aria-disabled',String(i===0));
+    nextB.setAttribute('aria-disabled',String(i===FRAMES.length-1));
+    stepBtns.forEach(function(b,j){if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');b.classList.toggle('done',j<i);});
+    $('live').textContent='Step '+(i+1)+' of '+FRAMES.length+': '+plain(f.title)+'. About '+o.total+'K of 1M tokens, '+pct+' percent full (illustrative).';
+    hideTip();
+  }
+
+  var timer=null;
+  function stop(){if(timer){clearInterval(timer);timer=null;}playB.textContent='▶ Play';}
+  function startPlay(){
+    if(cur>=FRAMES.length-1)render(0);
+    playB.textContent='❚❚ Pause';
+    timer=setInterval(function(){if(cur>=FRAMES.length-1){stop();return;}render(cur+1);},3400);
+  }
+  function go(i){stop();i=Math.max(0,Math.min(FRAMES.length-1,i));if(i!==cur)render(i);}
+  prevB.addEventListener('click',function(){go(cur-1);});
+  nextB.addEventListener('click',function(){go(cur+1);});
+  playB.addEventListener('click',function(){if(timer)stop();else startPlay();});
+  $('session').addEventListener('keydown',function(e){
+    if(e.altKey||e.ctrlKey||e.metaKey||e.shiftKey)return;
+    var m={ArrowRight:cur+1,ArrowLeft:cur-1,Home:0,End:FRAMES.length-1};
+    if(e.key in m){e.preventDefault();go(m[e.key]);}
+  });
+
+  // hover detail for squares
+  function hideTip(){tip.hidden=true;}
+  function showTip(e){
+    var t=e.target;
+    if(!t.classList||!t.classList.contains('c')){hideTip();return;}
+    var lay=t.parentNode===subG?laySub:layMain; if(!lay){hideTip();return;}
+    var i=+t.getAttribute('data-i'), s=lay.cells[i];
+    tip.innerHTML='';
+    var b=document.createElement('b'), br=document.createElement('br');
+    if(s){b.textContent=NAMES[s[0]]+' · '+k(s[1]);tip.appendChild(b);tip.appendChild(br);tip.appendChild(document.createTextNode(s[2]));}
+    else{b.textContent='Free';tip.appendChild(b);tip.appendChild(br);tip.appendChild(document.createTextNode(i>=LIMIT?'Past the auto-compact point (about 967K by default)':'Room left in the window'));}
+    tip.hidden=false;
+    var r=viz.getBoundingClientRect(), x=e.clientX-r.left+14, y=e.clientY-r.top+16, w=tip.offsetWidth;
+    if(x+w>r.width)x=Math.max(0,e.clientX-r.left-w-14);
+    tip.style.left=x+'px'; tip.style.top=y+'px';
+  }
+  [mainG,subG].forEach(function(g){g.addEventListener('pointermove',showTip);g.addEventListener('pointerdown',showTip);g.addEventListener('pointerleave',hideTip);});
+  document.addEventListener('pointerdown',function(e){if(!viz.contains(e.target))hideTip();});
+
+  // focused-session bars (illustrative): 12 turns, 25K new per turn, 10K startup
+  function bars(el,reset){
+    var max=320, html='';
+    for(var t=1;t<=12;t++){
+      var task=Math.ceil(t/4), j=t-(task-1)*4, old=reset?0:100*(task-1), mine=25*j, tot=10+old+mine;
+      html+='<div class="b" title="Turn '+t+': sends ≈'+tot+'K"><i class="s" style="height:'+(10/max*100)+'%"></i><i class="o" style="height:'+(old/max*100)+'%"></i><i class="t" style="height:'+(mine/max*100)+'%"></i></div>';
+      if(t%4===0&&t<12)html+='<span class="gap"></span>';
+    }
+    el.innerHTML=html;
+  }
+  bars($('fc-one'),false); bars($('fc-clear'),true);
+
+  render(0);
+})();
+</script>
+</body>
+</html>

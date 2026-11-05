@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { ACTIVE, PURGED, TRASHED } from '../src/lifecycle.js';
 import { ROUTES, makeServer } from '../src/server.js';
+import { SKILLS, SKILLS_REPO, examples } from '../src/examples.js';
 import { Store, normalizeTag } from '../src/store.js';
 
 const BROWSER = 'Mozilla/5.0 test';
@@ -484,7 +485,7 @@ test('/gallery: the bundled example pages, filterable and searchable', async () 
   const [s, page] = await req('GET', '/gallery');
   assert.equal(s, 200);
   assert.match(page, /<title>Gallery · HTML Server<\/title>/);
-  assert.equal(page.match(/<article class="card[^"]*"/g).length, 13);
+  assert.equal(page.match(/<article class="card[^"]*"/g).length, 34);
   assert.match(page, /Machine learning <span>2<\/span>/);
   assert.match(page, /href="\/gallery\/kmeans-step-through.html"/);
   assert.match(page, /data-base="\/gallery"/);
@@ -708,7 +709,9 @@ test('stats: totals and series over the pages you can see', async () => {
   assert.equal(s.views_by_day.at(-1).views, 3); // today, filled series
   assert.equal(s.uploads_by_week.length, 12);
   assert.equal(s.uploads_by_week.at(-1).versions, 3);
-  assert.deepEqual(s.most_viewed.map((p) => [p.slug, p.views]), [['a.html', 2], ['b.html', 1]]);
+  assert.deepEqual(s.most_viewed.map((p) => [p.slug, p.views]), [['a.html', 2], ['b.html', 1]]); // all time, as before
+  assert.equal(s.popular.weeks, 2);
+  assert.deepEqual(s.popular.pages.map((p) => [p.slug, p.visits, p.views]), [['a.html', 2, 2], ['b.html', 1, 1]]);
   assert.deepEqual(s.most_edited.map((p) => [p.slug, p.versions]), [['a.html', 2]]);
   assert.deepEqual(s.recent[0].slug, 'b.html');
   assert.equal((await req('GET', '/api/stats', { token: admin }))[1].totals.pages, 3); // the owner counts it
@@ -721,7 +724,9 @@ test('stats: totals and series over the pages you can see', async () => {
   assert.match(page, /<figcaption><span>Views per day<\/span><b>3 in 30 days<\/b><\/figcaption>/);
   assert.match(page, /<section id="usage"[^]*Admins<\/span>/); // the usage section, filled in for admins by stats.js
   assert.doesNotMatch(page, /API calls per day/); // never drawn into the public page
-  assert.match(page, /data-tip="Alpha: 2 views"/);
+  assert.match(page, /<figure class="chart" id="popular"><figcaption><span>Popular<\/span><form class="period-picker" action="\/stats#popular" method="get">/);
+  assert.match(page, /<option value="2" selected>Last 2 weeks<\/option>/);
+  assert.match(page, /data-tip="Alpha: 2 visits, 2 views"/);
   assert.match(page, /<details class="tview"><summary>Show as table<\/summary>/); // every chart has a table view
   assert.equal((await put('stats', '<p>x</p>'))[0], 400); // reserved
 });
@@ -801,7 +806,58 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match(page, /<div class="cards" data-count="2 pages · 1 featured">/); // what live search shows when the box is cleared
   assert.match((await req('GET', '/?q=one'))[1], /<p id="count"[^>]*>1 match<\/p>/);
   assert.match(page, new RegExp(`<a class="gh" href="https://github.com/lawwu/html-server/releases/tag/v${pkg.version}" target="_top"[^>]*><svg[^]*?</svg><span>v${pkg.version.replace(/\./g, '\\.')}</span></a>`));
-  assert.match((await req('GET', '/gallery'))[1], /<p id="count" class="meta">13 example pages<\/p>/);
+  assert.match((await req('GET', '/gallery'))[1], /<p id="count" class="meta">34 example pages<\/p>/);
+  // The featured essay, then the three maps of content, lead the gallery and its filters.
+  assert.deepEqual(examples().slice(0, 4).map((e) => e.category), ['featured', 'moc', 'moc', 'moc']);
+  assert.match((await req('GET', '/gallery'))[1], /Featured <span>1<\/span>[^]*?Maps of content <span>3<\/span>[^]*?Architecture/);
+});
+
+test('skills: the sidebar lists effective-html\'s skills with their examples, which open in the frame', async () => {
+  const [, stats] = await req('GET', '/stats'); // on every page with a sidebar
+  const esc = (t) => t.replace(/'/g, '&#39;');
+  for (const s of SKILLS) {
+    assert.match(stats, new RegExp(`<summary title="${s.use}"><svg[^]*?</svg><span>${s.name}</span></summary>`), s.name);
+    assert.ok(stats.includes(`<a class="ext" href="${SKILLS_REPO}/tree/main/skills/${s.name}" target="_blank" rel="noopener">The skill ↗</a>`), s.name);
+    assert.ok(s.examples.length >= 2, s.name); // at least one on data or ML, one on Claude Code
+    for (const [file, label] of s.examples) {
+      assert.ok(stats.includes(`<a href="/gallery/${file}" target="_top">${esc(label)}</a>`), file);
+      assert.equal(examples().find((e) => e.slug === file)?.category, 'effective-html', file); // shipped, in the gallery's group
+    }
+  }
+  assert.match(stats, /<a href="\/gallery\?category=effective-html" target="_top">all examples<\/a>/);
+  const [, group] = await req('GET', '/gallery?category=effective-html');
+  assert.equal(group.match(/<article class="card/g).length, 18);
+  assert.match(group, /Effective HTML <span>18<\/span>/);
+
+  // An example in a browser tab gets the frame, its skill's folder open; the frame's iframe gets it sized to fit.
+  const get = async (path, dest) => {
+    const r = await fetch(`${base}${path}`, { headers: { 'user-agent': BROWSER, 'sec-fetch-dest': dest } });
+    return [r.status, await r.text(), r.headers.get('content-security-policy')];
+  };
+  const [status, frame, frameCsp] = await get('/gallery/ab-test-readout.html', 'document');
+  assert.equal(status, 200);
+  assert.equal(frameCsp, null); // the server's own page; the example inside stays sandboxed
+  assert.match(frame, /<iframe class="page-frame auto" src="\/gallery\/ab-test-readout.html\?embed=1" title="[^"]+"><\/iframe>/);
+  assert.match(frame, /<nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="\/gallery" target="_top">Gallery<\/a>/);
+  assert.match(frame, /<details open>\n<summary title="Reports, explainers, data stories and small tools">/);
+  assert.match(frame, /<a href="\/gallery\/ab-test-readout.html" target="_top" class="on" aria-current="page">A\/B test readout<\/a>/);
+  assert.match(frame, /<a class="tag-link" href="\/gallery\?category=effective-html">Effective HTML<\/a>/);
+  // Over each example, the skill it shows, linked to the skill itself; other gallery pages have no such line.
+  for (const s of SKILLS) for (const [file] of s.examples) {
+    const [, page] = await get(`/gallery/${file}`, 'document');
+    assert.ok(page.includes(`<p class="skill-line">Made with the <a href="${SKILLS_REPO}/tree/main/skills/${s.name}" target="_blank" rel="noopener">${s.name} ↗</a> skill from <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a>: `), file);
+  }
+  const other = examples().find((e) => e.category !== 'effective-html');
+  assert.doesNotMatch((await get(`/gallery/${other.slug}`, 'document'))[1], /skill-line/);
+  const [, embedded, embedCsp] = await get('/gallery/ab-test-readout.html?embed=1', 'iframe');
+  assert.match(embedCsp, /sandbox/);
+  assert.match(embedded, /<script data-html-server-embed>[^]*<script data-html-server-links>[^]*<script data-html-server-in-frame>/);
+  for (const [path, dest] of [['/gallery/ab-test-readout.html?raw=1', 'document'], ['/gallery/ab-test-readout.html', 'iframe']]) {
+    const [, raw, csp] = await get(path, dest);
+    assert.match(csp, /sandbox/, path);
+    assert.doesNotMatch(raw, /page-frame|data-html-server-in-frame/, `${path} ${dest}`);
+  }
+  assert.equal((await get('/gallery/no-such-example.html', 'document'))[0], 404);
 });
 
 test('HEAD is answered like GET, without a body, and is not a page view', async () => {
@@ -935,7 +991,7 @@ test('an HTML page opened in a browser tab gets the frame; iframes, clients and 
   await get('/pages/framed', 'iframe');
   assert.equal(await views(), 1);
   assert.match(frame, /<iframe class="page-frame auto" src="\/pages\/framed.html\?embed=1" title="Framed"><\/iframe>/);
-  assert.match(frame, /<aside class="sidebar left">/);
+  assert.match(frame, /<aside class="sidebar left" id="left-sidebar">/);
   assert.match(frame, /<a class="tag-link" href="\/\?category=trips">trips<\/a>/);
   assert.match(frame, /data-src="\/api\/artifacts\/framed.html\/versions\/1">.*<span>Copy HTML<\/span>/);
   assert.match(frame, /<section class="backlinks"><h3>Backlinks<\/h3><ul><li><a href="\/pages\/Points.md"/);
@@ -945,11 +1001,16 @@ test('an HTML page opened in a browser tab gets the frame; iframes, clients and 
     const [raw, h] = await get(path, dest);
     assert.match(raw, /<p>inside<\/p>/, `${path} ${dest}`);
     assert.match(h.get('content-security-policy'), /sandbox/);
+    assert.doesNotMatch(raw, /data-html-server-in-frame/, `${path} ${dest}`); // only in the frame
   }
   // In the frame, the page opts in to responsive iframes and reports its height.
   const [embedded] = await get('/pages/framed?embed=1', 'iframe');
   assert.match(embedded, /<meta name="responsive-embedded-sizing" content="allow-origins=\*">/);
   assert.match(embedded, /<script data-html-server-embed>/);
+  // ⌘K inside the page opens search, and links it follows open in the tab: the page tells the frame, which checks the viewer clicked.
+  assert.match(embedded, /<script data-html-server-in-frame>[^]*tell\('search'\)[^]*tell\('go', \{ href: url.href \}\)/);
+  assert.match(frame, /if\(d.htmlServer==='go'\)[^<]*navigator.userActivation\?.isActive!==false\)location.assign\(u.href\)/);
+  assert.match(frame, /<li><a href="\/random\?not=framed.html" target="_top">Random<\/a><\/li>/); // never the page you're on
   assert.doesNotMatch(embedded, /data-artifact-toc-script|data-artifact-version-badge/);
   await put('app.html', '<html><head><meta name="html-server-frame" content="window"></head><body>app</body></html>');
   const [app] = await get('/pages/app?embed=1', 'iframe'); // a page can ask to stay at window height
@@ -958,6 +1019,41 @@ test('an HTML page opened in a browser tab gets the frame; iframes, clients and 
   const [note] = await get('/pages/Points', 'document'); // notes are already pages of the site
   assert.match(note, /<h1 class="article-title">Points<\/h1>/);
   assert.doesNotMatch(note, /<iframe class="page-frame"/);
+  assert.match(note, /<a href="\/random\?not=Points.md" target="_top">Random<\/a>/);
+});
+
+test('random: a page you can see, never the one you are on unless it is the only one', async () => {
+  const go = async (query = '', token) => {
+    const r = await fetch(`${base}/random${query}`, { redirect: 'manual', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    assert.equal(r.status, 302, query);
+    assert.equal(r.headers.get('cache-control'), 'no-store');
+    return r.headers.get('location');
+  };
+  const many = async (query, token) => {
+    const seen = new Set();
+    for (let i = 0; i < 60; i++) seen.add(await go(query, token));
+    return [...seen].sort();
+  };
+  assert.equal(await go(), '/'); // nothing to pick yet: the home page says so
+  await put('a.html', '<title>A</title><meta name="category" content="trips">');
+  await put('b.md', '# B');
+  await put('guide/c.md', '# C');
+  await put('Über.md', '# Über');
+  await put('hidden.html', '<p>x</p>', admin, '?visibility=private');
+  await put('gone.html', '<p>x</p>');
+  await req('DELETE', '/api/artifacts/gone.html', { token: admin });
+  assert.deepEqual(await many(''), ['/guide/c.md', '/pages/%C3%9Cber.md', '/pages/a.html', '/pages/b.md']); // never private or trashed
+  assert.ok((await many('', admin)).includes('/pages/hidden.html')); // your own private pages, with your token
+  assert.ok(!(await many('?not=a.html')).includes('/pages/a.html'));
+  assert.ok(!(await many('?not=A.HTML')).includes('/pages/a.html')); // names match as reads match them
+  assert.equal(await go('?category=trips&not=a.html'), '/pages/a.html'); // the only page with that tag: it, even so
+  assert.deepEqual(await many('?folder=guide'), ['/guide/c.md']);
+  assert.equal(await go('?folder=empty'), '/empty/'); // a folder with nothing in it: its page says so
+  assert.equal((await fetch(`${base}/random?folder=..`, { redirect: 'manual' })).status, 400);
+  assert.equal((await put('random', '<p>x</p>'))[0], 400); // reserved, as a name and as a folder
+  assert.equal((await put('random/x.md', '# x'))[0], 400);
+  assert.equal((await put('random.html', '<p>a page about chance</p>'))[0], 201); // a file name is fine, at its own address
+  assert.match((await req('GET', '/random.html'))[1], /a page about chance/);
 });
 
 test('notes are pages of the site: sidebars, footer and stylesheet; previews without them; HTML pages never wrapped', async () => {
@@ -965,7 +1061,7 @@ test('notes are pages of the site: sidebars, footer and stylesheet; previews wit
   await put('raw.html', '<p>my own html</p>');
   const [, note] = await req('GET', '/pages/Note');
   assert.match(note, /<style>[^<]*\.sidebar \{[^<]*\.article-title/s); // the site's styles and the note's, inlined
-  assert.match(note, /<aside class="sidebar left">[^]*<h2 class="page-title"><a href="\/" target="_top">HTML Server<\/a>/);
+  assert.match(note, /<aside class="sidebar left" id="left-sidebar">[^]*<h2 class="page-title"><a href="\/" target="_top">HTML Server<\/a>/);
   assert.match(note, /<details class="explorer" open>[^]*<a href="\/pages\/Note.md" target="_top" class="on" aria-current="page">Note<\/a>/);
   assert.match(note, /<aside class="sidebar right">/);
   assert.match(note, /<footer class="site-foot">/);
@@ -974,6 +1070,13 @@ test('notes are pages of the site: sidebars, footer and stylesheet; previews wit
   assert.equal(JSON.parse(note.match(/<script id="page-source" type="application\/json">([^<]*)<\/script>/)[1]), '# Note\n\nHello'); // what it copies
   const dark = await (await fetch(`${base}/pages/Note`, { headers: { cookie: 'theme=dark' } })).text();
   assert.match(dark, /<html lang="en" data-theme="dark">/); // the switch's choice reaches sandboxed notes by cookie
+  // So does a hidden sidebar; the button that hides it sits outside it, so it stays put.
+  const hidden = async (cookie) => (await (await fetch(`${base}/pages/Note`, { headers: { cookie } })).text()).match(/<html[^>]*>/)[0];
+  assert.equal(await hidden('theme=dark; sidebar=hidden'), '<html lang="en" data-theme="dark" data-sidebar="hidden">');
+  assert.equal(await hidden('sidebar=shown'), '<html lang="en">');
+  assert.equal(await hidden('sidebar=hiddenx'), '<html lang="en">');
+  assert.match(note, /<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"\s+aria-label="Hide the sidebar" title="Hide the sidebar"><svg[^]*<\/button><aside class="sidebar left" id="left-sidebar">/);
+  assert.match(note, /localStorage.getItem\('sidebar'\)==='hidden'\)r.dataset.sidebar='hidden'/); // pages that can read storage: read in <head>
   const [, preview] = await req('GET', '/pages/Note?preview=1');
   assert.doesNotMatch(preview, /class="sidebar|<footer class="site-foot"/);
   assert.match(preview, /<h1 class="article-title">Note<\/h1>/);
@@ -1209,6 +1312,52 @@ test('stats: each of the last 30 days once across a DST change, counted from loc
   assert.equal(s.totals.views_recent, 1); // from midnight on the first day, not 30 × 24 hours before now
   t.mock.timers.setTime(new Date('2026-03-09T00:30').getTime()); // just after midnight following a 23-hour day
   assert.deepEqual(store.stats(null, { days: 3 }).views_by_day.map((d) => d.day), ['2026-03-07', '2026-03-08', '2026-03-09']);
+});
+
+test('stats: Popular counts visits (each visitor once a day per page) over the weeks picked', async (t) => {
+  const tz = process.env.TZ;
+  process.env.TZ = 'America/Los_Angeles';
+  t.after(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; });
+  for (const name of ['reloaded.html', 'shared.html', 'older.html', 'edge.html']) await put(name, `<title>${name}</title>`);
+  await put('mine.html', '<title>mine.html</title>', admin, '?visibility=private');
+  const view = (slug, local, visitor) => store.run("INSERT INTO views (artifact_id, n, at, visitor, via) VALUES (?, 1, ?, ?, 'url')",
+    store.find(slug).id, new Date(local).getTime() / 1000, visitor); // visitor: the day's hash, so a new one each day
+  for (let i = 0; i < 5; i++) view('reloaded.html', '2026-11-03T09:00', 'me'); // one visitor, reloading: one visit
+  view('shared.html', '2026-11-02T09:00', 'a');
+  view('shared.html', '2026-11-03T09:00', 'b');
+  for (const v of ['c', 'd', 'e']) view('older.html', '2026-10-15T12:00', v); // 3 weeks back
+  view('edge.html', '2026-10-21T00:00', 'f'); // the first moment of the last 2 weeks (14 days, today the last)
+  view('edge.html', '2026-10-20T23:59', 'g'); // the minute before
+  for (const v of ['h', 'i', 'j', 'k']) view('mine.html', '2026-11-03T09:00', v); // private: in the owner's list only
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-03T10:00') }); // the 2 weeks back cross the DST change
+  const popular = (weeks, viewer = null) => store.stats(viewer, { popular: weeks }).popular.pages.map((p) => `${p.slug} ${p.visits}/${p.views}`);
+  assert.deepEqual(popular(2), ['shared.html 2/2', 'reloaded.html 1/5', 'edge.html 1/1']); // visits first, then views
+  assert.deepEqual(store.stats(null).popular.pages.length, 3); // 2 weeks unless asked
+  assert.deepEqual(popular(1), ['shared.html 2/2', 'reloaded.html 1/5']);
+  assert.deepEqual(popular(4), ['older.html 3/3', 'edge.html 2/2', 'shared.html 2/2', 'reloaded.html 1/5']);
+  assert.deepEqual(popular(null), popular(4)); // all time
+  assert.equal(popular(2, store.userForToken(admin).id)[0], 'mine.html 4/4');
+});
+
+test('stats: ?weeks= picks the Popular period on the page and in the API', async () => {
+  await put('a.html', '<title>Alpha</title>');
+  await req('GET', '/pages/a.html');
+  for (const bad of ['0', '521', 'soon', '-1', '1.5']) {
+    assert.equal((await req('GET', `/api/stats?weeks=${bad}`))[0], 400, bad);
+    assert.equal((await req('GET', `/stats?weeks=${bad}`))[0], 400, bad);
+  }
+  assert.equal((await req('GET', '/api/stats?weeks=all'))[1].popular.weeks, null);
+  const [, s] = await req('GET', '/api/stats?weeks=3');
+  assert.deepEqual([s.popular.weeks, s.popular.pages.map((p) => p.slug)], [3, ['a.html']]);
+  const [, three] = await req('GET', '/stats?weeks=3'); // any number of weeks, shown among the choices
+  assert.match(three, /<option value="2">Last 2 weeks<\/option><option value="3" selected>Last 3 weeks<\/option><option value="4">/);
+  assert.match(three, /<option value="1">Last week<\/option>/);
+  assert.match(three, /<option value="all">All time<\/option><\/select><noscript><button>Show<\/button><\/noscript><\/form>/);
+  assert.match((await req('GET', '/stats?weeks=all'))[1], /<option value="all" selected>All time<\/option>/);
+  store.run('DELETE FROM views');
+  assert.match((await req('GET', '/stats'))[1], /<p class="empty">No views in the last 2 weeks.<\/p>/);
+  assert.match((await req('GET', '/stats?weeks=1'))[1], /<p class="empty">No views in the last week.<\/p>/);
+  assert.match((await req('GET', '/stats?weeks=all'))[1], /<p class="empty">No views yet.<\/p>/);
 });
 
 test('the usage chart keeps today in the morning too (its days were compared as times)', async (t) => {

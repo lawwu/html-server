@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code hooks — when each one fires</title>
+<meta name="description" content="Where all 33 Claude Code hook events fire, across a session and inside one agent turn. Filter by what a hook can do (block, approve, add context, rewrite), step through a turn, and open any event for its matcher, input and return fields.">
+<meta name="category" content="effective-html">
+<style>
+:root{
+--bg:#edf0ef;--panel:#fafbfb;--ink:#15202a;--ink2:#4c5a66;--ink3:#7b8792;--rule:#c8d0cf;--rail:#2c3843;--lit:#dbe7e3;
+--blk:#bd342a;--dec:#975800;--ctx:#1c5ab2;--rw:#7639ad;--obs:#5c6873;
+--mono:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;
+--body:Charter,"Bitstream Charter","Sitka Text",Cambria,Georgia,serif;
+--disp:"DIN Condensed","DIN Alternate",Bahnschrift,"Roboto Condensed","Arial Narrow",sans-serif;
+color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0e1317;--panel:#151c22;--ink:#e3e9ee;--ink2:#a5b1bc;--ink3:#76838f;--rule:#2c3740;--rail:#95a3af;--lit:#1c2b2d;--blk:#ff7b6d;--dec:#f0b14c;--ctx:#82b3ff;--rw:#c8a0ff;--obs:#9daab5;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#0e1317;--panel:#151c22;--ink:#e3e9ee;--ink2:#a5b1bc;--ink3:#76838f;--rule:#2c3740;--rail:#95a3af;--lit:#1c2b2d;--blk:#ff7b6d;--dec:#f0b14c;--ctx:#82b3ff;--rw:#c8a0ff;--obs:#9daab5;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--body);-webkit-text-size-adjust:100%}
+.wrap{max-width:76rem;margin:0 auto;padding:2.2rem 1rem 2.5rem}
+code{font:.86em/1.4 var(--mono);overflow-wrap:anywhere}
+a{color:var(--ctx)}
+h1,h2,h3{font-family:var(--disp);font-stretch:condensed;font-weight:700;letter-spacing:.01em;text-wrap:balance}
+h1{font-size:clamp(2.2rem,6.5vw,3.5rem);line-height:1;margin:0 0 .8rem}
+h2{font-size:1.65rem;line-height:1.1;margin:0 0 .5rem}
+h3{font-size:1.35rem;line-height:1.1;margin:0}
+.kick{font:.8rem/1.3 var(--mono);color:var(--ink2);margin:0 0 .6rem}
+.lede{max-width:41rem;margin:0 0 1.8rem;font-size:1.06rem;color:var(--ink2)}
+:focus-visible{outline:2.5px solid var(--ink);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+button{-webkit-tap-highlight-color:transparent}
+.btn,.flt,.walk,.dnav button{font:700 1.04rem/1 var(--disp);font-stretch:condensed;letter-spacing:.02em;border-radius:3px;cursor:pointer}
+/* filter */
+.want{margin:0 0 2.2rem}
+.want h2{font-size:1.3rem;margin:0 0 .6rem}
+.flts{display:flex;flex-wrap:wrap;gap:.5rem}
+.flt{display:inline-flex;align-items:center;gap:.42rem;color:var(--ink);background:var(--panel);border:1.5px solid var(--rule);padding:.52rem .7rem .44rem}
+.flt:hover{border-color:var(--ink3)}
+.flt .n{font:.72rem/1 var(--mono);color:var(--ink2)}
+.flt[aria-pressed=true]{border-color:var(--fc,var(--ink));background:color-mix(in srgb,var(--fc,var(--ink)) 13%,var(--panel))}
+.fout{margin:.75rem 0 0;max-width:54rem;font-size:.95rem;color:var(--ink2);min-height:3em}
+.fout code{color:var(--ink)}
+[data-f=b]{--fc:var(--blk)}[data-f=d]{--fc:var(--dec)}[data-f=c]{--fc:var(--ctx)}[data-f=r]{--fc:var(--rw)}[data-f=o]{--fc:var(--obs)}
+/* glyphs */
+.g{width:12px;height:12px;fill:currentColor;flex:none}
+.g-b{color:var(--blk)}.g-d{color:var(--dec)}.g-c{color:var(--ctx)}.g-r{color:var(--rw)}.g-o{color:var(--obs)}
+/* diagram */
+.key{display:flex;flex-wrap:wrap;gap:.3rem 1.1rem;font-size:.86rem;color:var(--ink2);margin:0 0 1.3rem}
+.key i{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--ink3);margin-right:.35rem;vertical-align:-1px}
+.key .kif{background:none;border:2.5px solid var(--ink3)}.key .ksq{border-radius:2px}
+.dia{display:grid;gap:2.2rem;margin:0 0 3.2rem}
+@media (min-width:66rem){.dia{grid-template-columns:minmax(0,1fr) 17rem}}
+.spine,.ladder,.anyl,.loop>ol,.inner{list-style:none;margin:0;padding:0}
+.spine,.ladder,.anyl{position:relative;container-type:inline-size}
+.spine::before,.ladder::before,.anyl::before{content:"";position:absolute;top:1.25rem;bottom:1.25rem}
+.st{position:relative;display:grid;gap:.45rem 1.2rem;align-items:start;padding:.5rem 0}
+.st::before{content:"";position:absolute;border-radius:50%;z-index:1}
+.act{margin:0;font-size:.96rem;line-height:1.5;overflow-wrap:anywhere}
+.sig{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:.45rem .6rem}
+.sig small,.inner small{font-size:.8rem;line-height:1.3;color:var(--ink2)}
+.opt{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.25rem .4rem}
+.to{color:var(--ink3);font-family:var(--mono)}
+@container (min-width:34rem){.st{grid-template-columns:minmax(0,1fr) minmax(11rem,20rem)}}
+.st>.inner,.st>.turnbox,.st>.det{grid-column:1/-1}
+.who{display:inline-block;font:700 .74rem/1 var(--disp);font-stretch:condensed;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);border:1px solid var(--rule);border-radius:2px;padding:.24rem .34rem .15rem;margin-right:.45rem;position:relative;top:-.08em}
+.spine{padding-left:2.1rem}
+.spine::before{left:.55rem;width:4px;background:var(--rail);border-radius:2px}
+.spine>.st::before{left:calc(.55rem + 2px - 2.1rem - 8px);top:calc(1.25rem - 8px);width:16px;height:16px;background:var(--rail);box-shadow:0 0 0 3px var(--bg)}
+.spine>.turn::before{border-radius:2px}
+.spine>.if::before{background:var(--bg);border:3px solid var(--rail)}
+.turnbox{border:1.5px solid var(--rule);background:var(--panel);border-radius:4px;padding:.85rem .6rem 1rem}
+@media (min-width:40rem){.spine{padding-left:2.5rem}.spine>.st::before{left:calc(.55rem + 2px - 2.5rem - 8px)}.turnbox{padding:1rem 1.1rem 1.1rem}}
+.thd{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.6rem 1rem;margin:0 0 .5rem}
+.walk{color:var(--panel);background:var(--ink);border:0;padding:.56rem .8rem .48rem}
+.ladder{padding-left:3rem}
+.ladder::before{left:2.05rem;width:3px;margin-left:-1.5px;background:var(--ink3)}
+.ladder .st::before{left:calc(2.05rem - 3rem - 7px);top:calc(1.25rem - 7px);width:14px;height:14px;background:var(--ink3);box-shadow:0 0 0 3px var(--panel)}
+.ladder .if::before{background:var(--panel);border:2.5px solid var(--ink3)}
+.ladder .work::before{border-radius:2px}
+.loop{position:relative}
+.loop>ol>li::after{content:"";position:absolute;left:calc(.2rem - 3rem);width:calc(1.85rem - 19px);top:0;bottom:0;border-left:2px solid var(--ink2)}
+.loop>ol>li:first-child::after{top:1.25rem;border-top:2px solid var(--ink2);border-top-left-radius:9px}
+.loop>ol>li:last-child::after{bottom:auto;height:1.25rem;border-bottom:2px solid var(--ink2);border-bottom-left-radius:9px}
+.loop::before{content:"";position:absolute;left:calc(2.05rem - 3rem - 19px);top:calc(1.25rem - 5px);border:5px solid transparent;border-right:0;border-left:8px solid var(--ink2)}
+.loopnote{margin:0;padding:.15rem 0 .55rem;font-size:.86rem;font-style:italic;color:var(--ink2)}
+.inner{display:grid;gap:.5rem;margin-top:.1rem}
+.inner>li{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .5rem}
+.inner>li::before{content:"↳";color:var(--ink3);font-family:var(--mono)}
+.tl{font-size:.85rem;color:var(--ink2)}
+.any{display:flex;flex-direction:column}
+.any h3{margin:0 0 .25rem}
+.anysub{font-size:.9rem;color:var(--ink2);margin:0 0 .4rem}
+.anyl{padding-left:1.8rem;flex:1}
+.anyl::before{left:.55rem;bottom:0;border-left:3px dotted var(--rail);margin-left:-1.5px}
+.anyl>.st::before{left:calc(.55rem - 1.8rem - 7px);top:calc(1.25rem - 7px);width:14px;height:14px;background:var(--bg);border:2.5px solid var(--rail)}
+.st.now{background:var(--lit);box-shadow:0 0 0 .3rem var(--lit);border-radius:2px}
+.ladder .st.now::before{background:var(--ink)}
+/* chips */
+.ev{display:inline-flex;align-items:center;gap:.4rem;max-width:100%;font:500 .82rem/1.25 var(--mono);color:var(--ink);background:var(--panel);border:1.5px solid var(--ink3);border-radius:3px;padding:.3rem .48rem;cursor:pointer;transition:opacity .15s,box-shadow .15s}
+.ev:hover{border-color:var(--ink)}
+.nm{overflow-wrap:anywhere;text-align:left}
+.pips{display:inline-flex;gap:3px}
+.dia[data-f] .ev{opacity:.3}
+.dia[data-f=b] .kb,.dia[data-f=d] .kd,.dia[data-f=c] .kc,.dia[data-f=r] .kr,.dia[data-f=o] .ko{opacity:1;border-color:var(--fc);box-shadow:0 0 0 1.5px var(--fc)}
+.ev.sel,.dia .ev.sel{opacity:1;background:var(--ink);border-color:var(--ink);color:var(--panel)}
+.ev.sel .g{color:inherit}
+/* detail */
+.det{flex:1 0 100%;margin:.55rem 0 .35rem;position:relative;container-type:inline-size;background:var(--panel);border:1.5px solid var(--ink);border-radius:4px;padding:.85rem 1rem 1rem;font-size:.95rem;line-height:1.5}
+.det-step{margin:0 0 .8rem;padding:0 2.2rem .8rem 0;border-bottom:1px solid var(--rule)}
+.det-step b,.det dt,.tags,.io-l{font:700 .76rem/1.5 var(--disp);font-stretch:condensed;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2)}
+.det-step b{display:block;margin-bottom:.25rem}
+.det-hd{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .9rem;padding-right:2.2rem}
+.det-n{margin:0;font:600 1.12rem/1.25 var(--mono)}
+.tags{margin:0;display:flex;flex-wrap:wrap;gap:.2rem .75rem;flex:1 1 14rem}
+.tags span{display:inline-flex;align-items:center;gap:.3rem}
+.det-w{margin:.45rem 0 .75rem}
+.det dl{margin:0;display:grid;gap:.15rem 1rem}
+.det dd{margin:0 0 .45rem;overflow-wrap:anywhere}
+@container (min-width:32rem){.det dl{grid-template-columns:6.6rem minmax(0,1fr);row-gap:.5rem}.det dd{margin:0}.det dt{padding-top:.1rem}}
+.x{position:absolute;top:.4rem;right:.4rem;width:2.1rem;height:2.1rem;font:1.35rem/1 var(--body);color:var(--ink2);background:none;border:1px solid transparent;border-radius:3px;cursor:pointer}
+.x:hover{border-color:var(--rule);color:var(--ink)}
+.dnav{display:flex;flex-wrap:wrap;gap:.5rem;margin:1rem 0 0}
+.dnav button{padding:.52rem .75rem .44rem;border:1.5px solid var(--ink);background:var(--panel);color:var(--ink)}
+.dnav [data-go="1"]{background:var(--ink);color:var(--panel)}
+.dnav button:disabled{opacity:.35;cursor:default}
+/* wiring */
+.wire{margin:0 0 2.6rem}
+.wire .sub{max-width:44rem;color:var(--ink2);margin:0 0 1.1rem}
+.wgrid{display:grid;gap:1.3rem 2.2rem}
+.wgrid>*,.io div{min-width:0}
+@media (min-width:58rem){.wgrid{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}}
+figure{margin:0}
+figcaption{font:.8rem var(--mono);color:var(--ink2);margin:0 0 .4rem}
+pre{margin:0;background:var(--panel);border:1.5px solid var(--rule);border-radius:4px;padding:.9rem 1rem;overflow-x:auto;font:.8rem/1.6 var(--mono);color:var(--ink)}
+pre code{font:inherit;overflow-wrap:normal}
+.k{background:var(--lit);border-radius:2px;padding:.05em .15em}
+.k::after,.keys b{content:attr(data-k);display:inline-grid;place-items:center;width:1.3rem;height:1.3rem;border-radius:50%;background:var(--ink);color:var(--panel);font:700 .72rem/1 var(--disp);margin-left:.4em;vertical-align:.1em}
+.keys{list-style:none;margin:0 0 1.2rem;padding:0;display:grid;gap:.7rem}
+.keys li{display:grid;grid-template-columns:1.7rem minmax(0,1fr);font-size:.95rem}
+.keys b{margin:.1rem 0 0}
+.io{display:grid;gap:.75rem}
+.io div{display:grid;gap:.2rem}
+.io pre{padding:.6rem .8rem;font-size:.76rem}
+.io pre,.io pre code{white-space:pre-wrap;overflow-wrap:anywhere}
+.th{display:inline-flex;align-items:center;gap:.45rem}
+.io p{margin:0;font-size:.95rem}
+.exits{display:grid;gap:.9rem 1.6rem;margin-top:1.7rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr))}
+.exits div{border-top:3px solid var(--rail);padding-top:.55rem}
+.exits div>code{font:700 1rem var(--mono)}
+.exits p{margin:.3rem 0 0;font-size:.94rem}
+footer{border-top:1px solid var(--rule);padding-top:1rem;font-size:.87rem;color:var(--ink2)}
+footer p{margin:0 0 .55rem;max-width:62rem}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="g-b" viewBox="0 0 12 12"><path fill-rule="evenodd" d="M6 .4a5.6 5.6 0 1 1 0 11.2A5.6 5.6 0 0 1 6 .4zM2.6 4.9v2.2h6.8V4.9z"/></symbol>
+<symbol id="g-d" viewBox="0 0 12 12"><path d="M6 .3 11.7 6 6 11.7.3 6z"/></symbol>
+<symbol id="g-c" viewBox="0 0 12 12"><path d="M4.5.8h3v3.7h3.7v3H7.5v3.7h-3V7.5H.8v-3h3.7z"/></symbol>
+<symbol id="g-r" viewBox="0 0 12 12"><path d="M8.7.6l2.7 2.7-7 7-3.6.9.9-3.6z"/></symbol>
+<symbol id="g-o" viewBox="0 0 12 12"><path fill-rule="evenodd" d="M6 1a5 5 0 1 1 0 10A5 5 0 0 1 6 1zm0 1.9a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 0 0 0-6.2zm0 1.7a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z"/></symbol>
+</defs></svg>
+<div class="wrap">
+<header>
+<p class="kick">Claude Code hooks reference, drawn · 33 events</p>
+<h1>Claude Code hooks — when each one fires</h1>
+<p class="lede">Hooks are shell commands, HTTP endpoints, MCP tools, prompts or agents that you define and Claude Code runs automatically at set points in a session. Pick what you want a hook to do to see where it can; step through one turn for the order; select any event for its matcher, input and what it can return.</p>
+</header>
+
+<section class="want" aria-labelledby="want-h">
+<h2 id="want-h">I want a hook to…</h2>
+<div class="flts">
+<button type="button" class="flt" data-f="b" aria-pressed="false"><svg class="g g-b" aria-hidden="true"><use href="#g-b"/></svg>block it<span class="n"></span></button>
+<button type="button" class="flt" data-f="d" aria-pressed="false"><svg class="g g-d" aria-hidden="true"><use href="#g-d"/></svg>approve or deny<span class="n"></span></button>
+<button type="button" class="flt" data-f="c" aria-pressed="false"><svg class="g g-c" aria-hidden="true"><use href="#g-c"/></svg>add context<span class="n"></span></button>
+<button type="button" class="flt" data-f="r" aria-pressed="false"><svg class="g g-r" aria-hidden="true"><use href="#g-r"/></svg>rewrite something<span class="n"></span></button>
+<button type="button" class="flt" data-f="o" aria-pressed="false"><svg class="g g-o" aria-hidden="true"><use href="#g-o"/></svg>just watch<span class="n"></span></button>
+<button type="button" class="flt" data-f="all" aria-pressed="true">show all<span class="n"></span></button>
+</div>
+<p class="fout" id="fout" aria-live="polite">Each event’s marks show what a hook can do there.</p>
+</section>
+
+<h2>A session, with one turn opened up</h2>
+<p class="key"><span><i></i>every time</span><span><i class="kif"></i>only if the condition holds</span><span><i class="ksq"></i>a turn, or a tool at work</span><span>↻ loop</span></p>
+<div class="dia" id="dia">
+<div class="main">
+<ol class="spine">
+<li class="st if"><p class="act"><span class="who">Launch</span>only with <code>--init-only</code>, or <code>-p</code> with <code>--init</code> or <code>--maintenance</code>: one-time prep for CI</p><p class="sig"><button class="ev" data-e="Setup">Setup</button></p></li>
+<li class="st"><p class="act"><span class="who">Session</span>starts or resumes, and again after <code>/clear</code> or compaction</p><p class="sig"><button class="ev" data-e="SessionStart">SessionStart</button><span class="opt"><button class="ev" data-e="InstructionsLoaded">InstructionsLoaded</button><small>as <code>CLAUDE.md</code> loads</small></span></p></li>
+<li class="st turn"><p class="act"><span class="who">Turn</span>each prompt starts a turn; Claude works until it answers</p></li>
+<li class="st turn"><div class="turnbox" id="turn">
+<div class="thd"><h3>Inside one turn</h3><button type="button" class="walk" id="walk">Step through a turn</button></div>
+<ol class="ladder" id="lad">
+<li class="st"><p class="act"><span class="who">You</span>send a prompt, or Claude Code starts a turn itself (a <code>/loop</code> tick, a background subagent reporting back)</p><p class="sig"><span class="opt"><button class="ev" data-e="UserPromptSubmit">UserPromptSubmit</button><small>before Claude reads it</small></span></p></li>
+<li class="st if"><p class="act"><span class="who">Claude Code</span>expands it, if you typed a <code>/command</code> or MCP prompt</p><p class="sig"><button class="ev" data-e="UserPromptExpansion">UserPromptExpansion</button></p></li>
+<li class="loop"><ol>
+<li class="st"><p class="act"><span class="who">Claude</span>replies; the text streams to your screen</p><p class="sig"><span class="opt"><button class="ev" data-e="MessageDisplay">MessageDisplay</button><small>per batch of lines</small></span></p></li>
+<li class="st"><p class="act"><span class="who">Claude</span>calls a tool; parallel calls each get their own</p><p class="sig"><span class="opt"><button class="ev" data-e="PreToolUse">PreToolUse</button><small>every call</small></span></p></li>
+<li class="st if"><p class="act"><span class="who">Claude Code</span>checks permission, if the call needs it</p><p class="sig"><span class="opt"><button class="ev" data-e="PermissionRequest">PermissionRequest</button><small>about to ask you</small></span><span class="opt"><button class="ev" data-e="PermissionDenied">PermissionDenied</button><small>auto mode said no</small></span></p></li>
+<li class="st work"><p class="act"><span class="who">Tool</span>runs. Some tools fire events of their own:</p>
+<ul class="inner">
+<li><span class="tl"><code>Agent</code> tool</span><button class="ev" data-e="SubagentStart">SubagentStart</button><span class="th"><span class="to" aria-hidden="true">→</span><button class="ev" data-e="SubagentStop">SubagentStop</button></span><small>its own tool calls fire the tool hooks too</small></li>
+<li><span class="tl"><code>TaskCreate</code></span><button class="ev" data-e="TaskCreated">TaskCreated</button><span class="tl"><code>TaskUpdate</code></span><button class="ev" data-e="TaskCompleted">TaskCompleted</button></li>
+<li><span class="tl">an MCP tool asks you</span><button class="ev" data-e="Elicitation">Elicitation</button><span class="th"><span class="to" aria-hidden="true">→</span><button class="ev" data-e="ElicitationResult">ElicitationResult</button></span></li>
+</ul></li>
+<li class="st"><p class="act"><span class="who">Tool</span>returns</p><p class="sig"><span class="opt"><button class="ev" data-e="PostToolUse">PostToolUse</button><small>succeeded</small></span><span class="opt"><button class="ev" data-e="PostToolUseFailure">PostToolUseFailure</button><small>failed</small></span></p></li>
+<li class="st"><p class="act"><span class="who">Claude Code</span>has every result in the batch</p><p class="sig"><span class="opt"><button class="ev" data-e="PostToolBatch">PostToolBatch</button><small>once, before the next model call</small></span></p></li>
+</ol><p class="loopnote">↻ Results go back to Claude. The loop repeats until Claude answers without calling a tool.</p></li>
+<li class="st"><p class="act"><span class="who">Claude</span>finishes; the turn ends</p><p class="sig"><span class="opt"><button class="ev" data-e="Stop">Stop</button><small>finished</small></span><span class="opt"><button class="ev" data-e="StopFailure">StopFailure</button><small>an API error ended it</small></span><span class="opt"><button class="ev" data-e="TeammateIdle">TeammateIdle</button><small>a teammate going idle</small></span></p></li>
+</ol>
+</div></li>
+<li class="st"><p class="act"><span class="who">Context</span>fills up, or you run <code>/compact</code></p><p class="sig"><button class="ev" data-e="PreCompact">PreCompact</button><span class="th"><span class="to" aria-hidden="true">→</span><button class="ev" data-e="PostCompact">PostCompact</button></span><span class="opt"><button class="ev" data-e="SessionStart">SessionStart</button><small>again, source <code>compact</code></small></span></p></li>
+<li class="st turn"><p class="act"><span class="who">Turns</span>more prompts, more turns</p></li>
+<li class="st"><p class="act"><span class="who">Session</span>ends: you exit, run <code>/clear</code>, switch with <code>/resume</code>, or log out</p><p class="sig"><button class="ev" data-e="SessionEnd">SessionEnd</button></p></li>
+</ol>
+</div>
+<aside class="any" aria-labelledby="any-h">
+<h3 id="any-h">Any time</h3>
+<p class="anysub">Not tied to a step in the turn: each fires when its trigger happens.</p>
+<ul class="anyl">
+<li class="st"><p class="act">Claude Code needs you: a prompt has waited ~6 s, Claude went idle ~60 s ago, and more</p><p class="sig"><button class="ev" data-e="Notification">Notification</button></p></li>
+<li class="st"><p class="act">A settings or skill file changes</p><p class="sig"><button class="ev" data-e="ConfigChange">ConfigChange</button></p></li>
+<li class="st"><p class="act">The working directory changes, e.g. Claude runs <code>cd</code></p><p class="sig"><button class="ev" data-e="CwdChanged">CwdChanged</button></p></li>
+<li class="st"><p class="act">A watched file changes on disk</p><p class="sig"><button class="ev" data-e="FileChanged">FileChanged</button></p></li>
+<li class="st"><p class="act">You add a directory with <code>/add-dir</code></p><p class="sig"><button class="ev" data-e="DirectoryAdded">DirectoryAdded</button></p></li>
+<li class="st"><p class="act">A nested <code>CLAUDE.md</code> or path-scoped rule loads</p><p class="sig"><button class="ev" data-e="InstructionsLoaded">InstructionsLoaded</button></p></li>
+<li class="st"><p class="act">The model changes: before a switch you ask for, after any change</p><p class="sig"><button class="ev" data-e="PreModelSwitch">PreModelSwitch</button><span class="th"><span class="to" aria-hidden="true">→</span><button class="ev" data-e="PostModelSwitch">PostModelSwitch</button></span></p></li>
+<li class="st"><p class="act">A worktree is created, or one your hook made is removed</p><p class="sig"><button class="ev" data-e="WorktreeCreate">WorktreeCreate</button><button class="ev" data-e="WorktreeRemove">WorktreeRemove</button></p></li>
+</ul>
+</aside>
+</div>
+
+<section class="wire" aria-labelledby="wire-h">
+<h2 id="wire-h">Wire one up</h2>
+<p class="sub">The docs’ own example: a <code>PreToolUse</code> hook that refuses <code>rm -rf</code>. A hook nests three levels deep in a settings file.</p>
+<div class="wgrid">
+<figure>
+<figcaption>.claude/settings.json</figcaption>
+<pre><code>{
+  "hooks": {
+    <span class="k" data-k="1">"PreToolUse"</span>: [
+      {
+        <span class="k" data-k="2">"matcher": "Bash"</span>,
+        "hooks": [
+          {
+            <span class="k" data-k="3">"type": "command"</span>,
+            "if": "Bash(rm *)",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-rm.sh",
+            "args": []
+          }
+        ]
+      }
+    ]
+  }
+}</code></pre>
+</figure>
+<div>
+<ol class="keys">
+<li><b data-k="1" aria-hidden="true">1</b><span><strong>Hook event:</strong> when it runs. Here, before every tool call.</span></li>
+<li><b data-k="2" aria-hidden="true">2</b><span><strong>Matcher group:</strong> which occurrences. Only <code>Bash</code> calls; the handler’s <code>if</code> narrows that to <code>rm</code> commands, so the script never starts for <code>npm test</code>.</span></li>
+<li><b data-k="3" aria-hidden="true">3</b><span><strong>Hook handler:</strong> what runs. A command here; also <code>http</code>, <code>mcp_tool</code>, <code>prompt</code> or <code>agent</code>.</span></li>
+</ol>
+<div class="io">
+<div><span class="io-l">stdin, as JSON</span><pre><code>{ "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": { "command": "rm -rf /tmp/build" }, … }</code></pre></div>
+<div><span class="io-l">stdout, exit 0</span><pre><code>{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "Destructive command blocked by hook"
+  }
+}</code></pre></div>
+<p>Claude Code blocks the call and shows Claude the reason.</p>
+</div>
+</div>
+</div>
+<div class="exits">
+<div><code>exit 0</code><p>Success. Claude Code applies any JSON on stdout. Silence isn’t approval: on <code>PreToolUse</code> the normal permission flow still runs.</p></div>
+<div><code>exit 2</code><p>Blocks the action on events that can block; stderr is the reason. Elsewhere it is shown or ignored.</p></div>
+<div><code>any other</code><p>Without valid JSON on stdout, a non-blocking error, exit 1 included: the action goes ahead. Set <code>"onFailure": "block"</code> to fail closed instead.</p></div>
+</div>
+</section>
+
+<footer>
+<p>Every event, matcher and field here comes from the Claude Code docs as read on 4 Nov 2026: <a href="https://code.claude.com/docs/en/hooks" target="_blank" rel="noopener">Hooks reference</a> · <a href="https://code.claude.com/docs/en/hooks-guide" target="_blank" rel="noopener">Automate actions with hooks</a> · <a href="https://code.claude.com/docs/llms.txt" target="_blank" rel="noopener">docs index</a>. Some lists are shortened; the reference has every matcher value and field.</p>
+<p>Example of the <a href="https://github.com/plannotator/effective-html/tree/main/skills/html-diagram" target="_blank" rel="noopener">html-diagram</a> skill from effective-html (MIT) · HTML Server gallery</p>
+</footer>
+</div>
+<div id="det" class="det" role="region" aria-labelledby="det-n" hidden></div>
+<script>
+(function(){
+'use strict';
+var E={
+SessionStart:{c:'c',w:'A session starts or resumes, and again after `/clear` or compaction.',m:'how it started: `startup`, `resume`, `clear`, `compact`, `fork`',i:'`source`, `model` (not always), `agent_type`, `session_title`; on resume or fork also `context_tokens`, `seconds_since_last_response` and cache-cost estimates',r:'`additionalContext` (plain stdout works too), `sessionTitle`, `watchPaths`, `reloadSkills`, `initialUserMessage` (`-p` only). Write env vars to `$CLAUDE_ENV_FILE` for later Bash commands.',x:'Can’t block. stderr is shown to you only.',n:'Only `command` and `mcp_tool` handlers. It runs on every session, so keep it fast.'},
+Setup:{c:'o',w:'Only when you launch with `--init-only`, or `-p` with `--init` or `--maintenance`. Not on a normal start.',m:'which flag: `init`, `maintenance`',i:'`trigger`',r:'Nothing: JSON output is discarded. Variables written to `$CLAUDE_ENV_FILE` carry into later Bash commands.',x:'Ignored. Setup can’t block.'},
+InstructionsLoaded:{c:'o',w:'A `CLAUDE.md` or `.claude/rules/*.md` file loads into context: at session start, lazily when Claude reaches a nested one or a `paths:` rule matches, and again after compaction.',m:'`load_reason`: `session_start`, `nested_traversal`, `path_glob_match`, `include`, `compact`',i:'`file_path`, `memory_type`, `load_reason`, `globs`, `trigger_file_path`, `parent_file_path`',r:'Nothing: it runs asynchronously, for audit and observability.',x:'Ignored.'},
+UserPromptSubmit:{c:'bc',w:'A prompt is submitted, before Claude processes it. Also on turns Claude Code starts itself: a scheduled task or `/loop` tick, a background subagent reporting back, a message from another session.',m:'',i:'`prompt` (a `/command` arrives as typed, not expanded), `session_title`',r:'`decision: "block"` + `reason` (shown to you, not to Claude), `additionalContext` or plain stdout, `sessionTitle`, `suppressOriginalPrompt`. It can’t rewrite the prompt.',x:'Blocks the prompt; it never reaches Claude.',n:'Command, HTTP and MCP-tool handlers default to a 30 s timeout here.'},
+UserPromptExpansion:{c:'bc',w:'A command you typed (a skill, custom command or MCP prompt) expands into its full prompt, before it reaches Claude. Typing `/skillname` skips `PreToolUse` on the Skill tool; this event covers that path.',m:'`command_name`: your skill or command names',i:'`expansion_type`, `command_name`, `command_args`, `command_source`, `prompt`',r:'`decision: "block"` + `reason`, `additionalContext` or plain stdout',x:'Blocks the expansion.'},
+MessageDisplay:{c:'r',w:'While Claude’s reply streams to the screen: once per batch of finished lines (once per message with `-p` or the SDK).',m:'',i:'`turn_id`, `message_id`, `index`, `final`, `delta`',r:'`displayContent` replaces the text on screen only. The transcript and Claude keep the original.',x:'Nothing to block; the original text is shown.',n:'Each batch waits for the hook; default timeout 10 s.'},
+PreToolUse:{c:'bdrc',w:'After Claude writes a tool call, before it runs: every call (except `EndConversation`), in every permission mode, before any permission check.',m:'tool name: `Bash`, `Edit|Write`, `mcp__memory__.*`. Add `"if": "Bash(git *)"` to a handler to filter by arguments too.',i:'`tool_name`, `tool_input`, `tool_use_id` (MCP tools add `mcp_server`)',r:'`permissionDecision` (inside `hookSpecificOutput`): `allow`, `deny`, `ask` or `defer` (`-p` only), plus `permissionDecisionReason`, `updatedInput`, `additionalContext`. Across hooks, deny beats defer beats ask beats allow.',x:'Blocks the call; stderr goes to Claude as the reason.',n:'Exit 0 with no output is not an approval: the normal permission flow continues.'},
+PermissionRequest:{c:'bdr',w:'Claude Code is about to ask you to approve a tool call, or would auto-deny one that can’t prompt.',m:'tool name, as for `PreToolUse`',i:'`tool_name`, `tool_input`, `permission_suggestions` (no `tool_use_id`)',r:'`decision.behavior` (inside `hookSpecificOutput`): `allow`, with optional `updatedInput` and `updatedPermissions`, or `deny`, with `message` and `interrupt`',x:'Not honored: the prompt goes ahead. Deny with the decision object.',n:'A hook’s allow doesn’t override a matching deny rule.'},
+PermissionDenied:{c:'d',w:'Auto mode denies a tool call. Not when you deny a prompt, a `PreToolUse` hook blocks, or a deny rule matches.',m:'tool name',i:'`tool_name`, `tool_input`, `tool_use_id`, `reason`',r:'`retry: true` (inside `hookSpecificOutput`) tells Claude it may retry. The denial itself stands.',x:'Ignored: the denial already happened.'},
+PostToolUse:{c:'cr',w:'Right after a tool call succeeds.',m:'tool name',i:'`tool_name`, `tool_input`, `tool_response`, `tool_use_id`, `duration_ms`',r:'`decision: "block"` + `reason` (feedback next to the result), `additionalContext`, `updatedToolOutput` (replaces what Claude sees), `classifierContext`',x:'Can’t undo: the tool already ran. stderr is shown to Claude.'},
+PostToolUseFailure:{c:'c',w:'A tool that started running fails: it threw, or an MCP tool returned an error. Not for calls rejected before they run.',m:'tool name',i:'`tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt`, `duration_ms`',r:'`additionalContext` next to the error',x:'Can’t block: the tool already failed. stderr is shown to Claude.'},
+PostToolBatch:{c:'bc',w:'Once every call in a batch has resolved (parallel calls included), before the next request to the model.',m:'',i:'`tool_calls`: each call’s `tool_name`, `tool_input`, `tool_use_id`, `tool_response`',r:'`additionalContext`, injected once before the next model call; `decision: "block"` or `continue: false` stops the loop',x:'Stops the agentic loop before the next model call.'},
+Notification:{c:'o',w:'Claude Code sends a notification: a permission prompt has waited about 6 s, Claude finished about 60 s ago, an MCP dialog is open, and more.',m:'`notification_type`: `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`, `agent_needs_input`, `agent_completed` and others',i:'`message`, `title`, `notification_type`',r:'Can’t block or modify. `terminalSequence` still fires (a desktop notification, the bell); `systemMessage` is discarded.',x:'Ignored.'},
+SubagentStart:{c:'c',w:'Claude spawns a subagent with the Agent tool or resumes one, or an in-process teammate takes a new message.',m:'agent type: `general-purpose`, `Explore`, `Plan`, your agents’ names',i:'`agent_id`, `agent_type`',r:'`additionalContext`, added to the subagent’s context before its first prompt. It can’t block creation.',x:'Can’t block. stderr is shown to you only.'},
+SubagentStop:{c:'bc',w:'A subagent has finished responding.',m:'agent type',i:'`agent_id`, `agent_type`, `agent_transcript_path`, `last_assistant_message`, `stop_hook_active`',r:'As for `Stop`: `decision: "block"` + `reason` keeps it working (the reason is its next instruction); `additionalContext`',x:'The subagent keeps working.'},
+TaskCreated:{c:'b',w:'A task is being created with the `TaskCreate` tool.',m:'',i:'`task_id`, `task_subject`, `task_description`, `teammate_name`',r:'`decision: "block"` + `reason`: the task is deleted and the reason returns to Claude as the tool error',x:'Rolls back the task creation.'},
+TaskCompleted:{c:'b',w:'A task is being marked completed: through `TaskUpdate`, or when an agent-team teammate ends its turn with tasks in progress.',m:'',i:'`task_id`, `task_subject`, `task_description`, `teammate_name`',r:'Exit 2 with feedback on stderr; `continue: false` stops a teammate (ignored when `TaskUpdate` triggered it)',x:'The task stays open; stderr goes back to the model.'},
+Stop:{c:'bc',w:'The main agent finishes responding. Not after you interrupt; an API error fires `StopFailure` instead.',m:'',i:'`last_assistant_message`, `stop_hook_active`, `background_tasks`, `session_crons`',r:'`decision: "block"` + `reason` (required) keeps Claude working; `additionalContext` gives non-error feedback and also continues',x:'Claude keeps working; stderr says why.',n:'Overridden after 8 continuations in a row. Check `stop_hook_active` to avoid loops.'},
+StopFailure:{c:'o',w:'Instead of `Stop`, when the turn ends because of an API error.',m:'`error`: `rate_limit`, `overloaded`, `authentication_failed`, `billing_error`, `server_error`, `max_output_tokens`, `unknown` and others',i:'`error`, `error_details`, `last_assistant_message` (the error text)',r:'Nothing, except `terminalSequence`. Use it to log or alert.',x:'Ignored.'},
+TeammateIdle:{c:'b',w:'An agent-team teammate is about to go idle after finishing its turn.',m:'',i:'`teammate_name`',r:'Exit 2 to keep it working; `{"continue": false, "stopReason": "..."}` stops it entirely',x:'The teammate keeps working, with stderr as feedback.'},
+ConfigChange:{c:'b',w:'A settings file, managed policy file or skill file changes during the session.',m:'source: `user_settings`, `project_settings`, `local_settings`, `policy_settings`, `skills`',i:'`source`, `file_path`',r:'`decision: "block"` keeps the change out of the running session (the `reason` is never shown)',x:'Blocks the change, except `policy_settings`, which always apply.'},
+CwdChanged:{c:'o',w:'A shell command in the main conversation changes the working directory, like Claude running `cd`.',m:'',i:'`old_cwd`, `new_cwd`',r:'No decision. `watchPaths` for `FileChanged`, env vars via `$CLAUDE_ENV_FILE`, a brief `systemMessage` notice.',x:'Can’t block. stderr is shown to you only.'},
+DirectoryAdded:{c:'o',w:'After a working directory is added mid-session with `/add-dir` or the SDK’s `register_repo_root`. Not for `--add-dir` at startup.',m:'how: `slash_command`, `register_repo_root`',i:'`directory`, `source`',r:'No decision; it runs in the background. After `/add-dir`, `systemMessage` reaches Claude as context on the next turn.',x:'stderr goes to the debug log; the directory is already added.'},
+FileChanged:{c:'o',w:'A watched file changes on disk, whatever changed it: an edit, a Bash script or another program.',m:'literal filenames to watch: `.envrc|.env`',i:'`file_path`, `event` (`change`, `add`, `unlink`)',r:'No decision. `watchPaths`, env vars via `$CLAUDE_ENV_FILE`, a brief `systemMessage` notice.',x:'Can’t block. stderr is shown to you only.'},
+WorktreeCreate:{c:'b',w:'Claude Code creates a worktree: `--worktree`, `EnterWorktree`, a subagent with `isolation: "worktree"`, a background session. The hook replaces the default git behavior.',m:'',i:'`name`',r:'The worktree’s path: a command hook prints it as the last line of stdout; an HTTP hook returns `worktreePath`',x:'Any non-zero exit fails the creation.'},
+WorktreeRemove:{c:'b',w:'A worktree your `WorktreeCreate` hook made is being removed, for example when you exit that session and choose to remove it.',m:'',i:'`worktree_path`',r:'Only the exit code counts; JSON output is discarded.',x:'Any non-zero exit fails the removal if the directory still exists.'},
+PreCompact:{c:'b',w:'Before compaction: `/compact`, or auto-compact when the conversation reaches the auto-compact window, or idle compaction.',m:'trigger: `manual`, `auto`',i:'`trigger`, `custom_instructions`',r:'`decision: "block"`',x:'Blocks compaction. Blocking one that recovers from a context-limit error makes the request fail.'},
+PostCompact:{c:'o',w:'After compaction completes.',m:'trigger: `manual`, `auto`',i:'`trigger`, `compact_summary`',r:'No decision. Log the summary or update external state.',x:'Can’t block. stderr is shown to you only.'},
+PreModelSwitch:{c:'bd',w:'Before a model switch that you or a client asked for: `/model`, the picker, `/config`, fast mode, an SDK `set_model`. Not for switches Claude Code makes itself.',m:'canonical name of the target model: `claude-opus-5`, `.*opus.*`',i:'`from_model`, `to_model`, `requested_model`, `source`, `context_tokens`, `prompt_cache_warm`, `estimated_cache_write_usd`',r:'`permissionDecision` `allow`, `deny` or `ask` + `permissionDecisionReason`, or `decision: "block"`. Any `systemMessage` is shown.',x:'Blocks the switch and shows you stderr.',n:'A hook that times out also blocks the switch.'},
+PostModelSwitch:{c:'c',w:'After the session’s model changes: a switch you asked for, an automatic fallback, `opusplan` entering or leaving plan mode, or a resume restoring the model.',m:'canonical name of the new model',i:'as for `PreModelSwitch`; `source` can also be `auto` or `resume`',r:'`additionalContext` or plain stdout, delivered with the next request',x:'Can’t block: the model already changed. stderr is shown to you.'},
+Elicitation:{c:'br',w:'An MCP server asks for user input during a tool call: a form, or a URL to open.',m:'MCP server name',i:'`mcp_server_name`, `message`, `mode`, `url`, `requested_schema`',r:'`action` (inside `hookSpecificOutput`): `accept` with `content` (answers for you), `decline` or `cancel`. Print nothing to show the dialog.',x:'Declines the request; no dialog appears.'},
+ElicitationResult:{c:'br',w:'After you answer an MCP elicitation, before the response goes back to the server. Skipped if an `Elicitation` hook already answered.',m:'MCP server name',i:'`mcp_server_name`, `action`, `mode`, `content`',r:'`action` (inside `hookSpecificOutput`): `accept` with new `content`, `decline` or `cancel`. Print nothing to pass your answer through.',x:'Blocks the response: the server gets `decline`.'},
+SessionEnd:{c:'o',w:'The session ends: you exit, run `/clear`, switch with `/resume`, or log out.',m:'reason: `clear`, `resume`, `logout`, `prompt_input_exit`, `other`',i:'`reason`',r:'Nothing: JSON output is discarded. Use it for cleanup and logging.',x:'Can’t block. stderr is shown to you only.',n:'All SessionEnd hooks share a 1.5 s budget by default.'}
+};
+var K={b:'can block',d:'approves or denies',c:'adds context',r:'can rewrite',o:'only watches'};
+var SUM={
+all:'Each event’s marks show what a hook can do there.',
+b:'Exit 2 or a JSON decision stops the action (worktree hooks: any non-zero exit). On `Stop`, `SubagentStop` and `TeammateIdle`, “no” means keep working; on `TaskCompleted`, the task stays open.',
+d:'Allow, deny or ask in place of the prompt, or let Claude retry after an auto-mode denial. On tool calls, deny rules still beat a hook’s allow.',
+c:'Text reaches Claude as a system reminder, where the hook fired. It isn’t shown as a chat message.',
+r:'Change a tool’s input before it runs, its output before Claude sees it, an MCP form answer, or only what’s on screen.',
+o:'No decision control: use these for logging, alerts, cleanup and environment setup.'};
+var S=[
+['UserPromptSubmit','You type `/fix-test checkout` and press Enter. Before anything else, `UserPromptSubmit` gets the line exactly as typed. It could block it, or add context such as the current branch.'],
+['UserPromptExpansion','`/fix-test` is a skill, so it expands into its full prompt. `UserPromptExpansion` sees `command_name` `fix-test` and `command_args` `checkout`: the place to block one command or attach a checklist.'],
+['MessageDisplay','Claude starts replying: “I’ll run the checkout tests first.” Each batch of finished lines passes through `MessageDisplay` on its way to your screen; Claude and the transcript keep the original.'],
+['PreToolUse','Claude asks to run Bash `npm test -- checkout`. `PreToolUse` fires before anything executes. It could deny the call, ask you, allow it, or rewrite the command.'],
+['PermissionRequest','No allow rule covers that command, so Claude Code is about to ask you. A `PermissionRequest` hook can answer instead: allow or deny.'],
+['PostToolUseFailure','The tests exit with code 1, so the tool call failed. `PostToolUseFailure` gets the error text and can add context for Claude.'],
+['PostToolBatch','That was the only call in the batch, so `PostToolBatch` runs once, before the results go back to Claude. It can add context, or stop the loop here.'],
+['PreToolUse','Claude edits `checkout.test.ts`, and `PreToolUse` fires again: once for every tool call. Edits are already allowed in this session, so there’s no prompt and no `PermissionRequest`.'],
+['PostToolUse','The edit succeeds. `PostToolUse` is where a formatter or linter runs; it can also add context, or replace what Claude sees.'],
+['PostToolBatch','Batch done, back to Claude. It reruns the tests (another `PreToolUse`, `PostToolUse`, `PostToolBatch` round) and they pass.'],
+['Stop','Claude answers without calling a tool, so the turn ends and `Stop` fires. A `Stop` hook could send Claude back to work, for example if the tests were never rerun.']];
+function $(s,r){return (r||document).querySelector(s)}
+function $$(s,r){return [].slice.call((r||document).querySelectorAll(s))}
+function md(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/`([^`]+)`/g,'<code>$1</code>')}
+function g(k){return '<svg class="g g-'+k+'" aria-hidden="true"><use href="#g-'+k+'"/></svg>'}
+var dia=$('#dia'),det=$('#det'),out=$('#fout'),cur=null,walk=-1,
+reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+$$('.ev').forEach(function(b){
+var n=b.getAttribute('data-e'),c=E[n].c.split('');
+b.type='button';b.setAttribute('aria-expanded','false');b.setAttribute('aria-controls','det');
+c.forEach(function(k){b.classList.add('k'+k)});
+b.innerHTML='<span class="nm">'+n+'</span><span class="pips">'+c.map(g).join('')+'</span><span class="sr">, '+c.map(function(k){return K[k]}).join(', ')+'</span>';
+b.addEventListener('click',function(){walk=-1;if(cur===b&&!det.hidden)close(true);else open(b)});
+});
+function dd(t,v){return '<dt>'+t+'</dt><dd>'+v+'</dd>'}
+function unsel(){$$('.now').forEach(function(x){x.classList.remove('now')});if(cur){cur.classList.remove('sel');cur.setAttribute('aria-expanded','false')}}
+function open(b){
+unsel();cur=b;b.classList.add('sel');b.setAttribute('aria-expanded','true');
+var n=b.getAttribute('data-e'),e=E[n],c=e.c.split(''),h='';
+if(walk>=0)h+='<p class="det-step"><b>Step '+(walk+1)+' of '+S.length+'</b>'+md(S[walk][1])+'</p>';
+h+='<div class="det-hd"><p class="det-n" id="det-n">'+n+'</p><p class="tags">'+c.map(function(k){return '<span>'+g(k)+K[k]+'</span>'}).join('')+'</p></div><p class="det-w">'+md(e.w)+'</p><dl>'+
+dd('Matcher',e.m?md(e.m):'None: fires every time')+dd('Input',md(e.i))+dd('Can return',md(e.r))+dd('Exit 2',md(e.x))+(e.n?dd('Note',md(e.n)):'')+'</dl>';
+if(walk>=0)h+='<p class="dnav"><button type="button" data-go="-1"'+(walk?'':' disabled')+'>← Back</button><button type="button" data-go="1">'+(walk<S.length-1?'Next →':'Finish')+'</button><button type="button" data-go="0">End walk-through</button></p>';
+det.innerHTML=h+'<button type="button" class="x" aria-label="Close details">×</button>';
+var li=b.closest('li');li.appendChild(det);det.hidden=false;
+if(walk>=0)li.classList.add('now');
+try{det.scrollIntoView({block:'nearest',behavior:reduce?'auto':'smooth'})}catch(_){}
+}
+function close(focus){var b=cur;unsel();cur=null;walk=-1;det.hidden=true;if(focus&&b)b.focus()}
+function step(i){
+if(i<0)return;if(i>=S.length){close(true);return}
+walk=i;open($('#lad .ev[data-e="'+S[i][0]+'"]'));
+var f=$('[data-go="1"]',det);if(f)f.focus({preventScroll:true});
+}
+det.addEventListener('click',function(ev){
+var t=ev.target.closest('button');if(!t)return;
+if(t.classList.contains('x')){close(true);return}
+var go=t.getAttribute('data-go');if(go===null)return;
+if(go==='0')close(true);else step(walk+(+go));
+});
+document.addEventListener('keydown',function(ev){
+if(det.hidden)return;
+if(ev.key==='Escape'){close(true);return}
+if(walk>=0&&det.contains(document.activeElement)){
+if(ev.key==='ArrowRight'){ev.preventDefault();step(walk+1)}
+else if(ev.key==='ArrowLeft'&&walk>0){ev.preventDefault();step(walk-1)}
+}
+});
+$('#walk').addEventListener('click',function(){step(0)});
+var flts=$$('.flt');
+flts.forEach(function(f){
+var k=f.getAttribute('data-f'),names=Object.keys(E).filter(function(n){return k==='all'||E[n].c.indexOf(k)>=0});
+$('.n',f).textContent=names.length;
+f.addEventListener('click',function(){
+flts.forEach(function(x){x.setAttribute('aria-pressed',x===f?'true':'false')});
+if(k==='all')dia.removeAttribute('data-f');else dia.setAttribute('data-f',k);
+out.innerHTML=md(SUM[k])+(k==='all'?'':' <span>'+names.length+' events: '+names.map(function(n){return '<code>'+n+'</code>'}).join(', ')+'.</span>');
+});
+});
+})();
+</script>
+</body>
+</html>

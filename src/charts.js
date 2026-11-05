@@ -63,7 +63,8 @@ ${tableView(caption, ['Period', unit[0].toUpperCase() + unit.slice(1)], points.m
 }
 
 /** A chart's title, with its headline number on the right ("1,204 views"). */
-const chartHead = (title, headline) => `<figcaption><span>${esc(title)}</span>${headline ? `<b>${esc(headline)}</b>` : ''}</figcaption>`;
+// `control`: HTML for the right of the title in place of a headline (a period picker).
+const chartHead = (title, headline, control = '') => `<figcaption><span>${esc(title)}</span>${control || (headline ? `<b>${esc(headline)}</b>` : '')}</figcaption>`;
 
 /** The colour key for charts with more than one series. */
 const legend = (series) => `<ul class="legend-row">${series.map((s, i) => `<li><i class="sw s${i + 1}"></i>${esc(s.label)}</li>`).join('')}</ul>`;
@@ -120,14 +121,18 @@ export function heroTile(value, label, { sub = '', delta = null, spark = '' } = 
     + `${change}${sub ? `<small>${esc(sub)}</small>` : ''}${spark}</div>`;
 }
 
-/** Ranked horizontal bars: rows = [{ label, value, href }]. Labels and values in text colours. */
-export function barList(rows, { title, unit, empty = 'Nothing yet.', headline = '' } = {}) {
-  if (!rows.length) return `<figure class="chart">${chartHead(title, headline)}<p class="empty">${esc(empty)}</p></figure>`;
+/**
+ * Ranked horizontal bars: rows = [{ label, value, href, tip }] (`tip`: the hover text, if not
+ * "label: value unit"). Labels and values in text colours. `id` names the figure; `control`, see chartHead.
+ */
+export function barList(rows, { title, unit, empty = 'Nothing yet.', headline = '', id = '', control = '' } = {}) {
+  const figure = `<figure class="chart"${id ? ` id="${esc(id)}"` : ''}>${chartHead(title, headline, control)}`;
+  if (!rows.length) return `${figure}<p class="empty">${esc(empty)}</p></figure>`;
   const max = Math.max(...rows.map((r) => r.value));
-  const items = rows.map((r) => `<li class="mark" data-tip="${esc(`${r.label}: ${fmt(r.value)} ${unit}`)}">
+  const items = rows.map((r) => `<li class="mark" data-tip="${esc(r.tip ?? `${r.label}: ${fmt(r.value)} ${unit}`)}">
   <span class="bl-label">${r.href ? `<a href="${esc(r.href)}">${esc(r.label)}</a>` : esc(r.label)}</span>
   <span class="bl-track"><span class="bl-bar" style="width:${Math.max((r.value / max) * 100, 1.5).toFixed(1)}%"></span></span>
   <span class="bl-value">${fmt(r.value)}</span></li>`).join('');
-  return `<figure class="chart">${chartHead(title, headline)}<ol class="barlist">${items}</ol>
+  return `${figure}<ol class="barlist">${items}</ol>
 ${tableView(title, ['Name', unit[0].toUpperCase() + unit.slice(1)], rows.map((r) => [r.label, r.value]))}</figure>`;
 }

@@ -212,7 +212,10 @@ iframes](https://developer.chrome.com/blog/responsive-iframes) (`frame-sizing:
 content-height`; the server adds the page's opt-in meta tag) where the browser has them,
 otherwise by a small script that reports the page's height. Pages built to fill the window
 (100vh or `height: 100%` layouts, `overflow: hidden`) stay at window height, as does any
-page with `<meta name="html-server-frame" content="window">`.
+page with `<meta name="html-server-frame" content="window">`. ⌘K inside the page opens
+search, as on every page (unless the page uses those keys itself), and a link it follows
+opens in the tab, so the address, title bar and sidebar go with it; links to a new tab or
+window, and ⌘-clicks, are the browser's as always.
 
 Only browser tabs get the frame. Iframes, gallery previews, the review page, curl and
 other clients get the page itself, as does `?raw=1`, and the frame isn't counted as a view.
@@ -326,13 +329,21 @@ typefaces (Schibsted Grotesk, Source Sans 3, IBM Plex Mono, served from this ser
 the SIL Open Font License, licences in `public/fonts`) and its three-column layout.
 
 - **Left sidebar** on every page: the title, the running version (linking to its
-  release), search, a light/dark switch, the site's sections (Pages, Graph, Stats,
-  Gallery, Docs) and an **explorer** of folders and pages. On a phone it collapses
-  above the page.
+  release), search, a light/dark switch, the site's sections (Pages, Random, Graph, Stats,
+  Gallery, Docs), an **explorer** of folders and pages, and **Skills**. The button at its
+  top left hides it and brings it back, and the choice is kept like light/dark. An HTML page
+  in the frame takes the whole width beside it (all of it when it's hidden). On a phone it collapses above
+  the page.
+- **Skills:** the eight skills of [effective-html](https://github.com/plannotator/effective-html)
+  (agent skills for HTML artifacts), each with two examples in the gallery, one on data
+  or machine learning and one on Claude Code, and a link to the skill itself.
+- **Random:** opens a random page you can see, never the one you're on (unless it's the
+  only one). `/random?folder=research` or `/random?category=trips` picks one in a folder
+  or with a tag.
 - **Search from anywhere:** ⌘K, Ctrl+K or `/` opens a search box with live results;
-  arrows move, Enter opens. On the home page the same keys go to its own search box,
-  which filters the cards instead, keeping each card's live preview as it is rather than
-  loading it again. Search is typo-tolerant (including in the start of a longer word:
+  arrows move, Enter opens. Inside an HTML page in the frame, ⌘K and Ctrl+K do too. On
+  the home page the same keys go to its own search box, which filters the cards instead,
+  keeping each card's live preview as it is rather than loading it again. Search is typo-tolerant (including in the start of a longer word:
   "gardn" finds "gardening"), finds other forms of a word ("studies" finds "study"), ranks
   title matches first and marks the matched words. It also covers text a page writes
   with JavaScript, tags and aliases. From the terminal: `html-server search WORDS`
@@ -378,9 +389,12 @@ Links are read from each page's latest version: wikilinks, `/pages/x`, `/x` or a
 backlinks and a note's links, and each reader sees the links to pages they can see.
 
 **Stats** (`/stats`): views over the last 30 days (with a trend line and the change from the
-30 days before), pages, versions and visitors; views per day and uploads per week; the most
-viewed and most edited pages, pages per tag, and recent uploads, all counted over the pages
-you can see. Hover any bar for its value, or open "Show as table".
+30 days before), pages, versions and visitors; views per day and uploads per week; the
+popular and most edited pages, pages per tag, and recent uploads, all counted over the pages
+you can see. Hover any bar for its value, or open "Show as table". **Popular** ranks pages by
+visits over the last 2 weeks, or the period picked beside it (1 week to a year, or all time;
+`?weeks=` takes any number up to 520). A visit counts each visitor once a day per page, so
+reloading a page while you edit it doesn't make it popular; hover a page for its views too.
 
 **API and MCP usage**, for admins, at the bottom of `/stats` (and as JSON at
 `/api/stats/usage`): API calls over the last 30 days by kind of client (MCP tools, the
@@ -397,8 +411,11 @@ that fail on your machine before reaching the server (not signed in, server down
 counted.
 
 **Gallery** (`/gallery`) shows the example pages that ship in this package's `gallery/`
-folder, read-only, so every install has them and they never mix with your own. To make one
-your own, copy it and `html-server put` it.
+folder, read-only, so every install has them and they never mix with your own. In a browser
+tab an example sits in the site's frame, as your pages do (`?raw=1` for the example alone).
+Sixteen of them show the skills of [effective-html](https://github.com/plannotator/effective-html),
+two per skill: filter by **Effective HTML**, or open them from the sidebar's Skills. To make
+one your own, copy it and `html-server put` it.
 
 **Docs** (`/docs`, also `/api`): the command line, MCP and the HTTP API on one page, built
 from the CLI's own usage text, the MCP tool definitions and the route table, so it stays
@@ -678,7 +695,7 @@ this. Query parameters work when the name is spelled out in the URL. Errors are 
   files are read through one module, so the same code serves from Node or from a
   Cloudflare Durable Object.
 - **Reserved names:** `api`, `v`, `review`, `pages`, `history`, `gallery`, `graph`, `stats`,
-  `assets`, `docs`, `favicon.ico` and `robots.txt` can't be page names, because the server
+  `random`, `assets`, `docs`, `favicon.ico` and `robots.txt` can't be page names, because the server
   uses those paths itself (browsers ask for `/favicon.ico` and crawlers for `/robots.txt`;
   both get a plain 404 straight away).
 
@@ -775,7 +792,7 @@ with a throwaway database holding `README.md` and `CHANGELOG.md` as notes, and s
 it answers: the README is a note, with its explorer, local graph, contents and backlinks,
 and the Docs page is built from the code as on every server. Links are made relative, so
 the site works under any path. What needs a running server is left out: ⌘K search, page
-versions, history and comments, the Pages, Graph and Stats sections, and the gallery's
+versions, history and comments, the Pages, Random, Graph and Stats sections, and the gallery's
 search, filters and layouts. Hover previews, the local graph, **Copy markdown** and
 light/dark work as on a server, since what they need is in the page. Then every link is
 followed, and one the site can't follow (a page it doesn't have, a server path) fails the
@@ -816,4 +833,6 @@ MIT, see [`LICENSE`](LICENSE). The site's look follows [Quartz](https://github.c
 default theme (MIT). The fonts are under the SIL Open Font License (licences in
 `public/fonts`). The explain-diff gallery page follows Geoffrey Litt's explain-diff format,
 and the featured page summarizes and links to Thariq Shihipar's article; both are credited
-on the pages, and neither copies the original.
+on the pages, and neither copies the original. The Effective HTML examples follow the skills
+of [plannotator/effective-html](https://github.com/plannotator/effective-html) (MIT), and
+the Claude Code ones draw on the Claude Code docs; each page links to what it used.
