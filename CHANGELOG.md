@@ -7,6 +7,8 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.11.0 (2026-11-04)
+
 - **Random page.** A Random link in the sidebar opens a random page you can see, never the
   one you're on (unless it's the only one). `/random?folder=…` or `?category=…` picks one
   in a folder or with a tag. `random` is now a reserved page name.
