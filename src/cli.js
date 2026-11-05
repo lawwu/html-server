@@ -5,12 +5,13 @@
 // access to the machine). Client commands talk to a running server over HTTP.
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { parse as parseYaml } from 'yaml';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
 import { PAGE_EXT_RE, VERSION } from './config.js';
 import { encodePath, pageUrl } from './paths.js';
@@ -21,7 +22,6 @@ import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, F
 const USAGE = usage({ backupDir: BACKUP_DIR, homeDir: HOME_DIR, server: SERVER });
 
 const CliError = ClientError; // CLI mistakes and API errors print the same way
-const PRUNE_PAGE = 500; // pages per request when `sync --prune` lists a folder's pages (the server's most)
 const fail = (msg) => { throw new CliError(msg); };
 
 // --- server commands --------------------------------------------------------------
@@ -377,11 +377,13 @@ const clientCommands = {
         const p = join(d, f);
         const rel = p.slice(root.length + 1);
         if (ignored(rel)) continue;
-        if (statSync(p).isDirectory()) walk(p);
+        const entry = lstatSync(p);
+        if (entry.isSymbolicLink()) { console.log(`skipped   ${rel} (symlink)`); continue; }
+        if (entry.isDirectory()) walk(p);
         else if (/\.(md|markdown|html?|ipynb)$/i.test(f) || ASSET_RE.test(f)) files.push(p);
       }
     })(root);
-    if (!files.length) fail(`no notes, pages or images under ${root}`);
+    if (!files.length && !opts.prune) fail(`no notes, pages or images under ${root}`);
 
     let inGit = false;
     try { inGit = execFileSync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() === 'true'; } catch { /* not git */ }
@@ -560,13 +562,23 @@ function quartzConfig(dir) {
   if (!cfg) return null;
   const text = readFileSync(cfg, 'utf8');
   let ignore = [];
-  if (cfg.endsWith('.ts')) {
-    const m = text.match(/ignorePatterns\s*:\s*\[([^\]]*)\]/);
-    if (m) ignore = [...m[1].matchAll(/["'`]([^"'`]+)["'`]/g)].map((x) => x[1]);
-  } else {
-    const m = text.match(/^(\s*)ignorePatterns:\s*\n((?:\1\s+-\s*.+\n?)+)/m);
-    if (m) ignore = [...m[2].matchAll(/-\s*["']?([^"'\n]+?)["']?\s*$/gm)].map((x) => x[1]);
-  }
+  try {
+    if (cfg.endsWith('.ts')) {
+      // Never execute a vault's config. Accept only a literal list of quoted strings;
+      // expressions/spreads/unknown syntax must not silently discard privacy rules.
+      const code = text.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, (m, quoted) => quoted ?? ' ');
+      const literal = /(?:^|[,{])\s*(?:ignorePatterns|"ignorePatterns"|'ignorePatterns')\s*:\s*(\[(?:\s*(?:"[^"\\]*"|'[^'\\]*')\s*,?)*\s*\])\s*(?=[,}])/s.exec(code)?.[1];
+      if (!literal || [...code.matchAll(/\bignorePatterns\b/g)].length !== 1) throw new Error('ignorePatterns must be a single explicit literal list of quoted strings');
+      ignore = parseYaml(literal);
+    } else {
+      const config = parseYaml(text, { maxAliasCount: 100 });
+      if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('expected a YAML configuration object');
+      const settings = config.configuration ?? config;
+      if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('expected a configuration object');
+      ignore = Object.hasOwn(settings, 'ignorePatterns') ? settings.ignorePatterns : [];
+    }
+    if (!Array.isArray(ignore) || ignore.some((p) => typeof p !== 'string' || !p.trim())) throw new Error('ignorePatterns must be a list of nonempty strings');
+  } catch (e) { fail(`cannot read exclusions from ${cfg}: ${e.message}`); }
   return { ignore };
 }
 

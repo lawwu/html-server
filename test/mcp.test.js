@@ -146,3 +146,17 @@ test('MCP publishes nested paths, moves pages, and scopes lists by folder', asyn
   const list = data(await call('list_pages', { folder: 'mcp-archive' }));
   assert.deepEqual(list.map((p) => p.name), ['mcp-archive/note.md']);
 });
+
+test('MCP rejects invalid argument types before publishing or modifying anything', async () => {
+  for (const value of ['false', 'true', 0, 1, null, {}]) {
+    const r = await call('publish_page', { name: 'invalid-public.html', html: '<p>Private</p>', public: value });
+    assert.equal(r.isError, true);
+    assert.match(r.content[0].text, /public must be boolean/);
+  }
+  assert.equal((await fetch(url + '/pages/invalid-public.html')).status, 404);
+  assert.equal((await call('move_pages', { moves: [null] })).isError, true);
+  assert.equal((await call('publish_page', { name: 'invalid-version.html', html: '<p>x</p>', base_version: '1' })).isError, true);
+  assert.equal((await call('tag_pages', { pages: 'plan.html', add: ['oops'] })).isError, true);
+  const valid = data(await call('publish_page', { name: 'boolean-false.html', html: '<p>Private</p>', public: false }));
+  assert.equal(valid.visibility, 'private');
+});

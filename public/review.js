@@ -45,7 +45,15 @@ function setFrame({ url, html }) {
   } else f.src = url;
   $('frame').replaceWith(f);
 }
-function showPage() { showingDiff = false; $('changes').textContent = 'Show changes'; setFrame({ url: `${meta.share_url}?v=${cur}` }); }
+// The rendered page has an opaque origin; only our current frame, after an actual
+// user gesture, may request HTTP(S) navigation. Never trust a message's claimed origin.
+addEventListener('message', (e) => {
+  if (e.source !== $('frame')?.contentWindow || e.data?.htmlServer !== 'go' || navigator.userActivation?.isActive !== true) return;
+  let url;
+  try { url = new URL(e.data.href); } catch { return; }
+  if (/^https?:$/.test(url.protocol)) location.assign(url.href);
+});
+function showPage() { showingDiff = false; $('changes').textContent = 'Show changes'; setFrame({ url: `${meta.share_url || meta.url}?v=${cur}&embed=1` }); }
 /**
  * What changed between two versions (by default, into the one on show). The changes page is
  * fetched with the saved token, so a private page's show too; a frame pointed at it would

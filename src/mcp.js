@@ -252,8 +252,30 @@ function brief(a) {
   };
 }
 
+/** Enforce the schema vocabulary used by TOOLS before any HTTP side effects. */
+function validateArguments(value, schema, path = 'arguments') {
+  const type = schema.type;
+  const valid = type === 'object' ? value !== null && typeof value === 'object' && !Array.isArray(value)
+    : type === 'array' ? Array.isArray(value) : type === 'integer' ? Number.isSafeInteger(value) : typeof value === type;
+  if (!valid) throw new Error(`${path} must be ${type}`);
+  if (schema.enum && !schema.enum.includes(value)) throw new Error(`${path} must be one of ${schema.enum.join(', ')}`);
+  if (type === 'object') {
+    for (const key of schema.required || []) if (!Object.hasOwn(value, key)) throw new Error(`${path}.${key} is required`);
+    for (const [key, child] of Object.entries(schema.properties || {})) {
+      if (Object.hasOwn(value, key)) validateArguments(value[key], child, `${path}.${key}`);
+    }
+  }
+  if (type === 'array') {
+    if (value.length < (schema.minItems ?? 0) || value.length > (schema.maxItems ?? Infinity)) throw new Error(`${path} has an invalid number of items`);
+    value.forEach((item, i) => validateArguments(item, schema.items, `${path}[${i}]`));
+  }
+}
+
 /** Handle one JSON-RPC request; returns the response object, or null for a notification. */
 export async function handle(msg) {
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.method !== 'string') {
+    return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'invalid request' } };
+  }
   const reply = (result) => ({ jsonrpc: '2.0', id: msg.id, result });
   const error = (code, message) => ({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
   if (msg.id === undefined) return null; // notifications (initialized, cancelled, …) need no answer
@@ -276,7 +298,9 @@ export async function handle(msg) {
       const tool = TOOLS.find((t) => t.name === msg.params?.name);
       if (!tool) return error(-32602, `unknown tool: ${msg.params?.name}`);
       try {
-        const out = await withClient(`mcp/${tool.name}`, () => tool.run(msg.params.arguments ?? {})); // labelled for usage stats
+        const args = msg.params.arguments === undefined ? {} : msg.params.arguments;
+        validateArguments(args, tool.inputSchema);
+        const out = await withClient(`mcp/${tool.name}`, () => tool.run(args)); // labelled for usage stats
         const text = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
         return reply({ content: [{ type: 'text', text }], ...(typeof out === 'object' && !Array.isArray(out) ? { structuredContent: out } : {}) });
       } catch (e) {

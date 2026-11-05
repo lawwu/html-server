@@ -87,7 +87,9 @@ test('rendering: wikilinks (found and missing), callouts, highlights, heading an
   assert.match(html, /<div class="callout callout-tip"><div class="callout-title">Tip<\/div><div class="callout-body"><p>Just a body/);
   assert.match(html, /<blockquote>\n<p>plain quote<\/p>/);
   assert.match(html, /<input checked="" disabled="" type="checkbox">/);
-  assert.match(html, /<table>/);
+  assert.match(html, /<table tabindex="0">/); // keyboard users can scroll wide tables
+  const script = '<script>const table = "<table>";</script>';
+  assert.equal(renderMarkdown(script).trim(), script); // only generated tables are changed
 });
 
 test('a leading # heading that repeats the title is dropped (the page shows the title)', () => {

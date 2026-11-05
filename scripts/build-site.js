@@ -3,16 +3,17 @@
 // itself: README.md and CHANGELOG.md as notes, the Docs page, and the example gallery.
 // Each page is what the server's own request handler answers (in this process, the way
 // cloudflare/worker.js hands it requests, over a throwaway database holding the two
-// notes), saved as a file, so the site can't drift from the code. setStaticSite
+// notes), saved as a file, keeping rendering shared with the server. setStaticSite
 // (src/pages.js) leaves out what needs a server, and every link is made relative, so
 // the site works under any path, such as https://lawwu.github.io/html-server/. Then
-// every link is followed: one the site doesn't have fails the build.
+// static attributes, CSS URLs and generated link data are checked, including fragments.
 //
 //   npm run site                     → _site/
 //   node scripts/build-site.js DIR
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'parse5';
 import { FALLBACK_URL, REPO_URL } from '../src/config.js';
 import { examples } from '../src/examples.js';
 import { safeDecode } from '../src/markdown.js';
@@ -61,7 +62,7 @@ function get(store, url) {
  * attributes and CSS url()s. A link the site doesn't have stays as it is, for the
  * link check to report. `site` maps URLs to files; `used` collects the _static files.
  */
-function linker(from, site, used) {
+export function linker(from, site, used) {
   /** Where a link to the server goes on the site: one of its files, a file of the repo on GitHub, or null. */
   const locate = (path) => {
     if (site.has(path)) return site.get(path);
@@ -83,8 +84,26 @@ function linker(from, site, used) {
     if (!target) return url;
     return /^https?:/.test(target) ? target + hash : posix.relative(posix.dirname(from), target) + hash;
   };
-  const markup = (text) => text.replace(/(\s(?:href|src|action)=")(\/(?!\/)[^"]*)"/g, (m, attr, url) => `${attr}${to(url)}"`)
-    .replace(/url\((\/(?!\/)[^)]*)\)/g, (m, url) => `url(${to(url)})`);
+  const css = (text) => text.replace(/url\(\s*(['"]?)(\/(?!\/)[^)'"\s]+)\1\s*\)/g, (m, quote, url) => `url(${quote}${to(url)}${quote})`);
+  const markup = (text, fragmentBase = '') => {
+    if (from.endsWith('.css')) return css(text);
+    const replacements = [];
+    for (const node of elements(parse(text, { sourceCodeLocationInfo: true }))) {
+      for (const attr of node.attrs || []) {
+        if (!['href', 'src', 'action', 'style'].includes(attr.name)) continue;
+        const value = attr.name === 'style' ? css(attr.value) : fragmentBase && attr.value.startsWith('#') ? fragmentBase + attr.value : /^\/(?!\/)/.test(attr.value) ? to(attr.value) : attr.value;
+        if (value === attr.value) continue;
+        const loc = node.sourceCodeLocation?.attrs?.[attr.name];
+        if (loc) replacements.push([loc.startOffset, loc.endOffset, `${attr.name}="${value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`]);
+      }
+      if (node.tagName === 'style') for (const child of node.childNodes || []) {
+        const loc = child.sourceCodeLocation;
+        if (loc && child.value) replacements.push([loc.startOffset, loc.endOffset, css(child.value)]);
+      }
+    }
+    for (const [start, end, value] of replacements.sort((a, b) => b[0] - a[0])) text = text.slice(0, start) + value + text.slice(end);
+    return text;
+  };
   /**
    * A page: its markup outside scripts, and the URLs in the two kinds of data a note
    * carries, its graph (each page's URL) and its hover previews (keyed by page name,
@@ -97,7 +116,7 @@ function linker(from, site, used) {
     const data = JSON.parse(json);
     const out = id === 'site-graph'
       ? { ...data, nodes: data.nodes.map(([n, title, url]) => [n, title, to(url)]) }
-      : Object.fromEntries(Object.entries(data).map(([slug, p]) => [to(`/pages/${slug}`), p.html ? { ...p, html: markup(p.html) } : p]));
+      : Object.fromEntries(Object.entries(data).map(([slug, p]) => [to(`/pages/${slug}`), p.html ? { ...p, html: markup(p.html, to(`/pages/${slug}`)) } : p]));
     return `<script id="${id}" type="application/json">${JSON.stringify(out).replace(/</g, '\\u003c')}</script>`;
   }).join('');
   return { markup, page };
@@ -168,20 +187,27 @@ function files(dir) {
   return all;
 }
 
-/** The links of a page or stylesheet that the site has to have: attributes, url()s, and a note's data. */
+function* elements(node) {
+  if (node.tagName) yield node;
+  for (const child of node.childNodes || []) yield* elements(child);
+  if (node.content) yield* elements(node.content); // template contents
+}
+const cssLinks = (text) => [...text.matchAll(/url\(\s*['"]?([^'")]*)/g)].map((m) => m[1].trim());
+
+/** Browser-parsed static attributes, CSS URLs, and generated graph/preview data. */
 function links(text, file) {
-  if (file.endsWith('.css')) return [...text.matchAll(/url\(\s*['"]?([^'")]*)/g)].map((m) => m[1]);
+  if (file.endsWith('.css')) return cssLinks(text);
   const out = [];
-  for (const [i, part] of text.split(/(<script\b[^>]*>[\s\S]*?<\/script>)/i).entries()) {
-    if (i % 2 === 0) {
-      out.push(...[...part.matchAll(/\s(?:href|src|action)="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, '&')));
-      out.push(...[...part.matchAll(/url\(\s*['"]?([^'")]*)/g)].map((m) => m[1]));
-      continue;
-    }
-    const [, id, json] = part.match(/^<script id="(site-graph|page-previews)" type="application\/json">([\s\S]*)<\/script>$/) || [];
-    if (id === 'site-graph') out.push(...JSON.parse(json).nodes.map((n) => n[2]));
-    if (id === 'page-previews') {
-      for (const [key, p] of Object.entries(JSON.parse(json))) out.push(key, ...links(p.html || '', file));
+  for (const node of elements(parse(text))) {
+    const attrs = Object.fromEntries((node.attrs || []).map((a) => [a.name, a.value]));
+    for (const name of ['href', 'src', 'action']) if (attrs[name] != null) out.push(attrs[name]);
+    if (attrs.style) out.push(...cssLinks(attrs.style));
+    const body = (node.childNodes || []).map((n) => n.value || '').join('');
+    if (node.tagName === 'style') out.push(...cssLinks(body));
+    if (node.tagName !== 'script' || attrs.type !== 'application/json') continue;
+    if (attrs.id === 'site-graph') out.push(...JSON.parse(body).nodes.map((n) => n[2]));
+    if (attrs.id === 'page-previews') {
+      for (const [key, p] of Object.entries(JSON.parse(body))) out.push(key, ...links(p.html || '', file));
     }
   }
   return out;
@@ -197,11 +223,27 @@ export function checkLinks(dir) {
   const all = files(dir);
   const have = new Set(all);
   const bad = [];
+  const anchors = new Map();
+  const hasAnchor = (file, hash) => {
+    if (!anchors.has(file)) {
+      const found = new Set();
+      for (const node of elements(parse(readFileSync(join(dir, file), 'utf8')))) {
+        for (const attr of node.attrs || []) if (attr.name === 'id' || (node.tagName === 'a' && attr.name === 'name')) found.add(attr.value);
+      }
+      anchors.set(file, found);
+    }
+    return anchors.get(file).has(hash);
+  };
   for (const file of all.filter((f) => /\.(html|css)$/.test(f))) {
-    for (const url of links(readFileSync(join(dir, file), 'utf8'), file)) {
-      if (!url || /^(#|[a-z][a-z0-9+.-]*:|\/\/)/i.test(url)) continue; // here, data: URIs, other sites
-      const target = posix.normalize(posix.join(posix.dirname(file), safeDecode(url.split(/[?#]/)[0])));
-      if (url.startsWith('/') || !have.has(target)) bad.push(`${file}: ${url}`);
+    for (const raw of links(readFileSync(join(dir, file), 'utf8'), file)) {
+      const url = raw.trim();
+      if (!url || /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(url)) continue;
+      const path = safeDecode(url.split(/[?#]/)[0]);
+      let target = path ? posix.normalize(posix.join(posix.dirname(file), path)) : file;
+      if (path.endsWith('/')) target = posix.join(target, 'index.html');
+      const hash = safeDecode(url.includes('#') ? url.slice(url.indexOf('#') + 1) : '');
+      if (url.startsWith('/') || !have.has(target)
+          || (hash && !/^top$|^:~:text=/i.test(hash) && target.endsWith('.html') && !hasAnchor(target, hash))) bad.push(`${file}: ${url}`);
     }
   }
   if (bad.length) fail(`links the static site can't follow:\n  ${[...new Set(bad)].join('\n  ')}`);

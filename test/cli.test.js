@@ -3,7 +3,7 @@
 // own ~/.html-server is never touched.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -474,4 +474,67 @@ test("sync from another checkout of a vault keeps the pages a sync before folder
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^2 moved, 4 unchanged$/m);
   assert.deepEqual(['notes/plan.md', 'topics/index.md'].map((n) => store.find(n, { exact: true })?.id), ids);
+});
+
+test('sync honors inline YAML exclusions and refuses uninterpretable privacy rules', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('inline-ignore') };
+  const repo = join(dir, 'inline-vault');
+  mkdirSync(join(repo, 'content', 'private'), { recursive: true });
+  writeFileSync(join(repo, 'content', 'public.md'), '# Public inline');
+  writeFileSync(join(repo, 'content', 'private', 'secret.md'), '# Excluded secret');
+  const config = join(repo, 'quartz.config.yaml');
+  writeFileSync(config, 'configuration:\n  ignorePatterns: [private, "*.tmp.md"]\n');
+  let r = await cli(['sync', repo, '--folder', 'inline'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal((await fetch(url + '/inline/public.md')).status, 200);
+  assert.equal((await fetch(url + '/inline/private/secret.md')).status, 404);
+  for (const bad of ['ignorePatterns: private', 'ignorePatterns: null', 'ignorePatterns: [42]', 'ignorePatterns: [broken']) {
+    writeFileSync(config, bad);
+    r = await cli(['sync', repo, '--prune'], env);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /cannot read exclusions/);
+    assert.equal((await fetch(url + '/inline/public.md')).status, 200); // no partial prune
+  }
+  rmSync(config);
+  const ts = join(repo, 'quartz.config.ts');
+  writeFileSync(ts, 'export default { configuration: { ignorePatterns: ["private", "*.tmp.md"] } }');
+  r = await cli(['sync', repo], env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal((await fetch(url + '/inline/private/secret.md')).status, 404);
+  for (const rule of ['[...secrets]', '["public"].concat(secrets)', 'readRules()']) {
+    writeFileSync(ts, '// ignorePatterns: []\nexport default { configuration: { ignorePatterns: ' + rule + ' } }');
+    r = await cli(['sync', repo], env);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /literal list/);
+  }
+});
+
+test('sync skips file and directory symlinks, including cycles', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('symlinks') };
+  const root = join(dir, 'symlink-vault'), outside = join(dir, 'outside-vault');
+  mkdirSync(root); mkdirSync(outside);
+  writeFileSync(join(root, 'safe.md'), '# Safe');
+  writeFileSync(join(outside, 'secret.md'), '# Outside secret');
+  symlinkSync(join(outside, 'secret.md'), join(root, 'linked.md'));
+  symlinkSync(outside, join(root, 'linked-dir'));
+  symlinkSync(root, join(root, 'cycle'));
+  const r = await cli(['sync', root, '--folder', 'safe-root'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal((await fetch(url + '/safe-root/safe.md')).status, 200);
+  for (const path of ['linked.md', 'linked-dir/secret.md', 'cycle/safe.md']) assert.equal((await fetch(url + '/safe-root/' + path)).status, 404);
+});
+
+test('sync --prune trashes the last removed file from an existing empty root', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('empty-prune') };
+  const root = join(dir, 'empty-vault'); mkdirSync(root);
+  writeFileSync(join(root, 'last.md'), '# Last');
+  assert.equal((await cli(['sync', root, '--folder', 'empty'], env)).code, 0);
+  rmSync(join(root, 'last.md'));
+  const dry = await cli(['sync', root, '--prune', '--dry-run'], env);
+  assert.equal(dry.code, 0, dry.err);
+  assert.match(dry.out, /would trash/);
+  assert.equal((await fetch(url + '/empty/last.md')).status, 200);
+  const r = await cli(['sync', root, '--prune'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal((await fetch(url + '/empty/last.md')).status, 404);
 });

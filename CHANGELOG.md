@@ -7,6 +7,24 @@ change that couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Privacy boundaries:** share URLs are owner-only; public-to-private changes revoke old
+  capabilities, and owners can explicitly rotate a share link. Open editors cannot grant
+  access to an owner's private or future assets. Existing owner-authored asset references
+  are migrated to explicit grants, including readable history.
+- **Server and storage:** malformed request targets return 400 without terminating Node;
+  column migrations and backfills commit together; caches notice other SQLite writers;
+  large hover-preview queries stay within Cloudflare's binding limit.
+- **Safer publishing:** sync parses YAML exclusions (including inline lists), refuses
+  unsupported exclusion configs, skips symlinks and prunes an empty source folder. MCP
+  validates argument types before side effects. Failed deploy verification preserves the
+  existing login and keeps separate private recovery credentials.
+- **Browser behavior:** review links navigate out of their sandboxed frame; graph links
+  work with Enter; search and graph dialogs contain and restore focus. Contrast and view
+  toggle semantics are corrected, and code/table overflow regions support keyboard focus.
+- **Static site:** browser-parsed attribute syntax and fragment checks catch broken links;
+  preview fragments point to their source page. Example bytes and metadata use one snapshot.
+  Added browser regression tests and CI coverage; YAML is a second runtime dependency.
+
 ## 0.11.0 (2026-11-04)
 
 - **Random page.** A Random link in the sidebar opens a random page you can see, never the

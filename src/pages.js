@@ -55,7 +55,13 @@ if(matchMedia('(max-width: 800px)').matches)document.querySelectorAll('details.e
 
 // Search (⌘K) and hover previews: inlined, since a sandboxed note may not load scripts.
 // Modules, so each keeps its own scope.
-const inlineScript = (f) => `<script type="module">${fileText(`public/${f}`).replace(/<\/script/gi, '<\\/script')}</script>`;
+const inlineScript = (f) => {
+  let code = fileText(`public/${f}`);
+  if (code.includes("import { trapModal } from './modal.js';")) {
+    code = fileText('public/modal.js').replace(/^export /gm, '') + '\n' + code.replace("import { trapModal } from './modal.js';", '');
+  }
+  return `<script type="module">${code.replace(/<\/script/gi, '<\\/script')}</script>`;
+};
 let SCRIPTS = null;
 const inlined = () => (SCRIPTS ??= { search: inlineScript('search.js'), popover: inlineScript('popover.js'), graph: inlineScript('minigraph.js'),
   copy: inlineScript('copy.js') });
@@ -256,7 +262,7 @@ export function galleryPage(items, { q = '', category = '', categories = [], vie
   const chip = (value, label, count) => `<a class="chip${value === category ? ' on' : ''}" data-category="${esc(value)}"
     href="${esc(link({ category: value, q: '' }))}">${esc(label)}${count != null ? ` <span>${count}</span>` : ''}</a>`;
   const toggle = (v, label, icon) => `<a class="vt${v === view ? ' on' : ''}" data-view="${v}" href="${esc(link({ view: v }))}"
-    aria-label="${label}" aria-pressed="${v === view}" title="${label}">${icon}</a>`;
+    aria-label="${label}" aria-current="${v === view}" title="${label}">${icon}</a>`;
   const grid = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>';
   const list = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="2" width="14" height="2.5" rx="1.2"/><rect x="1" y="6.75" width="14" height="2.5" rx="1.2"/><rect x="1" y="11.5" width="14" height="2.5" rx="1.2"/></svg>';
   const intro = section === 'gallery'
@@ -546,7 +552,7 @@ const FRAME_SCRIPT = `<script>(()=>{const f=document.querySelector('.page-frame'
 const native=CSS.supports('frame-sizing','content-height');
 addEventListener('message',(e)=>{if(e.source!==f.contentWindow)return;const d=e.data||{};
 if(d.htmlServer==='go'){let u;try{u=new URL(d.href)}catch{return}
-if(/^https?:$/.test(u.protocol)&&navigator.userActivation?.isActive!==false)location.assign(u.href);return}
+if(/^https?:$/.test(u.protocol)&&navigator.userActivation?.isActive===true)location.assign(u.href);return}
 if(d.htmlServer!=='size')return;
 if(d.mode==='window'){f.classList.remove('auto');f.style.height='';return}
 if(!native&&f.classList.contains('auto')&&d.height>=40)f.style.height=Math.min(d.height,100000)+'px'})})()</script>`;
@@ -601,7 +607,7 @@ export function localGraph(data, slug) {
   const expand = STATIC_SITE ? '' : `<a class="graph-expand" href="/graph?page=${encodeURIComponent(slug)}" target="_top" aria-label="Open the full graph" title="Open the full graph">${ICONS.expand}</a>`;
   return `<section class="graph-view"><h3>Graph View</h3><div class="graph-box${two ? ' crowded' : ''}">
 ${expand}
-<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pages linked to or from this one"><g class="edges">${edges}</g><g class="nodes">${others.map(node).join('')}${node(me)}</g></svg>
+<svg viewBox="0 0 ${W} ${H}" role="group" aria-label="Pages linked to or from this one"><g class="edges">${edges}</g><g class="nodes">${others.map(node).join('')}${node(me)}</g></svg>
 </div></section>
 <script id="site-graph" type="application/json">${JSON.stringify({ current: me.id, nodes: data.nodes.map((n) => [n.id, n.title, n.url]),
     edges: data.edges.map((e) => [e.source, e.target]) }).replace(/</g, '\\u003c')}</script>${inlined().graph}`;

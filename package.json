@@ -2,7 +2,7 @@
   "name": "@lawwu/html-server",
   "version": "0.11.0",
   "private": true,
-  "description": "Host, version, search and link HTML pages and Markdown notes, like Quartz that also serves HTML. One dependency.",
+  "description": "Host, version, search and link HTML pages and Markdown notes, like Quartz that also serves HTML.",
   "license": "MIT",
   "author": "Lawrence Wu",
   "type": "module",
@@ -25,9 +25,16 @@
     "test": "node --test \"test/*.test.js\"",
     "site": "node scripts/build-site.js _site",
     "cf:dev": "npx --yes wrangler@4.147.0 dev",
-    "cf:deploy": "node src/cli.js deploy cloudflare"
+    "cf:deploy": "node src/cli.js deploy cloudflare",
+    "test:browser": "node --test test/browser.check.js"
   },
   "dependencies": {
-    "marked": "18.1.0"
+    "marked": "18.1.0",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "parse5": "8.1.0",
+    "playwright": "1.64.1"
   }
 }

@@ -5,13 +5,15 @@
 //   1. Sign in to Cloudflare if needed (Wrangler opens the browser; you approve there).
 //   2. Deploy the Worker and its Durable Object (the database).
 //   3. First deploy only: make an admin token, store it as the Worker's ADMIN_TOKEN
-//      secret (the Worker creates its first admin from it), and sign this CLI in with it.
-//   4. Check the server answers with that token.
+//      secret (the Worker creates its first admin from it).
+//   4. Check the server answers with that token, then save the new CLI sign-in.
 //
 // Running it again deploys the new code; the data, users and tokens stay.
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { HOME_DIR } from './config.js';
 import { fileURLToPath } from 'node:url';
 import { saveCredentials } from './client.js';
 
@@ -23,7 +25,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
  * `quiet`, and returned: `out`, all of it; `stdout` without the warnings and notices on stderr.
  */
 function wrangler(args, { input, quiet = false, interactive = false } = {}) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const child = spawn('npx', ['--yes', WRANGLER, ...args], { cwd: ROOT, stdio: interactive ? 'inherit' : ['pipe', 'pipe', 'pipe'] });
     let out = '', stdout = '';
     if (!interactive) {
@@ -33,6 +35,8 @@ function wrangler(args, { input, quiet = false, interactive = false } = {}) {
       }
       child.stdin.end(input ?? '');
     }
+    child.on('error', reject);
+    if (!interactive) child.stdin.on('error', reject);
     child.on('close', (code) => resolve({ code, out, stdout }));
   });
 }
@@ -84,28 +88,36 @@ export async function deployCloudflare({ name, user, fail }) {
   console.log('\nFirst deploy: creating the admin token…');
   const token = `ak_${randomBytes(32).toString('base64url')}`;
   const admin = (user || 'admin').toLowerCase();
+  // Keep a recoverable token even when setup only partly succeeds, without replacing
+  // the working sign-in. This file is removed only once the new login is verified.
+  const pending = join(HOME_DIR, 'deploy-credentials.json');
+  mkdirSync(HOME_DIR, { recursive: true, mode: 0o700 });
+  writeFileSync(pending, JSON.stringify({ url: url || '', token }, null, 2) + '\n', { mode: 0o600 });
+  chmodSync(pending, 0o600);
   for (const [key, value] of [['ADMIN_NAME', admin], ['ADMIN_TOKEN', token]]) {
     const r = await wrangler(['secret', 'put', key, ...named], { input: value, quiet: true });
     if (r.code !== 0) { process.stdout.write(r.out); fail(`couldn't store the ${key} secret`); }
   }
   if (!url) {
-    console.log(`Deployed, but Wrangler didn't print a URL. Sign in with: html-server login --url YOUR-URL --token ${token}`);
-    return;
+    fail(`deployed, but Wrangler didn't print a URL to verify; your sign-in is unchanged. Recovery credentials: ${pending}`);
   }
-  saveCredentials(url, token);
 
   // The new secret restarts the Worker; give it a moment, then check the token works.
   for (let i = 0; i < 30; i++) {
+    let verified = false;
     try {
-      const r = await fetch(`${url}/api/me`, { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) {
-        console.log(`\nHTML Server is live at ${url}`);
-        console.log(`Signed this CLI in as '${admin}' (admin). Try: html-server put page.html`);
-        console.log('The admin token is saved in your credentials file. Keep it; it is not shown again.');
-        return;
-      }
+      const r = await fetch(`${url}/api/me`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
+      verified = r.ok;
     } catch { /* still starting */ }
+    if (verified) {
+      saveCredentials(url, token);
+      rmSync(pending, { force: true });
+      console.log(`\nHTML Server is live at ${url}`);
+      console.log(`Signed this CLI in as '${admin}' (admin). Try: html-server put page.html`);
+      console.log('The admin token is saved in your credentials file. Keep it; it is not shown again.');
+      return;
+    }
     await new Promise((r) => setTimeout(r, 2000));
   }
-  console.log(`\nDeployed to ${url} and signed this CLI in, but it didn't answer yet. Try html-server whoami in a minute.`);
+  fail(`deployed to ${url}, but could not verify the new admin token; your sign-in is unchanged. Recovery credentials: ${pending}`);
 }
