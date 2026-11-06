@@ -10,7 +10,8 @@ curl, or sync a whole notes repo on every git commit. Everything is public unles
 it private, and a page's URL is its file name.
 
 It runs on Node.js 22.16 or newer, on Node's built-in SQLite, with one dependency
-(`marked`, for Markdown), or on Cloudflare Workers with one command.
+(`marked`, for Markdown); on [PostgreSQL](#postgresql) if you'd rather keep the data
+there; or on Cloudflare Workers with one command.
 
 ```bash
 npm install -g github:lawwu/html-server   # puts `html-server` on your PATH
@@ -33,6 +34,7 @@ itself (see [The docs site](#the-docs-site)).
 - [Versions, history and review](#versions-history-and-review)
 - [Users and admins](#users-and-admins)
 - [Deploy to Cloudflare](#deploy-to-cloudflare)
+- [PostgreSQL](#postgresql)
 - [Backups and updating](#backups-and-updating)
 - [Replacing an existing page service](#replacing-an-existing-page-service)
 - [HTTP API](#http-api)
@@ -57,7 +59,8 @@ account and signs the CLI in, so `html-server put page.html` works right away. N
 goes in your shell profile. The server binds to 127.0.0.1 by default; pass
 `--host 0.0.0.0` only behind something like Tailscale. Its data lives in
 `~/.html-server/artifacts.db` (`HTML_SERVER_HOME` moves the folder, `--db` uses another
-file), outside the code, so reinstalling can't lose it.
+file), outside the code, so reinstalling can't lose it. Or set `DATABASE_URL` to keep it
+in [PostgreSQL](#postgresql).
 
 **On any other machine,** or as another user, sign in once:
 
@@ -537,6 +540,60 @@ rest of the code doesn't depend on Cloudflare.
 - **Moving data:** `sync` and `import` re-upload a folder to any server, so moving between
   a Node server and Cloudflare is a re-sync.
 
+## PostgreSQL
+
+SQLite is the default and needs nothing. To keep the data in PostgreSQL instead (a
+managed database, say, with its own backups), set `DATABASE_URL` for the server and
+its server-side commands:
+
+```bash
+export DATABASE_URL='postgres://html_server:PASSWORD@db.example.com:5432/html_server'
+html-server serve
+html-server create-user alice --admin --save   # PostgreSQL starts with no users
+```
+
+- **Install.** The driver, `pg-native`, is an optional dependency that builds against
+  libpq, so install libpq and a C toolchain first (`brew install libpq`, or
+  `apt-get install libpq-dev build-essential`). npm 11 and newer run a dependency's build
+  only when allowed: `npm install -g github:lawwu/html-server --allow-scripts=libpq`.
+  Without the driver, SQLite works as before and `DATABASE_URL` stops with an error that
+  says what to install.
+- **The database:** PostgreSQL 13 or newer, built with ICU (most are), UTF-8, and a user
+  that may create tables, a collation and a function in its schema. The server makes
+  everything it needs on startup and upgrades it in place, as with SQLite. CI tests
+  PostgreSQL 16.
+- **`DATABASE_URL`** must be a `postgres://` or `postgresql://` URI; set but empty, or
+  given with `--db`, is an error rather than a quiet fallback to SQLite. It's passed to
+  libpq as written (with `connect_timeout=10` added if it has none), so `sslmode` and other
+  options work. Each statement may run 30 s and wait 10 s for a lock. The startup line
+  says which host and database, never the user or password.
+- **First run** doesn't make an admin as it does on SQLite: an empty database may be
+  waiting for data to be moved in. Create one with `create-user NAME --admin --save`.
+- **Search** works the same way (prefixes, other forms of a word, typos, titles first),
+  on PostgreSQL's full-text search: the first 32,768 characters of each page's title,
+  name and text are indexed, with accents folded, and the whole text kept for snippets
+  and previews. Ranking uses `ts_rank`, not bm25, so pages that match equally well may
+  come in another order.
+- **Names compare as the database compares them.** SQLite's `NOCASE` folds only ASCII
+  letters' case; PostgreSQL's ICU collation folds every letter's case and treats a name
+  written with composed and decomposed accents as one. So `Café.html` and `CAFÉ.html`
+  are one page name on PostgreSQL and two on SQLite. Finding pages, moves (each move in a
+  batch is checked again as it lands), old addresses and backlinks all follow the
+  database's rule.
+- **Limits of this first version:** queries run synchronously, as with SQLite, so each
+  one holds up the server while it travels to the database and back; that's fine for one
+  person or a team, not for heavy traffic. Run **one** server process per database: it
+  keeps caches that assume it's the only writer, so several replicas aren't safe. An
+  asynchronous store would lift both; it's separate work.
+- **Backups:** `html-server backup` copies SQLite files, so with PostgreSQL it stops and
+  points you to `pg_dump` (`pg_dump --format=custom "$DATABASE_URL" > html-server.dump`,
+  restored with `pg_restore`) or your provider's snapshots.
+- **Health checks:** `GET /healthz` (or `HEAD`) answers `{"status":"ok"}` once the
+  database answers, and a 503 otherwise, for load balancers and uptime monitors. Any
+  backend has it; probes aren't counted as API use.
+- **Tests** run against PostgreSQL with `TEST_DATABASE_URL` set to a database the tests
+  may create schemas in (each test gets its own): `TEST_DATABASE_URL='postgres:///hs_test?host=/tmp' npm test`.
+
 ## Backups and updating
 
 **Back up** with one command. It's safe while the server is running (SQLite takes a
@@ -552,7 +609,7 @@ html-server backup --keep 14        # then keep only the newest 14 in the backup
 Backups are readable only by you, and `--keep` deletes only its own timestamped files. For
 a nightly backup, run `html-server backup --keep 14` from cron or launchd. **Restore** by
 stopping the server, copying a backup over `~/.html-server/artifacts.db`, and starting it
-again.
+again. On [PostgreSQL](#postgresql), back up with `pg_dump` instead.
 
 **Update a deployment:**
 
@@ -665,7 +722,7 @@ this. Query parameters work when the name is spelled out in the URL. Errors are 
   previews of another page's HTML are rebuilt from an allowlist before they're shown.
 - **Search** indexes each page's latest version (title; file name, aliases and tags;
   description, visible text and the prose in its scripts; for notebooks, cells and short
-  outputs) in SQLite's FTS5, ranked with title and file-name hits weighted above body
+  outputs) in SQLite's FTS5 (or PostgreSQL's full-text search), ranked with title and file-name hits weighted above body
   text, and fuzzy: every word must match, as a prefix (`ube` finds "uber"), as another
   form of it that a page uses (`studies` finds "study"), or as a close misspelling of an
   indexed word (`sheling` finds "shelling"). Pages whose title holds the whole query come
@@ -690,12 +747,14 @@ this. Query parameters work when the name is spelled out in the URL. Errors are 
   page is made or answers to new names, so reading a page never searches the links table.
   The graph, explorer and hover previews are worked out once per change (a revision every
   write bumps): at 2,000 notes and 300 HTML pages a note page takes about 30 ms, not 23 s.
-- **One codebase, two runtimes.** The store takes any SQLite database with node:sqlite's
-  small interface, the request handler is separate from node:http, and the package's own
-  files are read through one module, so the same code serves from Node or from a
-  Cloudflare Durable Object.
+- **One codebase, two runtimes.** The store takes any database with node:sqlite's small
+  synchronous interface (node:sqlite itself, a Durable Object's SQLite, or PostgreSQL
+  through `src/postgres.js`, which translates the store's SQL and brings its own search
+  index), the request handler is separate from node:http, and the package's own files are
+  read through one module, so the same code serves from Node or from a Cloudflare Durable
+  Object.
 - **Reserved names:** `api`, `v`, `review`, `pages`, `history`, `gallery`, `graph`, `stats`,
-  `random`, `assets`, `docs`, `favicon.ico` and `robots.txt` can't be page names, because the server
+  `random`, `assets`, `docs`, `healthz`, `favicon.ico` and `robots.txt` can't be page names, because the server
   uses those paths itself (browsers ask for `/favicon.ico` and crawlers for `/robots.txt`;
   both get a plain 404 straight away).
 
@@ -756,6 +815,7 @@ ones change:
 | `src/cli.js` | The `html-server` command (`html-server --help`); its usage text is in `src/usage.js` |
 | `src/server.js` | HTTP routes (the table that also generates the Docs page) and their handlers |
 | `src/store.js` | All database access, with the schema and its in-place upgrades |
+| `src/postgres.js` | Optional PostgreSQL storage: the store's SQL translated, PostgreSQL's full-text search, connection settings |
 | `src/pages.js` | Server-rendered pages: the site frame, home, notes, history, stats, graph, docs, review, diffs |
 | `src/markdown.js` | Markdown notes: frontmatter, wikilinks, callouts, rendering |
 | `src/notebook.js` | Jupyter notebooks: parsing, rendering cells and outputs |
@@ -770,9 +830,9 @@ ones change:
 | `cloudflare/`, `wrangler.toml` | The Cloudflare Worker and Durable Object, its SQLite adapter, its upload limit, and the file bundler |
 | `public/` | Browser code and styles: search, previews, graphs, the contents sidebar, frame sizing, copy buttons; `fonts/` with their licences |
 | `gallery/` | The example pages shown at `/gallery` |
-| `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks, the Cloudflare adapter and the docs site |
+| `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks, the Cloudflare and PostgreSQL adapters and the docs site; `fixture.js` runs them on SQLite, or on PostgreSQL with `TEST_DATABASE_URL` |
 | `scripts/build-site.js` | The docs site: this README, the Docs page, the changelog and the gallery as static pages (`npm run site`) |
-| `.github/workflows/` | `test.yml`: `npm test` on every pull request and push to `main`; `pages.yml`: the docs site, on every push to `main` |
+| `.github/workflows/` | `test.yml`: `npm test` on every pull request and push to `main`, on SQLite and on PostgreSQL; `pages.yml`: the docs site, on every push to `main` |
 | `CHANGELOG.md` | What each release changed |
 | `~/.html-server/` | Your data (`artifacts.db`), the CLI's login (`credentials.json`), backups and the sync log. Not in the repo |
 

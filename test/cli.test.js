@@ -11,12 +11,13 @@ import { createServer } from 'node:net';
 import { defaultAdminName } from '../src/cli.js';
 import { makeServer } from '../src/server.js';
 import { Store } from '../src/store.js';
+import { onPostgres, sqliteOnly, testDatabase } from './fixture.js';
 
 const CLI = new URL('../src/cli.js', import.meta.url).pathname;
 // Git as if freshly installed: the developer's global and system config (a core.hooksPath,
 // commit signing, an init template) neither runs in the test repos nor receives their hooks.
 const GIT_ENV = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
-let dir, home, db, server, url, store;
+let dir, home, db, server, url, store, serverDb, homeDb;
 
 /**
  * Run the CLI; resolves { code, out, err }. Asynchronous on purpose: the server
@@ -25,7 +26,7 @@ let dir, home, db, server, url, store;
 function cli(args, env = {}) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [CLI, ...args], {
-      env: { ...process.env, ...GIT_ENV, HTML_SERVER_HOME: home, HTML_SERVER_URL: url, HTML_SERVER_TOKEN: '', ...env },
+      env: { ...process.env, ...GIT_ENV, ...homeDb.env, HTML_SERVER_HOME: home, HTML_SERVER_URL: url, HTML_SERVER_TOKEN: '', ...env },
     });
     let out = '', err = '';
     p.stdout.on('data', (d) => { out += d; });
@@ -38,22 +39,28 @@ before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'html-server-cli-'));
   home = join(dir, 'home');
   db = join(home, 'artifacts.db');
-  server = makeServer(store = new Store(join(dir, 'server.db')));
+  serverDb = await testDatabase(dir, 'server'); // the running server's
+  homeDb = await testDatabase(home, 'artifacts'); // what the CLI's server commands open: on SQLite, HTML_SERVER_HOME/artifacts.db
+  server = makeServer(store = serverDb.open());
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   url = `http://127.0.0.1:${server.address().port}`;
 });
 after(async () => {
   await new Promise((r) => server.close(r));
-  store.close();
+  await store.close();
+  await serverDb.drop();
+  await homeDb.drop();
   rmSync(dir, { recursive: true, force: true });
 });
 
 test('server commands default to the home folder and keep the token private', async () => {
-  const r = (await cli(['config'])); // no --db: opens HTML_SERVER_HOME/artifacts.db
+  const r = (await cli(['config'])); // no --db: opens HTML_SERVER_HOME/artifacts.db (or DATABASE_URL)
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /usernames: name/);
-  assert.ok(existsSync(db));
-  assert.equal(statSync(home).mode & 0o777, 0o700);
+  if (!onPostgres) {
+    assert.ok(existsSync(db));
+    assert.equal(statSync(home).mode & 0o777, 0o700);
+  }
 
   const made = (await cli(['create-user', 'alice', '--admin', '--save']));
   assert.equal(made.code, 0, made.err);
@@ -134,18 +141,28 @@ test('login checks the token before saving it; logout forgets it', async () => {
   assert.match((await cli(['login', '--url', url], { ...h })).err, /no token given/); // not a terminal: no prompt
 });
 
-test('first serve on an empty database makes an admin and signs the CLI in', async () => {
+test('first serve on an empty database makes an admin and signs the CLI in (SQLite); PostgreSQL waits for one', async () => {
   const h = join(dir, 'fresh-home');
+  const fresh = await testDatabase(h, 'artifacts');
   const port = await new Promise((resolve) => {
     const probe = createServer().listen(0, '127.0.0.1', () => { const p = probe.address().port; probe.close(() => resolve(p)); });
   });
   const child = spawn(process.execPath, [CLI, 'serve', '--port', String(port)], {
-    env: { ...process.env, HTML_SERVER_HOME: h, HTML_SERVER_URL: '', HTML_SERVER_TOKEN: '' },
+    env: { ...process.env, ...fresh.env, HTML_SERVER_HOME: h, HTML_SERVER_URL: '', HTML_SERVER_TOKEN: '' },
   });
   let err = '';
   child.stderr.on('data', (d) => { err += d; });
   try {
     for (let i = 0; i < 100 && !/html-server \S+ on http/.test(err); i++) await new Promise((r) => setTimeout(r, 50));
+    if (onPostgres) {
+      // An empty PostgreSQL database may be waiting for an import: no admin is made for it.
+      assert.match(err, /no users yet: create the first admin with `html-server create-user NAME --admin --save`/);
+      assert.match(err, /\(db: PostgreSQL [^)]*\)/); // where, but never who or how
+      assert.doesNotMatch(err, /options=|search_path|password|@/);
+      assert.ok(!existsSync(join(h, 'credentials.json')));
+      assert.deepEqual((await fetch(`http://127.0.0.1:${port}/healthz`).then((r) => r.json())), { status: 'ok' });
+      return;
+    }
     assert.match(err, new RegExp(`first run: created admin '${defaultAdminName()}' and signed this CLI in`));
     const saved = JSON.parse(readFileSync(join(h, 'credentials.json'), 'utf8'));
     assert.equal(saved.url, `http://127.0.0.1:${port}`);
@@ -153,7 +170,23 @@ test('first serve on an empty database makes an admin and signs the CLI in', asy
     assert.equal(r.out.trim(), `${defaultAdminName()} (admin) on http://127.0.0.1:${port}`);
   } finally {
     child.kill();
+    await new Promise((r) => (child.exitCode != null ? r() : child.on('exit', r)));
+    await fresh.drop();
   }
+});
+
+test('DATABASE_URL picks PostgreSQL: checked before it is used, and never printed', async () => {
+  const secret = 'postgres://someone:hunter2@db.invalid:5432/app';
+  let r = await cli(['config'], { DATABASE_URL: '' });
+  assert.deepEqual([r.code, r.err.trim()], [1, 'error: DATABASE_URL is set but empty: unset it to use SQLite, or give a postgres:// URI']);
+  r = await cli(['config'], { DATABASE_URL: 'mysql://someone:hunter2@db.invalid/app' });
+  assert.deepEqual([r.code, r.err.trim()], [1, 'error: DATABASE_URL must be a postgres:// or postgresql:// URI']);
+  r = await cli(['config', '--db', join(dir, 'x.db')], { DATABASE_URL: secret });
+  assert.match(r.err, /^error: --db names a SQLite file, but DATABASE_URL picks PostgreSQL/);
+  r = await cli(['backup'], { DATABASE_URL: secret });
+  assert.equal(r.code, 1);
+  assert.match(r.err, /backup copies a SQLite file\. With PostgreSQL \(DATABASE_URL\), back up with pg_dump/);
+  for (const out of [r.out, r.err]) assert.doesNotMatch(out, /hunter2/);
 });
 
 test('import: a folder of existing pages is served at /pages/{slug}; re-running is safe', async () => {
@@ -202,7 +235,7 @@ test('config editing, history, and put --base', async () => {
   assert.match((await cli(['put', page, 'fresh', '--base', '2'], env)).out, /published v3/);
 });
 
-test('backup: a checked, private snapshot, safe while the server is serving', async () => {
+test('backup: a checked, private snapshot, safe while the server is serving', { skip: sqliteOnly }, async () => {
   const h = { HTML_SERVER_HOME: join(dir, 'backup-home') };
   const live = join(dir, 'backup-home', 'artifacts.db');
   await cli(['create-user', 'zed'], h); // creates the database

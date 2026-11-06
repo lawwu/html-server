@@ -29,5 +29,11 @@
   },
   "dependencies": {
     "marked": "18.1.0"
+  },
+  "optionalDependencies": {
+    "pg-native": "3.9.1"
+  },
+  "allowScripts": {
+    "libpq": true
   }
 }
