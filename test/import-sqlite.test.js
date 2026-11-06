@@ -62,7 +62,7 @@ test('a preview checks both sides and imports nothing', { skip: live }, () => {
   const before = fileSha(source);
   const r = importSqlite(source, dest);
   assert.deepEqual([r.applied, r.problems], [false, []]);
-  assert.match(r.report[0], /^source: users 2, artifacts 5, page_addresses 1, moves 1, versions 6, views 1, api_calls 1, api_calls_daily 1, comments 2, tags 1, aliases 1, assets 1, meta 2$/);
+  assert.match(r.report[0], /^source: users 2, artifacts 5, page_addresses 1, moves 1, versions 6, views 1, api_calls 1, api_calls_daily 1, comments 2, tags 1, aliases 1, assets 1, asset_grants 1, meta 2$/);
   assert.deepEqual(destinationState(dest), { content: {}, settings: [], telemetry: {} });
   assert.equal(fileSha(source), before); // the source is only ever read
 });
@@ -79,11 +79,13 @@ test('--apply keeps everything: users and tokens, ids, addresses, history, bytes
     for (const sql of ['SELECT id, slug, title, owner_id, visibility, state, share_id, latest_version, pinned_at, name_key, created_at FROM artifacts ORDER BY id',
       'SELECT id, name, token_hash, is_admin FROM users ORDER BY id', 'SELECT path, artifact_id FROM page_addresses',
       'SELECT artifact_id, n, sha256, note, author_id FROM versions ORDER BY artifact_id, n', 'SELECT id, parent_id, body FROM comments ORDER BY id',
-      "SELECT key, value FROM meta WHERE key IN ('visitor_secret', 'editing') ORDER BY key"]) {
+      "SELECT key, value FROM meta WHERE key IN ('visitor_secret', 'editing') ORDER BY key",
+      'SELECT artifact_id, name FROM asset_grants ORDER BY artifact_id, name']) {
       assert.deepEqual(rows(dest, sql), rows(src, sql), sql);
     }
     assert.ok(dest.version(dest.find('raw.html'), 1).equals(RAW)); // byte for byte
     assert.ok(Buffer.from(dest.asset('pic.png').data).equals(PNG));
+    assert.ok(dest.canReadAsset(dest.asset('pic.png', { data: false }), null)); // its grant came too: a public note shows it
   } finally { src.close(); }
 
   const bob = dest.userForToken(tokens.bob);

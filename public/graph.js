@@ -156,6 +156,7 @@ function start() {
   let dragging = null;
   const nodeOf = (target) => { const a = target.closest?.('a.node'); return a && [...pages, ...tagNodes].find((m) => m.g === a); };
   svg.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const n = nodeOf(e.target);
     dragging = n ? { node: n, moved: false, sx: e.clientX, sy: e.clientY } : { pan: true, sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
     if (n) n.fixed = true;
@@ -180,7 +181,9 @@ function start() {
     if (d.node) { d.node.fixed = false; if (!d.moved) location.href = d.node.url; }
     if (!nodeOf(e.target)) hover(null);
   });
-  svg.addEventListener('click', (e) => { if (nodeOf(e.target)) e.preventDefault(); }); // handled on pointerup
+  svg.addEventListener('click', (e) => {
+    if (nodeOf(e.target) && e.detail > 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) e.preventDefault();
+  }); // pointer clicks handled on pointerup; keyboard and modified clicks stay native
   svg.addEventListener('wheel', (e) => {
     e.preventDefault();
     const r = svg.getBoundingClientRect(), { w, h } = size();

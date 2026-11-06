@@ -26,8 +26,9 @@ couldn't be migrated would be a major version.
   hijacked release is likely pulled before it reaches `main`; security fixes don't wait.
 - **"Open page" on the review page opens a private page too.** It linked to the page's own
   address, which needs a token a new tab doesn't send, so a private page opened as "not
-  found". It now goes through the page's share link, for the version on show, as the review
-  frame already did. It also gets `rel="noopener"`.
+  found". For the page's owner it now goes through the share link (the only people who get
+  one, below), for the version on show; for anyone else, the page's address. It also gets
+  `rel="noopener"`.
 - **`[[topics]]` finds `guide/topics/index.md`.** A folder's index note answered to its
   folder's name only at the top level; deeper down a wikilink needed the whole path. `sync`
   now names an index note after its folder, and an upload or move without a name does too.
@@ -57,6 +58,23 @@ couldn't be migrated would be a major version.
 - **Tests leave your git setup alone.** The sync tests' throwaway repositories ignore your
   global and system git config, so a global `core.hooksPath` no longer receives (or runs)
   their hooks.
+- **Privacy boundaries:** share URLs are owner-only; public-to-private changes revoke old
+  capabilities, and owners can explicitly rotate a share link. Open editors cannot grant
+  access to an owner's private or future assets. Existing owner-authored asset references
+  are migrated to explicit grants, including readable history.
+- **Server and storage:** malformed request targets return 400 without terminating Node;
+  column migrations and backfills commit together; caches notice other SQLite writers;
+  large hover-preview queries stay within Cloudflare's binding limit.
+- **Safer publishing:** sync parses YAML exclusions (including inline lists), refuses
+  unsupported exclusion configs, skips symlinks and prunes an empty source folder. MCP
+  validates argument types before side effects. Failed deploy verification preserves the
+  existing login and keeps separate private recovery credentials.
+- **Browser behavior:** review links navigate out of their sandboxed frame; graph links
+  work with Enter; search and graph dialogs contain and restore focus. Contrast and view
+  toggle semantics are corrected, and code/table overflow regions support keyboard focus.
+- **Static site:** browser-parsed attribute syntax and fragment checks catch broken links;
+  preview fragments point to their source page. Example bytes and metadata use one snapshot.
+  Added browser regression tests and CI coverage; YAML is a second runtime dependency.
 
 ## 0.11.0 (2026-11-04)
 

@@ -25,7 +25,7 @@
 .note .content h3 { font-size: 1.12rem; margin-top: 1.62rem; }
 .note .content h4 { font-size: 1rem; }
 .note a.wikilink { background: var(--accent-soft); padding: 0 .1rem; border-radius: 5px; line-height: 1.4rem; }
-.note a.wikilink.missing { color: var(--accent); opacity: .5; cursor: help; }
+.note a.wikilink.missing { color: var(--accent); text-decoration: underline dotted; cursor: help; }
 .note .embed { color: var(--mute); font-style: italic; }
 .note .content img { max-width: 100%; height: auto; border-radius: 5px; margin: 1rem 0; }
 .note pre { background: var(--card); border: 1px solid var(--line); border-radius: 5px; padding: .6rem .9rem; overflow-x: auto; line-height: 1.6; }

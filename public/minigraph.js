@@ -5,6 +5,7 @@
 // simulation (pages repel, links pull, a gentle pull to the middle), drag a dot or the
 // background, scroll to zoom, hover to see a page's neighbours, click to open it.
 // /graph remains the full page, with tags, colours and the legend.
+import { trapModal } from './modal.js';
 const raw = JSON.parse(document.getElementById('site-graph')?.textContent || 'null');
 const NS = 'http://www.w3.org/2000/svg';
 const FORCES = {
@@ -24,7 +25,7 @@ function el(tag, attrs, parent) {
 function mount(box, nodes, edges, { current, global }) {
   const F = global ? FORCES.global : FORCES.local;
   let w = box.clientWidth || 280, h = box.clientHeight || 250;
-  const svg = el('svg', { class: 'live-graph', viewBox: `0 0 ${w} ${h}`, role: 'img', 'aria-label': global ? 'All pages and the links between them' : 'Pages linked to or from this one' });
+  const svg = el('svg', { class: 'live-graph', viewBox: `0 0 ${w} ${h}`, role: 'group', 'aria-label': global ? 'All pages and the links between them' : 'Pages linked to or from this one' });
   const view = el('g', {}, svg);
   const gEdges = el('g', { class: 'edges' }, view);
   const gNodes = el('g', { class: 'nodes' }, view);
@@ -189,8 +190,8 @@ if (raw) {
   }
 
   // Global: the expand button opens every page over the current one.
-  let overlay = null, stop = null;
-  const close = () => { if (!overlay || overlay.hidden) return; overlay.hidden = true; stop?.(); document.documentElement.classList.remove('searching'); };
+  let overlay = null, stop = null, releaseFocus = null;
+  const close = () => { if (!overlay || overlay.hidden) return; overlay.hidden = true; stop?.(); document.documentElement.classList.remove('searching'); releaseFocus?.(); releaseFocus = null; };
   document.querySelector('.graph-expand')?.addEventListener('click', (ev) => {
     ev.preventDefault();
     if (!overlay) {
@@ -207,5 +208,6 @@ if (raw) {
     overlay.hidden = false;
     document.documentElement.classList.add('searching'); // no page scroll underneath
     stop = mount(overlay.querySelector('.graph-stage'), nodes, raw.edges, { current, global: true });
+    releaseFocus = trapModal(overlay, close, ev.currentTarget);
   });
 }

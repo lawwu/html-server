@@ -151,7 +151,7 @@ export const POPULAR_MAX_WEEKS = 520;
 // a page opts out with <meta name="toc" content="off">, a single view with ?toc=0.
 export const TOC_MIN_HEADINGS = 3;
 
-// Tags: server-side labels, any number per page. A page's <meta name="category"> is
+// Tags: server-side labels; manual tagging is capped at MAX_TAGS_PER_PAGE. A page's <meta name="category"> is
 // added as a tag automatically; the rest are added and removed by the page's editors.
 export const TAG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const MAX_TAGS_PER_PAGE = 20;

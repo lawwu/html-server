@@ -56,7 +56,9 @@ const TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
   'blockquote', 'mark', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'br', 'hr', 'del', 's', 'sup', 'sub', 'span', 'div',
   'details', 'summary', 'figure', 'figcaption', 'kbd']);
 const ATTRS = { a: ['href', 'class'], img: ['src', 'alt', 'width', 'height'], '*': ['class'] };
-const SAFE_URL = /^(\/(?!\/)|#|https?:)/i;
+const safeUrl = (value) => {
+  try { return /^https?:$/.test(new URL(value, location.href).protocol); } catch { return false; }
+};
 
 /** Another page's HTML, rebuilt node by node from the allowlist above. */
 function clean(html) {
@@ -76,7 +78,7 @@ function clean(html) {
     for (const name of [...(ATTRS[tag] || []), ...ATTRS['*']]) {
       const v = node.getAttribute(name);
       if (v == null) continue;
-      if ((name === 'href' || name === 'src') && !SAFE_URL.test(v.trim())) continue;
+      if ((name === 'href' || name === 'src') && !safeUrl(v.trim())) continue;
       out.setAttribute(name, v);
     }
     if (tag === 'a') out.target = '_top';

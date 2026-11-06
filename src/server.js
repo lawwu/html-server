@@ -98,7 +98,8 @@ export const ROUTES = [
     'What changed, as a unified diff. `?from=1&to=3` (default: previous vs latest), `?of=source` for HTML instead of visible text'],
   ['POST', `/api/artifacts/${SLUG}/versions/(?<n>\\d+)/restore`, 'restoreVersion', 'owner',
     'Make version n current again. Adds a new version copied from n, so nothing is lost'],
-  ['POST', `/api/artifacts/${SLUG}/visibility`, 'visibility', 'owner', '`?to=public` or `?to=private`'],
+  ['POST', `/api/artifacts/${SLUG}/visibility`, 'visibility', 'owner', '`?to=public` or `?to=private`; making public pages private revokes old share links'],
+  ['POST', `/api/artifacts/${SLUG}/share`, 'rotateShare', 'owner', 'Revoke the old share link and return a new owner-only share_url'],
   ['DELETE', `/api/artifacts/${SLUG}`, 'delete', 'owner',
     'Move to trash. `?purge=1` deletes permanently, and only works on something already trashed'],
   ['POST', `/api/artifacts/${SLUG}/restore`, 'restore', 'owner', 'Take out of the trash'],
@@ -301,7 +302,7 @@ class Ctx {
       },
       asset: (name) => {
         const a = this.store.asset(name);
-        if (!a || (a.owner_id !== page?.owner_id && !this.store.canReadAsset(a, viewer))) return null;
+        if (!a || !this.store.canReadAsset(a, viewer, { via: page?.share_id })) return null;
         const url = `/assets/${encodeURIComponent(a.name)}${page && page.visibility !== 'public' ? `?from=${encodeURIComponent(page.share_id)}` : ''}`;
         const small = inline && a.mime.startsWith('image/') && a.size <= MAX_INLINE_BYTES;
         return { mime: a.mime, url, src: small ? `data:${a.mime};base64,${Buffer.from(a.data).toString('base64')}` : url };
@@ -382,7 +383,7 @@ class Ctx {
     if (this.preview()) return body;
     // In the site's frame the title bar shows the version, and a floating contents box
     // would be pinned to the top of a frame as tall as the page: just size it.
-    if (!note && this.query.get('embed')) return withInFrame(withInPageLinks(withEmbedSizing(body)));
+    if (this.query.get('embed')) return withInFrame(withInPageLinks(note ? body : withEmbedSizing(body)));
     // Notes carry their contents in the right sidebar already.
     let doc = note || this.query.get('toc') === '0' ? body : withToc(body);
     if (based) doc = withInPageLinks(doc);
@@ -686,6 +687,7 @@ const handlers = {
   },
   restoreVersion(c, { slug, n }) { c.json(200, c.store.restoreVersion(c.user().id, slug, Number(n))); },
   visibility(c, { slug }) { c.json(200, c.store.setVisibility(c.user().id, slug, c.query.get('to') || '')); },
+  rotateShare(c, { slug }) { c.json(200, c.store.rotateShare(c.user().id, slug)); },
   restore(c, { slug }) { c.json(200, c.store.apply(c.user().id, slug, 'restore')); },
   delete(c, { slug }) {
     const purge = ['1', 'true'].includes(c.query.get('purge'));
@@ -713,7 +715,13 @@ const handlers = {
  */
 export function makeServer(store, { sandboxAllow = [] } = {}) {
   const csp = renderCsp(sandboxAllow);
-  return createServer((req, res) => handleRequest(store, req, res, { csp }));
+  return createServer((req, res) => {
+    handleRequest(store, req, res, { csp }).catch((e) => {
+      console.error(e);
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' }).end('{"error":"internal error"}');
+      else res.destroy();
+    });
+  });
 }
 
 /**
@@ -724,7 +732,12 @@ export function makeServer(store, { sandboxAllow = [] } = {}) {
  */
 export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) {
   {
-    const url = new URL(req.url, 'http://localhost');
+    let url;
+    try { url = new URL(req.url, 'http://localhost'); } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' });
+      res.end(req.method === 'HEAD' ? undefined : '{"error":"bad URL"}');
+      return;
+    }
     const c = new Ctx(store, req, res, url, csp);
     c.head = req.method === 'HEAD';
     try {

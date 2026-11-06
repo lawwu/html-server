@@ -1,5 +1,5 @@
 // The artifact lifecycle as a transition table — the one place a state machine
-// earns its keep. Every mutation goes through transition(); a pair missing from
+// earns its keep. Lifecycle changes go through transition(); a pair missing from
 // the table is a 409 that names what is allowed.
 //
 //   (none) --create--> active --update--> active

@@ -51,7 +51,7 @@ function setView(v) {
   for (const t of toggles) {
     const on = t.dataset.view === v;
     t.classList.toggle('on', on);
-    t.setAttribute('aria-pressed', String(on));
+    t.setAttribute('aria-current', String(on));
   }
   try { localStorage.setItem(PREF, v); } catch { /* not remembered */ }
   syncUrl();
@@ -85,6 +85,7 @@ function remember(key, html) {
 function show(html) {
   const next = document.createElement('template');
   next.innerHTML = html;
+  const cardCount = next.content.querySelectorAll('.card').length;
   let grid = results.querySelector('.cards');
   if (!grid) results.prepend(grid = Object.assign(document.createElement('div'), { className: 'cards' }));
   const key = (el) => el.dataset.slug || el.dataset.section || '';
@@ -107,7 +108,7 @@ function show(html) {
   results.querySelector(':scope > .empty')?.remove();
   const empty = next.content.querySelector('.empty');
   if (empty) results.append(empty);
-  const n = next.content.querySelectorAll('.card').length;
+  const n = cardCount;
   return [...next.content.children].find((el) => el.dataset.count != null)?.dataset.count ?? `${n} match${n === 1 ? '' : 'es'}`;
 }
 

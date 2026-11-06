@@ -2,6 +2,8 @@
 // sidebar's search box. Results come from /api/search as you type; arrows move, Enter
 // opens. Where the page can't fetch (some browsers block a sandboxed note's requests), it
 // matches titles from the explorer already on the page, and Enter searches everything.
+import { trapModal } from './modal.js';
+let releaseFocus, restoringFocus = false;
 const box = document.querySelector('.side-search input');
 let modal, input, list, status, items = [], at = -1, ctl, timer;
 const cache = new Map(); // query → results, for this visit: going back to an earlier query is instant
@@ -18,12 +20,14 @@ const marked = (s) => {
 };
 
 function open() {
+  if (modal && !modal.hidden) return;
+  const invoker = document.activeElement === document.body ? box : document.activeElement;
   if (!modal) {
     modal = document.createElement('div');
     modal.className = 'search-modal';
     modal.innerHTML = '<div class="search-panel" role="dialog" aria-modal="true" aria-label="Search">'
       + '<input type="search" placeholder="Search for something" aria-label="Search pages" autocomplete="off">'
-      + '<p class="search-status" aria-live="polite"></p><ul class="search-results" role="listbox"></ul></div>';
+      + '<p class="search-status" aria-live="polite"></p><ul class="search-results" role="listbox" aria-label="Search results"></ul></div>';
     document.body.append(modal);
     input = modal.querySelector('input');
     list = modal.querySelector('ul');
@@ -45,6 +49,7 @@ function open() {
   modal.hidden = false;
   document.documentElement.classList.add('searching');
   input.value = box?.value || '';
+  releaseFocus = trapModal(modal, close, invoker);
   input.focus();
   input.select();
   if (input.value) run(); else show([], '');
@@ -54,6 +59,10 @@ function close() {
   if (!modal || modal.hidden) return;
   modal.hidden = true;
   document.documentElement.classList.remove('searching');
+  restoringFocus = true;
+  releaseFocus?.();
+  releaseFocus = null;
+  restoringFocus = false;
 }
 
 function select(i) {
@@ -139,7 +148,7 @@ addEventListener('keydown', (e) => {
     if (home) { home.focus(); home.select(); } else if (modal && !modal.hidden) close(); else open();
   } else if (e.key === 'Escape') close();
 });
-box?.addEventListener('focus', () => { box.blur(); open(); });
+box?.addEventListener('focus', () => { if (!restoringFocus) open(); });
 box?.form?.addEventListener('submit', (e) => { e.preventDefault(); open(); });
 // ⌘K inside an HTML page in the site's frame: the page runs sandboxed, so its key presses
 // never reach this window; public/in-frame.js passes that one on.

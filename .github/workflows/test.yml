@@ -60,7 +60,23 @@ jobs:
           grep -E '^# (tests|pass|fail|skipped) ' tap.txt
           skipped=$(grep -E '^# skipped ' tap.txt | awk '{print $3}')
           sqlite_only=$(grep -c '# SKIP SQLite only' tap.txt || true)
-          if [ "$skipped" != "$sqlite_only" ] || [ "$skipped" -gt 2 ]; then
-            echo "expected only the 2 SQLite-only tests to be skipped; $skipped were:"; grep '# SKIP' tap.txt; exit 1
+          if [ "$skipped" != "$sqlite_only" ] || [ "$skipped" -gt 3 ]; then
+            echo "expected only the 3 SQLite-only tests to be skipped; $skipped were:"; grep '# SKIP' tap.txt; exit 1
           fi
           grep -q "^ok .*the driver loads and these tests run against PostgreSQL" tap.txt
+
+  # The site in a real browser (Chromium, through Playwright): page isolation, framed
+  # navigation and spoofed messages, keyboard and focus, and accessibility at 375px in
+  # light and dark (test/browser.check.js).
+  browser:
+    name: Browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
