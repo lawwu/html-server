@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.12.0 (2026-11-06)
+
 - **Node 24 or newer is required** (it was 22.16), so if you run HTML Server on Node 22,
   upgrade Node before you update. CI now tests one version, Node 24, and time zones moved
   from CI into the tests: each test that counts the server's local days (stats, usage,
