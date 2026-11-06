@@ -8,10 +8,22 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Node 24 or newer is required** (it was 22.16), so if you run HTML Server on Node 22,
+  upgrade Node before you update. CI now tests one version, Node 24, and time zones moved
+  from CI into the tests: each test that counts the server's local days (stats, usage,
+  visits) runs itself in UTC, Los Angeles and Auckland, on any machine, where CI only
+  reran everything in Los Angeles time. New ones cover the counts that had none:
+  visitor-days, a page's views per day, uploads per week, and API calls folded into daily
+  totals.
 - **What 1.0 will promise.** A Stability section in the README lists the public interface
   (page addresses, the documented HTTP API, the command line, MCP tools, in-place data
   upgrades, Cloudflare deploys and the reserved names) and what isn't part of it, such as
   the site's look, undocumented API fields, the database tables and the code under `src/`.
+- **Dependabot keeps dependencies current.** Each week it opens one pull request for npm
+  (`marked`) and one for the GitHub Actions the workflows use. Patch and minor updates
+  merge themselves once the tests pass; majors wait for review, since a new `marked` major
+  can change every rendered page. A version is only proposed once it's a week old, so a
+  hijacked release is likely pulled before it reaches `main`; security fixes don't wait.
 - **"Open page" on the review page opens a private page too.** It linked to the page's own
   address, which needs a token a new tab doesn't send, so a private page opened as "not
   found". It now goes through the page's share link, for the version on show, as the review

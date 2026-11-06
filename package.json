@@ -7,7 +7,7 @@
   "author": "Lawrence Wu",
   "type": "module",
   "engines": {
-    "node": ">=22.16"
+    "node": ">=24"
   },
   "bin": {
     "html-server": "src/cli.js"
@@ -28,7 +28,7 @@
     "cf:deploy": "node src/cli.js deploy cloudflare"
   },
   "dependencies": {
-    "marked": "18.1.0"
+    "marked": "18.1.2"
   },
   "optionalDependencies": {
     "pg-native": "3.9.1"

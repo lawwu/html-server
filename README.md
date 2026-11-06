@@ -9,7 +9,7 @@ restore. Publish from the command line, from Claude and other AI apps over MCP, 
 curl, or sync a whole notes repo on every git commit. Everything is public unless you mark
 it private, and a page's URL is its file name.
 
-It runs on Node.js 22.16 or newer, on Node's built-in SQLite, with one dependency
+It runs on Node.js 24 or newer, on Node's built-in SQLite, with one dependency
 (`marked`, for Markdown); on [PostgreSQL](#postgresql) if you'd rather keep the data
 there; or on Cloudflare Workers with one command.
 
@@ -508,8 +508,8 @@ in `src/config.js`.
 
 ## Deploy to Cloudflare
 
-HTML Server runs anywhere Node 22 runs. It can also run on **Cloudflare Workers**, with no
-server to look after: one command from a clone of the repo (Node 22 and a Cloudflare
+HTML Server runs anywhere Node 24 runs. It can also run on **Cloudflare Workers**, with no
+server to look after: one command from a clone of the repo (Node 24 and a Cloudflare
 account; the free plan is fine):
 
 ```bash
@@ -855,7 +855,8 @@ ones change:
 | `gallery/` | The example pages shown at `/gallery` |
 | `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks, the Cloudflare and PostgreSQL adapters and the docs site; `fixture.js` runs them on SQLite, or on PostgreSQL with `TEST_DATABASE_URL` |
 | `scripts/build-site.js` | The docs site: this README, the Docs page, the changelog and the gallery as static pages (`npm run site`) |
-| `.github/workflows/` | `test.yml`: `npm test` on every pull request and push to `main`, on SQLite and on PostgreSQL; `pages.yml`: the docs site, on every push to `main` |
+| `.github/workflows/` | `test.yml`: `npm test` on Node 24 on every pull request and push to `main`, on SQLite and again on PostgreSQL; `pages.yml`: the docs site, on every push to `main`; `latest.yml`: moves the `latest` tag to each release; `dependabot-auto-merge.yml`: merges Dependabot's patch and minor updates once `test.yml` passes |
+| `.github/dependabot.yml` | Weekly Dependabot updates for npm and GitHub Actions, one pull request each, for versions at least 7 days old |
 | `CHANGELOG.md` | What each release changed |
 | `~/.html-server/` | Your data (`artifacts.db`), the CLI's login (`credentials.json`), backups and the sync log. Not in the repo |
 

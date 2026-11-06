@@ -1,6 +1,8 @@
-# npm test on the oldest Node the package supports (package.json engines) and the current
-# LTS, each in UTC and in a time zone with daylight saving: stats and usage count local
-# days, which is where time zones have broken things before. Then the same on PostgreSQL.
+# npm test on Node 24, the oldest Node the package supports (package.json engines), on
+# every pull request and push to main. One job: the job name "Node 24" is the check the
+# ruleset "main: CI before merging" requires, so renaming it means updating the ruleset.
+# Time zones aren't a CI axis: the tests that count local days (stats, usage, visits) run
+# themselves in UTC, Los Angeles and Auckland, so a runner in UTC still checks them.
 name: test
 on:
   push:
@@ -8,36 +10,24 @@ on:
   pull_request:
 jobs:
   test:
-    name: Node ${{ matrix.node }}, TZ=${{ matrix.tz }}
+    name: Node 24
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['22.16', lts/*]
-        tz: [UTC, America/Los_Angeles]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm test
-        env:
-          TZ: ${{ matrix.tz }}
 
   # Every test again with PostgreSQL as the database (test/fixture.js: a schema per test),
-  # the Cloudflare tests and the docs site build included. REQUIRE_POSTGRES makes a missing
-  # URL or driver a failure, and the last step checks that only the SQLite-only tests were
-  # skipped: a green run here has to have run against PostgreSQL.
+  # the Cloudflare tests, the docs site build and the tests' own time-zone runs included.
+  # REQUIRE_POSTGRES makes a missing URL or driver a failure, and the last step checks that
+  # only the SQLite-only tests were skipped: a green run here has to have run against PostgreSQL.
   postgres:
-    name: PostgreSQL 16, Node ${{ matrix.node }}, TZ=${{ matrix.tz }}
+    name: PostgreSQL 16, Node 24
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['22.16', lts/*]
-        tz: [UTC, America/Los_Angeles]
     services:
       postgres:
         image: postgres:16
@@ -52,14 +42,13 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://html_server:html_server@localhost:5432/html_server_test
       REQUIRE_POSTGRES: '1'
-      TZ: ${{ matrix.tz }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Native-driver prerequisites (libpq and a C toolchain, for pg-native)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev build-essential python3
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24
           cache: npm
       - run: npm ci
       - name: The PostgreSQL driver loads

@@ -1300,41 +1300,75 @@ test('tagging checks the 20-tag limit before writing anything', async () => {
   assert.equal((await req('GET', '/api/artifacts/full.html'))[1].tags.length, 19); // nothing was added
 });
 
-test('stats: each of the last 30 days once across a DST change, counted from local midnight', async (t) => {
-  const tz = process.env.TZ;
-  process.env.TZ = 'America/Los_Angeles';
-  t.after(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; });
+// Stats, usage and visits count the server's local days, which start hours before or after
+// UTC's and can be 23 or 25 hours long; CI's runners are in UTC. So the tests of them run
+// once in each of these zones, with its clock changes in 2026: `back`, the Sunday the clocks
+// go back (25 hours long), and `forward`, the Sunday they go forward (23 hours). UTC has
+// none; its dates are plain days.
+const ZONES = [
+  { tz: 'UTC', back: '2026-11-01', forward: '2026-03-08' },
+  { tz: 'America/Los_Angeles', back: '2026-11-01', forward: '2026-03-08' }, // behind UTC
+  { tz: 'Pacific/Auckland', back: '2026-04-05', forward: '2026-09-27' }, // ahead (+13 in its summer), southern hemisphere
+];
+/** A test run once per zone in ZONES, with process.env.TZ set to it (Node's dates and SQLite's 'localtime' follow). */
+function zoneTest(name, fn) {
+  for (const zone of ZONES) {
+    test(`${name} [TZ=${zone.tz}]`, async (t) => {
+      const before = process.env.TZ;
+      process.env.TZ = zone.tz;
+      t.after(() => { if (before === undefined) delete process.env.TZ; else process.env.TZ = before; });
+      await fn(t, zone);
+    });
+  }
+}
+/** The day `n` days after a YYYY-MM-DD day (before it, when n < 0). */
+const addDays = (day, n) => { const d = new Date(`${day}T00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+/** Seconds since 1970 for a local time ("2026-11-01T23:30"), read in the current zone. */
+const at = (local) => new Date(local).getTime() / 1000;
+
+zoneTest('stats: each of the last 30 days once across a DST change, counted from local midnight', async (t, { back, forward }) => {
   await put('seen.html', '<p>x</p>');
   const id = store.find('seen.html').id;
-  const at = (local) => new Date(local).getTime() / 1000; // local times, read in TZ
-  store.run("INSERT INTO views (artifact_id, n, at, visitor, via) VALUES (?, 1, ?, 'a', 'url')", id, at('2026-10-02T23:45')); // a 31st day back
-  store.run("INSERT INTO views (artifact_id, n, at, visitor, via) VALUES (?, 1, ?, 'b', 'url')", id, at('2026-10-03T00:15'));
-  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T23:30') }); // the day the clocks went back: 25 hours long
+  const view = (local, visitor) => store.run("INSERT INTO views (artifact_id, n, at, visitor, via) VALUES (?, 1, ?, ?, 'url')", id, at(local), visitor);
+  const first = addDays(back, -29);
+  view(`${addDays(first, -1)}T23:45`, 'a'); // a 31st day back
+  view(`${first}T00:15`, 'b'); // still the day before in UTC, east of it
+  view(`${back}T23:15`, 'c'); // already tomorrow in UTC, west of it
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(`${back}T23:30`) }); // the day the clocks go back: 25 hours long
   const s = store.stats(null);
   const days = s.views_by_day.map((d) => d.day);
   assert.equal(new Set(days).size, 30);
-  assert.deepEqual([days[0], days.at(-1)], ['2026-10-03', '2026-11-01']);
-  assert.equal(s.totals.views_recent, 1); // from midnight on the first day, not 30 × 24 hours before now
-  t.mock.timers.setTime(new Date('2026-03-09T00:30').getTime()); // just after midnight following a 23-hour day
-  assert.deepEqual(store.stats(null, { days: 3 }).views_by_day.map((d) => d.day), ['2026-03-07', '2026-03-08', '2026-03-09']);
+  assert.deepEqual([days[0], days.at(-1)], [first, back]);
+  assert.equal(s.totals.views_recent, 2); // from midnight on the first day, not 30 × 24 hours before now
+  assert.deepEqual([s.views_by_day[0].views, s.views_by_day.at(-1).views], [1, 1]); // each on its local day
+  t.mock.timers.setTime(new Date(`${addDays(forward, 1)}T00:30`).getTime()); // just after midnight following a 23-hour day
+  assert.deepEqual(store.stats(null, { days: 3 }).views_by_day.map((d) => d.day), [addDays(forward, -1), forward, addDays(forward, 1)]);
 });
 
-test('stats: Popular counts visits (each visitor once a day per page) over the weeks picked', async (t) => {
-  const tz = process.env.TZ;
-  process.env.TZ = 'America/Los_Angeles';
-  t.after(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; });
+zoneTest('stats: uploads count in the local week they were made, from Monday midnight', async (t, { back }) => {
+  const monday = addDays(back, 1); // `back` is a Sunday: the 25-hour day ends the week before this one
+  for (let i = 1; i <= 4; i++) await put('weekly.md', `# Weekly\n\nversion ${i}`);
+  const made = [`${addDays(back, -7)}T23:55`, `${addDays(back, -6)}T00:05`, `${back}T23:55`, `${monday}T00:05`];
+  made.forEach((local, i) => store.run('UPDATE versions SET created_at = ? WHERE n = ?', at(local), i + 1));
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(`${monday}T09:00`) });
+  assert.deepEqual(store.stats(null).uploads_by_week.slice(-3), [
+    { week: addDays(back, -13), versions: 1 }, { week: addDays(back, -6), versions: 2 }, { week: monday, versions: 1 }]);
+});
+
+zoneTest('stats: Popular counts visits (each visitor once a day per page) over the weeks picked', async (t, { back }) => {
+  const today = addDays(back, 2), ago = (n) => addDays(today, -n); // the 2 weeks back cross the DST change
   for (const name of ['reloaded.html', 'shared.html', 'older.html', 'edge.html']) await put(name, `<title>${name}</title>`);
   await put('mine.html', '<title>mine.html</title>', admin, '?visibility=private');
   const view = (slug, local, visitor) => store.run("INSERT INTO views (artifact_id, n, at, visitor, via) VALUES (?, 1, ?, ?, 'url')",
-    store.find(slug).id, new Date(local).getTime() / 1000, visitor); // visitor: the day's hash, so a new one each day
-  for (let i = 0; i < 5; i++) view('reloaded.html', '2026-11-03T09:00', 'me'); // one visitor, reloading: one visit
-  view('shared.html', '2026-11-02T09:00', 'a');
-  view('shared.html', '2026-11-03T09:00', 'b');
-  for (const v of ['c', 'd', 'e']) view('older.html', '2026-10-15T12:00', v); // 3 weeks back
-  view('edge.html', '2026-10-21T00:00', 'f'); // the first moment of the last 2 weeks (14 days, today the last)
-  view('edge.html', '2026-10-20T23:59', 'g'); // the minute before
-  for (const v of ['h', 'i', 'j', 'k']) view('mine.html', '2026-11-03T09:00', v); // private: in the owner's list only
-  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-03T10:00') }); // the 2 weeks back cross the DST change
+    store.find(slug).id, at(local), visitor); // visitor: the day's hash, so a new one each day
+  for (let i = 0; i < 5; i++) view('reloaded.html', `${today}T09:00`, 'me'); // one visitor, reloading: one visit
+  view('shared.html', `${ago(1)}T09:00`, 'a');
+  view('shared.html', `${today}T09:00`, 'b');
+  for (const v of ['c', 'd', 'e']) view('older.html', `${ago(19)}T12:00`, v); // 3 weeks back
+  view('edge.html', `${ago(13)}T00:00`, 'f'); // the first moment of the last 2 weeks (14 days, today the last)
+  view('edge.html', `${ago(14)}T23:59`, 'g'); // the minute before
+  for (const v of ['h', 'i', 'j', 'k']) view('mine.html', `${today}T09:00`, v); // private: in the owner's list only
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(`${today}T10:00`) });
   const popular = (weeks, viewer = null) => store.stats(viewer, { popular: weeks }).popular.pages.map((p) => `${p.slug} ${p.visits}/${p.views}`);
   assert.deepEqual(popular(2), ['shared.html 2/2', 'reloaded.html 1/5', 'edge.html 1/1']); // visits first, then views
   assert.deepEqual(store.stats(null).popular.pages.length, 3); // 2 weeks unless asked
@@ -1365,15 +1399,43 @@ test('stats: ?weeks= picks the Popular period on the page and in the API', async
   assert.match((await req('GET', '/stats?weeks=all'))[1], /<p class="empty">No views yet.<\/p>/);
 });
 
-test('the usage chart keeps today in the morning too (its days were compared as times)', async (t) => {
-  const tz = process.env.TZ;
-  process.env.TZ = 'America/Los_Angeles';
-  t.after(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; });
-  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-28T09:00') });
+zoneTest('usage: calls count on their local day, kept in detail or folded into daily totals, and today shows in the morning too', async (t, { back }) => {
+  const today = addDays(back, 1), old = addDays(today, -100); // the morning after the 25-hour day; a day past the 90 kept in detail
+  const call = (client, local) => store.run('INSERT INTO api_calls (at, client, method, route, status) VALUES (?, ?, ?, ?, ?)',
+    at(local), client, 'GET', '/api/tags', 200);
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(`${today}T09:00`) });
   store.recordApiCall({ client: 'cli', name: 'ls', method: 'GET', route: '/api/artifacts', status: 200 });
+  call('mcp', `${today}T00:05`);
+  call('browser', `${back}T23:55`);
+  call('http', `${old}T00:05`);
+  call('http', `${old}T23:55`);
+  store.rollUpApiCalls(Date.now() / 1000 - 90 * 86400);
+  assert.deepEqual(store.all('SELECT day, client, calls FROM api_calls_daily').map((r) => ({ ...r })), [{ day: old, client: 'http', calls: 2 }]);
   const u = store.usage({ days: 30 });
-  assert.equal(u.series.length, 30);
-  assert.deepEqual(u.series.at(-1), { period: '2026-10-28', mcp: 0, cli: 1, browser: 0, http: 0 });
+  assert.equal(u.series.length, 30); // its days were compared as times, so before noon today was left off
+  assert.deepEqual(u.series.slice(-2), [
+    { period: back, mcp: 0, cli: 0, browser: 1, http: 0 },
+    { period: today, mcp: 1, cli: 1, browser: 0, http: 0 }]);
+  assert.deepEqual(store.usage({ days: 120 }).series.find((p) => p.period === old), { period: old, mcp: 0, cli: 0, browser: 0, http: 2 });
+});
+
+zoneTest("visits: a visitor counts once a local day, in the visitor hash, the stats and the page's report", async (t, { back }) => {
+  await put('daily.html', '<p>x</p>');
+  const a = store.find('daily.html');
+  const [day, next] = [addDays(back, -1), back];
+  t.mock.timers.enable({ apis: ['Date'] });
+  for (const local of [`${day}T00:05`, `${day}T23:55`, `${next}T00:05`, `${next}T23:55`]) {
+    t.mock.timers.setTime(new Date(local).getTime());
+    store.countView(a, null, ['203.0.113.7', BROWSER], 'url');
+  }
+  const [h1, h2, h3, h4] = store.all('SELECT visitor FROM views ORDER BY at').map((r) => r.visitor);
+  assert.deepEqual([h1 === h2, h2 === h3, h3 === h4], [true, false, true]); // a new hash at local midnight, not before
+  const s = store.stats(null);
+  assert.equal(s.totals.visitor_days_recent, 2);
+  assert.deepEqual(s.popular.pages.map((p) => [p.slug, p.visits, p.views]), [['daily.html', 2, 4]]);
+  const report = store.views(store.userForToken(admin).id, 'daily.html');
+  assert.equal(report.visitor_days, 2);
+  assert.deepEqual(report.last_30_days, [{ day: next, views: 2, visitors: 1 }, { day, views: 2, visitors: 1 }]);
 });
 
 test('search puts pages with the words in their title first, in whatever order is chosen', async () => {
