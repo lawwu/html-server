@@ -29,6 +29,14 @@ couldn't be migrated would be a major version.
   addresses and backlinks follow it. On PostgreSQL the first run makes no admin, and
   `backup` points to `pg_dump`. Queries are synchronous and one server process per
   database is assumed; see the README's PostgreSQL section.
+- **`html-server import-sqlite PATH`** moves a SQLite database into the PostgreSQL that
+  `DATABASE_URL` names. It previews by default, checking both sides and importing nothing,
+  and imports with `--apply`. It works from a private, upgraded snapshot (the file is only
+  ever read) and refuses reserved or ambiguous addresses and NUL characters. It never
+  merges into a database already in use, and replaces usage records from before the move
+  only with `--replace-telemetry`. It copies everything in one transaction, keeping ids
+  and bytes, rebuilds search and links, and checks each table by count and SHA-256 before
+  keeping any of it.
 - **`/healthz`** answers `{"status":"ok"}` (GET or HEAD) once the database answers, and a
   503 otherwise, for load balancers and uptime monitors. It isn't counted as API use.
   `healthz` is now a reserved page name.

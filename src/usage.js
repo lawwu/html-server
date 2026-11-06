@@ -14,6 +14,9 @@ Run the server (on this machine, straight to the database):
                                         --keep N: then delete all but the newest N backups there
   config [usernames name|email] [editing owner|open]
                                         show or change this deployment's settings
+  import-sqlite PATH [--apply] [--replace-telemetry]
+                                        move a SQLite database into the PostgreSQL DATABASE_URL names:
+                                        a preview unless --apply; never into a database already in use
 
 Deploy it to Cloudflare Workers instead (free tier; data in a Durable Object's SQLite):
   deploy cloudflare [--name NAME] [--user NAME]
@@ -56,6 +59,7 @@ Use a running server:
   whoami
   --version                             print the version
 
-Data lives in ${homeDir} (HTML_SERVER_HOME moves it).
+Data lives in ${homeDir} (HTML_SERVER_HOME moves it), or in PostgreSQL when
+DATABASE_URL is set to a postgres:// URI (server commands only; see the README).
 Client commands use the server and token saved by login (or by the first serve on
 this machine). HTML_SERVER_URL and HTML_SERVER_TOKEN override them for one shell.${server ? `\nCurrently: ${server}` : ''}`;

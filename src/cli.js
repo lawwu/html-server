@@ -93,7 +93,8 @@ function bootstrap(store, opts) {
   if (store.listUsers().length) return;
   if (store.db.backend === 'postgres') {
     // Not on PostgreSQL: an empty database there may be waiting for data to be moved in.
-    console.error('no users yet: create the first admin with `html-server create-user NAME --admin --save`');
+    console.error('no users yet: move a SQLite database in with `html-server import-sqlite PATH --apply`,'
+      + ' or create the first admin with `html-server create-user NAME --admin --save`');
     return;
   }
   if (store.usernames !== 'name') {
@@ -195,6 +196,29 @@ const serverCommands = {
         console.log(`removed old backup ${f}`);
       }
     }
+  },
+  /**
+   * Move a SQLite database into the PostgreSQL DATABASE_URL names: a preview unless
+   * --apply (see src/import-sqlite.js). Never merges into a database already in use.
+   */
+  async 'import-sqlite'([path], opts) {
+    if (!path) fail('usage: import-sqlite PATH [--apply] [--replace-telemetry]');
+    if (opts.apply && opts.preview) fail('--apply and --preview: pick one (a preview is the default)');
+    const url = await postgresUrl(opts);
+    if (!url) fail('import-sqlite moves a SQLite database into PostgreSQL: set DATABASE_URL to the PostgreSQL to fill');
+    if (!existsSync(path)) fail(`no SQLite database at ${path}`);
+    const [{ importSqlite }, { describeUrl }] = await Promise.all([import('./import-sqlite.js'), import('./postgres.js')]);
+    await withStore(opts, (store) => {
+      console.log(`${opts.apply ? 'importing' : 'preview of importing'} ${path} into ${describeUrl(url)}`);
+      const r = importSqlite(path, store, { apply: opts.apply, replaceTelemetry: opts['replace-telemetry'] });
+      for (const line of r.report) console.log(line);
+      if (r.problems.length) {
+        for (const p of r.problems) console.error(`  - ${p}`);
+        fail(`nothing imported: ${r.problems.length} problem${r.problems.length === 1 ? '' : 's'} to fix first (above)`);
+      }
+      console.log(opts.apply ? 'imported: start the server with this DATABASE_URL'
+        : 'preview only: nothing imported. Run it again with --apply to import');
+    });
   },
   async config([key, value], opts) {
     if (key && !(['usernames', 'editing'].includes(key) && value)) fail('usage: config [usernames name|email] [editing owner|open]');
@@ -683,6 +707,9 @@ export async function main(argv) {
       'dry-run': { type: 'boolean', default: false },
       prune: { type: 'boolean', default: false },
       'install-hook': { type: 'boolean', default: false },
+      apply: { type: 'boolean', default: false },
+      preview: { type: 'boolean', default: false },
+      'replace-telemetry': { type: 'boolean', default: false },
       json: { type: 'boolean', default: false },
       url: { type: 'string' },
       token: { type: 'string' },
