@@ -14,7 +14,7 @@
 :root {
   /* Quartz's default theme: its colours (light, lightgray, gray, darkgray, dark, secondary,
      tertiary, highlight) under this site's names, and its three typefaces. */
-  --bg: #faf8f8; --fg: #2b2b2b; --text: #4e4e4e; --mute: #737373; --line: #e5e5e5; --card: #ffffff;
+  --bg: #faf8f8; --fg: #2b2b2b; --text: #4e4e4e; --mute: #686868; --line: #e5e5e5; --card: #ffffff;
   --accent: #284b63; --accent-hover: #84a59d; --accent-soft: rgba(143, 159, 169, .15); --mark: #fff23688;
   --head-font: "Schibsted Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --body-font: "Source Sans 3", "Source Sans Pro", ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -25,11 +25,11 @@
 }
 /* Dark: the system's choice unless the viewer picked one with the sun/moon switch. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --bg: #161618; --fg: #ebebec; --text: #d4d4d4; --mute: #8f8f8f; --line: #393639; --card: #1e1e21;
+  :root:not([data-theme="light"]) { --bg: #161618; --fg: #ebebec; --text: #d4d4d4; --mute: #a0a0a0; --line: #393639; --card: #1e1e21;
     --accent: #7b97aa; --accent-soft: rgba(143, 159, 169, .15); --mark: #b3aa0288; color-scheme: dark;
     --tok-keyword: #ff7b72; --tok-string: #a5d6ff; --tok-number: #79c0ff; --tok-comment: #8b949e; --tok-builtin: #d2a8ff; --tok-decorator: #ffa657; }
 }
-:root[data-theme="dark"] { --bg: #161618; --fg: #ebebec; --text: #d4d4d4; --mute: #8f8f8f; --line: #393639; --card: #1e1e21;
+:root[data-theme="dark"] { --bg: #161618; --fg: #ebebec; --text: #d4d4d4; --mute: #a0a0a0; --line: #393639; --card: #1e1e21;
   --accent: #7b97aa; --accent-soft: rgba(143, 159, 169, .15); --mark: #b3aa0288; color-scheme: dark;
     --tok-keyword: #ff7b72; --tok-string: #a5d6ff; --tok-number: #79c0ff; --tok-comment: #8b949e; --tok-builtin: #d2a8ff; --tok-decorator: #ffa657; }
 * { box-sizing: border-box; }

@@ -43,6 +43,9 @@ export const TABLES = [
   { name: 'tags', key: ['artifact_id', 'tag:text'] },
   { name: 'aliases', key: ['artifact_id', 'alias:text'] },
   { name: 'assets', key: ['id'], binary: ['data'] },
+  // Which files each page's owner let it show, history included: who may see a private
+  // file. Not worked out again from the pages, since an editor's mention isn't a grant.
+  { name: 'asset_grants', key: ['artifact_id', 'name:text'] },
   { name: 'meta', key: ['key:text'], where: "key IN ('visitor_secret', 'usernames', 'editing')" },
 ];
 /** Rebuilt from the pages, whatever markers the source has (the search index's table too). */

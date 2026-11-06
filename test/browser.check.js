@@ -1,0 +1,140 @@
+// Real Chromium checks, run separately with `npm run test:browser` after installing
+// Playwright Chromium. Every server and browser belongs to this test, never a user's.
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { before, after, beforeEach, afterEach, test } from 'node:test';
+import { chromium } from 'playwright';
+import AxeBuilder from '@axe-core/playwright';
+
+const home = mkdtempSync(join(tmpdir(), 'html-browser-'));
+process.env.HTML_SERVER_HOME = home;
+const { Store } = await import('../src/store.js');
+const { makeServer } = await import('../src/server.js');
+let store, server, browser, context, page, base, token, errors;
+before(async () => {
+  store = new Store(join(home, 'test.db'));
+  token = store.createUser('browser-owner', true);
+  const owner = store.userForToken(token).id;
+  const put = (name, body, opts) => store.putVersion(owner, name, Buffer.from(body), opts);
+  put('alpha.md', '# Alpha\n\n[[beta]]\n\n## One\nText\n\n## Two\nMore');
+  put('beta.md', '# Beta\n\nAnother note');
+  put('private.md', '# Private\n\nPrivate content', { visibility: 'private' });
+  put('no-gesture.html', '<title>No gesture</title><script>setTimeout(() => parent.postMessage({htmlServer: "go", href: location.origin + "/docs"}, "*"), 50)</script><p>No gesture</p>');
+  put('links.html', '<title>Links</title><a id="local" href="/pages/beta.md">Beta</a>');
+  put('hostile.html', `<title>&lt;img src=x onerror=window.pwned=1&gt;</title><script>window.probe={};try{probe.token=localStorage.getItem('artifact_token')}catch(e){probe.storage=e.name}try{probe.parent=parent.document.title}catch(e){probe.parent=e.name}</script><p>Hostile</p>`);
+  put('hostile.md', '# Hostile note\n<script>try{window.leaked=localStorage.getItem("artifact_token")}catch(e){window.blocked=e.name}</script>');
+  put('hostile.ipynb', JSON.stringify({ nbformat: 4, cells: [{ cell_type: 'code', source: ['1'], outputs: [{ output_type: 'display_data', data: { 'text/html': '<script>try{window.leaked=localStorage.getItem("artifact_token")}catch(e){window.blocked=e.name}</script>' } }] }] }));
+  server = makeServer(store);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}`;
+  browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } : {}) });
+});
+after(async () => {
+  await browser?.close();
+  if (server) await new Promise((r) => server.close(r));
+  store?.close();
+  rmSync(home, { recursive: true, force: true });
+});
+beforeEach(async () => {
+  context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  page = await context.newPage(); page.setDefaultTimeout(8000);
+  errors = []; page.on('pageerror', (e) => errors.push(e.message));
+});
+afterEach(async () => { await context.close(); assert.deepEqual(errors, []); });
+
+test('HTML, Markdown and notebook scripts cannot read sign-in storage or parent chrome', async () => {
+  await page.goto(base + '/docs');
+  await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
+  await page.goto(base + '/pages/hostile.html');
+  const child = page.frameLocator('.page-frame');
+  await child.locator('p').waitFor();
+  const frame = page.frames().find((f) => f.url().includes('embed=1'));
+  assert.deepEqual(await frame.evaluate(() => window.probe), { storage: 'SecurityError', parent: 'SecurityError' });
+  assert.equal(await page.evaluate(() => !!window.pwned), false);
+  for (const slug of ['hostile.md', 'hostile.ipynb']) {
+    await page.goto(base + '/pages/' + slug);
+    assert.deepEqual(await page.evaluate(() => ({ blocked: window.blocked, leaked: window.leaked ?? null })), { blocked: 'SecurityError', leaked: null });
+  }
+});
+
+test('anonymous and private reviews render, and generated frame links navigate the tab', async () => {
+  await page.goto(base + '/review/alpha.md');
+  await page.frameLocator('#frame').getByRole('heading', { name: 'Alpha', exact: true }).waitFor();
+  await page.frameLocator('#frame').getByRole('navigation', { name: 'Site' }).getByRole('link', { name: 'Docs', exact: true }).click();
+  await page.waitForURL(base + '/docs');
+  await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
+  await page.goto(base + '/review/private.md');
+  await page.frameLocator('#frame').getByText('Private content', { exact: true }).waitFor();
+  await page.goto(base + '/pages/links.html');
+  await page.frameLocator('.page-frame').locator('#local').click();
+  await page.waitForURL(base + '/pages/beta.md');
+  assert.equal(await page.locator('h1.article-title').textContent(), 'Beta');
+});
+
+test('frame navigation ignores spoofed sources, unsafe protocols, and messages without a gesture', async () => {
+  await page.goto(base + '/pages/no-gesture.html');
+  await page.waitForTimeout(250); // the artifact's own timer posts without a DevTools-created gesture
+  assert.equal(page.url(), base + '/pages/no-gesture.html');
+  await page.goto(base + '/pages/links.html');
+  await page.frameLocator('.page-frame').locator('#local').waitFor();
+  const frame = page.frames().find((f) => f.url().includes('embed=1'));
+  await page.mouse.click(1, 1); // a gesture cannot authorize the wrong message source
+  await page.evaluate(() => postMessage({ htmlServer: 'go', href: location.origin + '/docs' }, '*'));
+  await frame.evaluate(() => parent.postMessage({ htmlServer: 'go', href: 'javascript:window.pwned=1' }, '*'));
+  await page.waitForTimeout(100);
+  assert.equal(page.url(), base + '/pages/links.html');
+  assert.equal(await page.evaluate(() => !!window.pwned), false);
+});
+
+test('search contains keyboard focus, restores it, and activates a result', async () => {
+  await page.goto(base + '/docs');
+  const invoker = page.locator('a.gh'); await invoker.focus();
+  await page.keyboard.press('Control+k');
+  for (const key of ['Tab', 'Shift+Tab', 'Tab']) {
+    await page.keyboard.press(key);
+    assert.equal(await page.evaluate(() => !!document.activeElement.closest('.search-modal')), true);
+  }
+  await page.keyboard.press('Escape');
+  assert.equal(await invoker.evaluate((el) => document.activeElement === el), true);
+  await page.keyboard.press('Control+k');
+  await page.locator('.search-modal input').fill('Beta');
+  await page.locator('.search-results a').first().waitFor();
+  await page.keyboard.press('Enter');
+  await page.waitForURL(base + '/pages/beta.md');
+});
+
+test('graph links activate with Enter and its dialog restores focus', async () => {
+  await page.goto(base + '/graph');
+  const node = page.locator('a.node.page').first(); await node.waitFor();
+  const href = await node.getAttribute('href'); await node.focus();
+  await page.keyboard.press('Enter'); await page.waitForURL(base + href);
+  await page.goto(base + '/pages/alpha.md');
+  const expand = page.locator('.graph-expand'); await expand.click();
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest('.graph-panel')), true);
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest('.graph-panel')), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await expand.evaluate((el) => document.activeElement === el), true);
+});
+
+test('a search starting with no results reports its newly inserted card', async () => {
+  await page.goto(base + '/?q=zzznomatches');
+  await page.locator('#q').fill('Alpha');
+  await page.waitForFunction(() => document.getElementById('count').textContent === '1 match');
+  assert.equal(await page.locator('.card:visible').count(), 1);
+});
+
+for (const colorScheme of ['light', 'dark']) {
+  test(`375px ${colorScheme}: no horizontal overflow, contrast or ARIA regressions`, async () => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.emulateMedia({ colorScheme });
+    for (const path of ['/', '/docs', '/stats', '/pages/alpha.md', '/review/alpha.md']) {
+      await page.goto(base + path);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, path);
+      const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+      assert.deepEqual(result.violations.map((v) => ({ id: v.id, targets: v.nodes.map((n) => n.target) })), [], path);
+    }
+  });
+}

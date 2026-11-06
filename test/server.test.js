@@ -339,10 +339,11 @@ test('legacy /pages/{slug} URLs: new uploads, with or without .html', async () =
   assert.equal((await req('GET', '/pages/'))[0], 404);
   assert.equal((await put('pages', '<p>x</p>'))[0], 400); // reserved name
 
-  // The gallery links to the /pages/ form; the review page's "Open page" to the share link,
-  // which a new tab can open for a private page too (its own address needs a token).
+  // The gallery links to the /pages/ form; the review page's "Open page", for the owner, to
+  // the share link, which a new tab can open for a private page too (its own address needs a
+  // token); for anyone else (who gets no share link), to the page's address.
   assert.match((await req('GET', '/'))[1], /href="\/pages\/roadmap"/);
-  assert.match((await req('GET', '/_static/review.js'))[1], /\$\('open'\)\.href = `\$\{meta\.share_url\}/);
+  assert.match((await req('GET', '/_static/review.js'))[1], /\$\('open'\)\.href = `\$\{meta\.share_url \|\| meta\.url\}/);
   assert.match((await req('GET', '/review/roadmap'))[1], /<a id="open" target="_blank" rel="noopener">/);
 });
 
@@ -490,7 +491,7 @@ test('/gallery: the bundled example pages, filterable and searchable', async () 
   const [s, page] = await req('GET', '/gallery');
   assert.equal(s, 200);
   assert.match(page, /<title>Gallery · HTML Server<\/title>/);
-  assert.equal(page.match(/<article class="card[^"]*"/g).length, 34);
+  assert.equal(page.match(/<article class="card[^"]*"/g).length, examples().length);
   assert.match(page, /Machine learning <span>2<\/span>/);
   assert.match(page, /href="\/gallery\/kmeans-step-through.html"/);
   assert.match(page, /data-base="\/gallery"/);
@@ -1014,7 +1015,7 @@ test('an HTML page opened in a browser tab gets the frame; iframes, clients and 
   assert.match(embedded, /<script data-html-server-embed>/);
   // ⌘K inside the page opens search, and links it follows open in the tab: the page tells the frame, which checks the viewer clicked.
   assert.match(embedded, /<script data-html-server-in-frame>[^]*tell\('search'\)[^]*tell\('go', \{ href: url.href \}\)/);
-  assert.match(frame, /if\(d.htmlServer==='go'\)[^<]*navigator.userActivation\?.isActive!==false\)location.assign\(u.href\)/);
+  assert.match(frame, /if\(d.htmlServer==='go'\)[^<]*navigator.userActivation\?.isActive===true\)location.assign\(u.href\)/);
   assert.match(frame, /<li><a href="\/random\?not=framed.html" target="_top">Random<\/a><\/li>/); // never the page you're on
   assert.doesNotMatch(embedded, /data-artifact-toc-script|data-artifact-version-badge/);
   await put('app.html', '<html><head><meta name="html-server-frame" content="window"></head><body>app</body></html>');
@@ -1817,4 +1818,66 @@ test('names compare as the database compares them: links, moves and old addresse
   const [again, e] = await put(encodeURIComponent(onPostgres ? decomposed : composed), '<p>new</p>');
   assert.equal(again, 409);
   assert.match(e.error, /this address has moved/);
+});
+
+test('share capabilities are owner-only, revoked on privatization, and explicitly rotatable', async () => {
+  const other = store.createUser('reader');
+  const [, first] = await put('capability.html', '<p>public</p>');
+  for (const token of [undefined, other]) {
+    assert.ok(!Object.hasOwn((await req('GET', '/api/artifacts/capability.html', { token }))[1], 'share_url'));
+    assert.ok(!Object.hasOwn((await req('GET', '/api/artifacts', { token }))[1][0], 'share_url'));
+  }
+  const [, priv] = await req('POST', '/api/artifacts/capability.html/visibility?to=private', { token: admin });
+  await put('capability.html', '<p>new private secret</p>');
+  assert.equal((await req('GET', first.share_url))[0], 404);
+  assert.equal((await req('GET', first.share_url + '?v=1'))[0], 404);
+  assert.match((await req('GET', priv.share_url))[1], /new private secret/);
+  assert.equal((await req('GET', priv.url))[0], 404);
+  const [, same] = await req('POST', '/api/artifacts/capability.html/visibility?to=private', { token: admin });
+  assert.equal(same.share_url, priv.share_url);
+  assert.equal((await req('POST', '/api/artifacts/capability.html/share', { token: other }))[0], 404);
+  const [, rotated] = await req('POST', '/api/artifacts/capability.html/share', { token: admin });
+  assert.equal((await req('GET', priv.share_url))[0], 404);
+  assert.equal((await req('GET', rotated.share_url))[0], 200);
+  await req('POST', '/api/artifacts/capability.html/visibility?to=public', { token: admin });
+  await put('capability.html', '<p>private through PUT</p>', admin, '?visibility=private');
+  assert.equal((await req('GET', rotated.share_url))[0], 404);
+});
+
+test('open editors cannot grant access to private or future owner assets', async () => {
+  const editor = store.createUser('editor');
+  store.setEditing('open');
+  await req('PUT', '/api/assets/private.svg', { token: admin, body: '<svg>private marker</svg>' });
+  await put('private-note.md', '# Secret\n![[private.svg]]', admin, '?visibility=private');
+  await put('wiki.md', '# Wiki');
+  assert.equal((await put('wiki.md', '# Wiki\n![[private.svg]]', editor))[0], 403);
+  assert.equal(store.describe('wiki.md', store.userForToken(admin).id).latest_version, 1);
+  assert.equal((await req('GET', '/assets/private.svg'))[0], 404);
+  assert.equal((await put('wiki.md', '# Wiki\n![[later.svg]]', editor))[0], 200);
+  await req('PUT', '/api/assets/later.svg', { token: admin, body: '<svg>future private marker</svg>' });
+  assert.equal((await req('GET', '/assets/later.svg'))[0], 404);
+  assert.doesNotMatch((await req('GET', '/pages/wiki.md'))[1], /data:image\/svg/);
+  // An owner can authorize publication; editors may preserve those references.
+  await put('wiki.md', '# Wiki\n![[private.svg]]');
+  assert.equal((await put('wiki.md', '# Updated\n![[private.svg]]', editor))[0], 200);
+  assert.equal((await req('GET', '/assets/private.svg'))[0], 200);
+  // Readable historical versions still authorize their owner's explicitly shared images.
+  await put('wiki.md', '# No current image');
+  assert.equal((await req('GET', '/assets/private.svg'))[0], 200);
+});
+
+// SQLite only: the store watches SQLite's data_version; on PostgreSQL one server process per database is assumed.
+test('another database connection invalidates cached visibility, titles, and vocabulary', { skip: sqliteOnly }, () => {
+  const owner = store.userForToken(admin).id;
+  store.putVersion(owner, 'cached.md', Buffer.from('# Confidential'));
+  store.graph(null); store.explorer(null); store.vocabulary();
+  const writer = db.open();
+  try {
+    writer.setVisibility(owner, 'cached.md', 'private');
+    assert.equal(store.list(null).length, 0);
+    assert.equal(store.graph(null).nodes.length, 0);
+    assert.equal(store.explorer(null).length, 0);
+    writer.putVersion(owner, 'new.md', Buffer.from('# Axolotl'));
+    assert.deepEqual(store.list(null, { q: 'axolotl' }).map((p) => p.slug), ['new.md']);
+  } finally { writer.close(); }
 });

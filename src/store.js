@@ -210,14 +210,22 @@ CREATE TABLE IF NOT EXISTS link_names (
     PRIMARY KEY (from_id, name)
 );
 CREATE INDEX IF NOT EXISTS link_names_by_name ON link_names (name);
--- The images and PDFs each page's latest version shows, by name: whose pages vouch for a
--- file, so it's served only to people who can see one of them (Store.canReadAsset).
+-- The images and PDFs each page's latest version mentions, by name. Authorization
+-- is tracked separately in asset_grants; a reference alone is not a sharing grant.
 CREATE TABLE IF NOT EXISTS asset_refs (
     artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
     name TEXT NOT NULL COLLATE NOCASE,
     PRIMARY KEY (artifact_id, name)
 );
 CREATE INDEX IF NOT EXISTS asset_refs_by_name ON asset_refs (name);
+-- References the owner authorized, including readable historical versions. An editor's
+-- mere mention of a private (or not-yet-uploaded) filename is not a sharing grant.
+CREATE TABLE IF NOT EXISTS asset_grants (
+    artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL COLLATE NOCASE,
+    PRIMARY KEY (artifact_id, name)
+);
+CREATE INDEX IF NOT EXISTS asset_grants_by_name ON asset_grants (name);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 // The search index has its own version: when its columns change, it is rebuilt
@@ -324,7 +332,7 @@ export function summary(a, viewerId = null) {
     state: a.state,
     visibility: a.visibility,
     latest_version: a.latest_version,
-    share_url: `/v/${a.share_id}`,
+    ...(viewerId === a.owner_id ? { share_url: `/v/${a.share_id}` } : {}),
     created_at: a.created_at,
     updated_at: a.updated_at,
     views: a.views ?? null,
@@ -389,21 +397,23 @@ export class Store {
     this.search = this.db.search ?? sqliteSearch;
     this.statements = new Map();
     this.db.exec(SCHEMA);
-    for (const [table, added] of Object.entries(ADDED_COLUMNS)) {
-      const cols = new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
-      for (const [name, def, backfill] of added) {
-        if (cols.has(name)) continue;
-        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`);
-        if (backfill) this.db.exec(backfill);
+    this.tx(() => {
+      for (const [table, added] of Object.entries(ADDED_COLUMNS)) {
+        const cols = new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+        for (const [name, def, backfill] of added) {
+          if (cols.has(name)) continue;
+          this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`);
+          if (backfill) this.db.exec(backfill);
+        }
       }
-    }
-    for (const sql of ADDED_INDEXES) this.db.exec(sql);
+      for (const sql of ADDED_INDEXES) this.db.exec(sql);
+    });
     this.db.prepare("INSERT OR IGNORE INTO meta VALUES ('visitor_secret', ?)").run(randomBytes(16).toString('hex'));
     this.visitorSecret = this.db.prepare("SELECT value FROM meta WHERE key = 'visitor_secret'").get().value;
     this.vocab = null; // indexed words for fuzzy search; reset whenever the index changes
     // Bumped by every change to pages (see changed): what's worked out from them (the link
-    // graph, the explorer, hover previews) is kept until then. Only this Store writes pages;
-    // the CLI's server commands touch users and settings.
+    // graph, the explorer, hover previews) is kept until then. Node connections also
+    // watch SQLite's data_version, so another process cannot leave private data cached.
     this.revision = 0;
     this.memo = new Map();
     if (this.setting('tags_index') !== '1') { // 0.5.0: categories become each page's first tag
@@ -412,6 +422,8 @@ export class Store {
     }
     this.ensureSearchIndex(); // after the tags: they're searchable
     this.ensureLinks();
+    this.ensureAssetGrants();
+    this.dataVersion = this.db.transaction ? null : this.one('PRAGMA data_version').data_version;
   }
 
   /** Close the database (a promise where closing takes time, as PostgreSQL's does). */
@@ -456,6 +468,21 @@ export class Store {
   setAssetRefs(id, names) {
     this.run('DELETE FROM asset_refs WHERE artifact_id = ?', id);
     for (const n of names) this.run('INSERT OR IGNORE INTO asset_refs (artifact_id, name) VALUES (?, ?)', id, n);
+  }
+
+  ensureAssetGrants() {
+    if (this.setting('asset_grants') === '1') return;
+    this.tx(() => {
+      // Do not turn pre-upgrade edits by other users into owner-authorized grants.
+      const rows = this.all('SELECT a.id, a.slug, v.base_path, v.html FROM artifacts a'
+        + ' JOIN versions v ON v.artifact_id = a.id WHERE v.author_id = a.owner_id');
+      for (const r of rows) {
+        for (const name of pageMeta(r.slug, Buffer.from(r.html).toString('utf8'), { path: r.base_path || r.slug }).assets) {
+          this.run('INSERT OR IGNORE INTO asset_grants VALUES (?, ?)', r.id, name);
+        }
+      }
+      this.setSetting('asset_grants', '1');
+    });
   }
 
   /** A page's links, as pageMeta gives them: kept, and what each may mean worked out. */
@@ -517,11 +544,24 @@ export class Store {
 
   /** fn(), kept until the next change to pages (see changed). */
   cached(key, fn) {
+    this.refreshCaches();
     if (!this.memo.has(key)) {
       if (this.memo.size >= 1000) this.memo.clear();
       this.memo.set(key, fn());
     }
     return this.memo.get(key);
+  }
+
+  refreshCaches() {
+    // Durable Objects serialize their one Store; on PostgreSQL one server process per
+    // database is assumed (see src/postgres.js), so neither has data_version to watch.
+    if (this.dataVersion == null) return;
+    const version = this.one('PRAGMA data_version').data_version;
+    if (version !== this.dataVersion) {
+      this.dataVersion = version;
+      this.vocab = null;
+      this.changed();
+    }
   }
 
   /** Pages, their links, names, visibility, tags or assets changed: forget what was worked out from them. */
@@ -792,6 +832,14 @@ export class Store {
       const authoredPath = basePath || (source && a?.source === source && a.path === path ? this.versionBase(a) : slug.includes('/') ? slug : path ?? a?.path ?? slug);
       const meta = pageMeta(slug, text, { path: authoredPath });
       const { title: htmlTitle, body, description, category } = meta;
+      const grants = [];
+      for (const name of meta.assets) {
+        if (!a || a.owner_id === userId) { grants.push(name); continue; }
+        const asset = this.asset(name, { data: false });
+        if (asset?.owner_id !== a.owner_id) continue;
+        if (!this.canReadAsset(asset, userId)) throw new ApiError(403, 'an editor cannot publish a private asset');
+        grants.push(asset.name);
+      }
       const namesBefore = a ? this.namesOf(a.id) : [];
       let id, n;
       if (!a) {
@@ -810,6 +858,7 @@ export class Store {
         this.run('UPDATE artifacts SET title=?, state=?, visibility=?, latest_version=?, updated_at=?,'
           + ' description=?, category=? WHERE id=?',
         title, state, visibility || a.visibility, n, t, description, category, id);
+        if (a.visibility === 'public' && visibility === 'private') this.replaceShare(id);
       }
       this.run('INSERT INTO versions (artifact_id, n, html, sha256, size, note, created_at, author_id, base_path) VALUES (?,?,?,?,?,?,?,?,?)',
         id, n, doc, sha256(doc), doc.length, note, t, userId, authoredPath);
@@ -822,6 +871,7 @@ export class Store {
       if (nameKey || !a) this.run('UPDATE artifacts SET name_key = ? WHERE id = ?', (nameKey || pageNameKey(slug)).toLowerCase(), id);
       this.setLinks(id, meta.links);
       this.setAssetRefs(id, meta.assets);
+      for (const name of grants) this.run('INSERT OR IGNORE INTO asset_grants VALUES (?, ?)', id, name);
       // A new page, or one answering to other names now, may be what other pages' links mean.
       const names = this.namesOf(id);
       if (!a || [...namesBefore].sort().join('\n') !== [...names].sort().join('\n')) {
@@ -910,7 +960,21 @@ export class Store {
   setVisibility(userId, slug, visibility) {
     if (!VISIBILITIES.includes(visibility)) throw new ApiError(400, `visibility must be one of ${VISIBILITIES.join(', ')}`);
     const a = this.owned(slug, userId);
-    this.run('UPDATE artifacts SET visibility = ? WHERE id = ?', visibility, a.id);
+    this.tx(() => {
+      this.run('UPDATE artifacts SET visibility = ? WHERE id = ?', visibility, a.id);
+      if (a.visibility === 'public' && visibility === 'private') this.replaceShare(a.id);
+    });
+    this.changed();
+    return this.describe(a.slug, userId);
+  }
+
+  replaceShare(id) {
+    this.run('UPDATE artifacts SET share_id = ? WHERE id = ?', randomBytes(12).toString('base64url'), id);
+  }
+
+  rotateShare(userId, slug) {
+    const a = this.owned(slug, userId);
+    this.replaceShare(a.id);
     this.changed();
     return this.describe(a.slug, userId);
   }
@@ -1095,9 +1159,13 @@ export class Store {
   previews(slugs, viewerId) {
     const want = [...new Set(slugs)].slice(0, 200);
     if (!want.length) return {};
-    const found = this.all(`SELECT a.id, a.slug, a.title, a.description, ${TAGS} FROM artifacts a`
-      + ` WHERE a.slug IN (${want.map(() => '?').join(',')}) AND a.state = 'active' AND (a.visibility = 'public' OR a.owner_id = ?)`,
-    ...want, viewerId ?? -1);
+    const found = [];
+    for (let i = 0; i < want.length; i += 90) {
+      const part = want.slice(i, i + 90); // leave room for the viewer within Cloudflare's 100 bindings
+      found.push(...this.all(`SELECT a.id, a.slug, a.title, a.description, ${TAGS} FROM artifacts a`
+        + ` WHERE a.slug IN (${part.map(() => '?').join(',')}) AND a.state = 'active' AND (a.visibility = 'public' OR a.owner_id = ?)`,
+      ...part, viewerId ?? -1));
+    }
     const bodies = this.indexedText(found.map((r) => r.id));
     const rows = found.filter((r) => bodies.has(r.id)).map((r) => ({ ...r, body: bodies.get(r.id) }));
     const out = {};
@@ -1267,13 +1335,13 @@ export class Store {
 
   /**
    * May this viewer have asset `x`? The person who uploaded it may; anyone else through a
-   * page of the uploader's that shows it and that they can see, or whose share link they
-   * hold (`via`, its share id). A page only vouches for its own owner's files, so naming
-   * someone else's file in your page doesn't publish it.
+   * readable page of the uploader's with an authorized reference (including history),
+   * or whose share link they hold (`via`, its share id). A page only vouches for its own
+   * owner's files, so naming someone else's file in your page doesn't publish it.
    */
   canReadAsset(x, viewerId, { via } = {}) {
     if (viewerId != null && x.owner_id === viewerId) return true;
-    return !!this.one("SELECT 1 AS ok FROM asset_refs r JOIN artifacts a ON a.id = r.artifact_id WHERE r.name = ? AND a.owner_id = ?"
+    return !!this.one("SELECT 1 AS ok FROM asset_grants r JOIN artifacts a ON a.id = r.artifact_id WHERE r.name = ? AND a.owner_id = ?"
       + " AND a.state = 'active' AND (a.visibility = 'public' OR a.share_id = ?) LIMIT 1", x.name, x.owner_id, via ?? '');
   }
 
@@ -1302,6 +1370,7 @@ export class Store {
 
   /** Every indexed word. Only steers matching; results are still visibility-filtered. */
   vocabulary() {
+    this.refreshCaches();
     this.vocab ??= new Vocabulary(this.search.terms(this));
     return this.vocab;
   }

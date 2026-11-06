@@ -1,7 +1,8 @@
 // The example pages that ship with html-server (the package's gallery/ folder),
 // shown at /gallery. Served straight from the package, read-only: they are not in
 // the database, so they never mix with anyone's own pages, and every install has them.
-import { fileBytes, fileMtime, fileText, listFiles } from './files.js';
+import { Buffer } from 'node:buffer';
+import { fileBytes, fileMtime, listFiles } from './files.js';
 import { extractText, metaContent, scriptText } from './text.js';
 
 export const EXAMPLE_FILE_RE = /^[A-Za-z0-9][\w.-]*\.html$/;
@@ -33,6 +34,7 @@ export const SKILLS = [
 const rank = (category) => ['featured', 'moc'].indexOf(category) >>> 0;
 
 let cache = null;
+const bodies = new Map();
 
 /** [{ slug, url, title, description, category, size, updated_at, body }], newest first; read once. */
 export function examples() {
@@ -40,7 +42,9 @@ export function examples() {
   let files = [];
   try { files = listFiles('gallery').filter((f) => EXAMPLE_FILE_RE.test(f)); } catch { /* no gallery folder */ }
   cache = files.map((f) => {
-    const html = fileText(`gallery/${f}`);
+    const bytes = fileBytes(`gallery/${f}`);
+    bodies.set(f, bytes);
+    const html = bytes.toString('utf8');
     const { title, body } = extractText(html);
     return {
       slug: f,
@@ -59,7 +63,7 @@ export function examples() {
 /** The raw HTML of one example, or null. */
 export function exampleHtml(file) {
   if (!examples().some((e) => e.slug === file)) return null;
-  return fileBytes(`gallery/${file}`);
+  return Buffer.from(bodies.get(file)); // bytes and metadata are one immutable process snapshot
 }
 
 /** Filter examples by category and by every typed word appearing somewhere in them. */

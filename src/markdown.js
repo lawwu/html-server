@@ -2,7 +2,7 @@
 // Markdown or HTML pages on this server, callouts (> [!note]), ==highlights==, heading
 // anchors, and a reading-page template with backlinks. Rendering uses `marked`
 // (GitHub-flavoured Markdown); everything Quartz-specific is ours, below.
-import { Marked } from 'marked';
+import { Marked, Renderer } from 'marked';
 import { PAGE_EXT_RE } from './config.js';
 import { highlight } from './highlight.js';
 import { isPagePath, linkPath, pageUrl } from './paths.js';
@@ -302,7 +302,10 @@ export function renderMarkdown(md, { resolve = () => null, asset = () => null, t
       // Code blocks get the same highlighting as notebook code (src/highlight.js).
       code({ text, lang }) {
         const l = (lang || '').trim().split(/\s+/)[0];
-        return `<pre><code${l ? ` class="language-${esc(l)}"` : ''}>${highlight(text, l)}</code></pre>\n`;
+        return `<pre tabindex="0"><code${l ? ` class="language-${esc(l)}"` : ''}>${highlight(text, l)}</code></pre>\n`;
+      },
+      table(token) {
+        return Renderer.prototype.table.call(this, token).replace(/^<table>/, '<table tabindex="0">');
       },
       heading({ tokens, depth }) {
         const inner = this.parser.parseInline(tokens);

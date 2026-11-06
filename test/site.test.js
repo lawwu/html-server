@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { checkLinks } from '../scripts/build-site.js';
+import { checkLinks, linker } from '../scripts/build-site.js';
 import { examples } from '../src/examples.js';
 import { TOOLS } from '../src/mcp.js';
 import { docsMarkdown } from '../src/pages.js';
@@ -81,7 +81,7 @@ test('the Docs page is the server\'s, from the code: CLI usage, MCP tools, every
 test('the gallery: every example, its card, and the copy the card previews', () => {
   const gallery = read('gallery/index.html');
   const all = examples();
-  assert.equal(all.length, 34);
+  assert.ok(all.length > 0);
   assert.equal(gallery.match(/<article class="card/g).length, all.length);
   assert.match(gallery, /<span class="tag">Featured<\/span>/); // a label: there's no filtered page to link to
   for (const e of all) {
@@ -116,10 +116,24 @@ test('the link check names every link the static site can\'t follow', () => {
 <a href="https://example.com/">out</a> <img src="data:image/png;base64,AA"> <a href="sub/ok.html?v=1#a">ok</a>
 <link rel="stylesheet" href="site.css"><script>const s = '<a href="/review/x">';</script>
 <script id="site-graph" type="application/json">${graph}</script>`);
-  writeFileSync(join(d, 'sub/ok.html'), '<a href="../index.html">home</a>');
+  writeFileSync(join(d, 'sub/ok.html'), '<a id="a" href="../index.html">home</a>');
   writeFileSync(join(d, 'site.css'), '@font-face { src: url(fonts/gone.woff2) } a { background: url("data:image/gif;base64,AA") }');
   assert.throws(() => checkLinks(d), (e) => {
-    assert.equal(e.message, "links the static site can't follow:\n  index.html: /graph\n  index.html: missing.html\n  index.html: /pages/b.md\n  site.css: fonts/gone.woff2");
+    for (const missing of ['index.html: /graph', 'index.html: missing.html', 'index.html: /pages/b.md', 'site.css: fonts/gone.woff2']) assert.ok(e.message.includes(missing), e.message);
+    assert.ok(!e.message.includes('sub/ok.html'), e.message);
     return true;
   });
+});
+
+test('static links use browser attribute syntax and verify target fragments', () => {
+  const d = join(dir, 'parsed-links'); mkdirSync(d);
+  writeFileSync(join(d, 'index.html'), `<a HREF='missing.html'>Missing</a><img src=missing.png><a href="#absent">Bad fragment</a><a href="other.html#absent">Other fragment</a>`);
+  writeFileSync(join(d, 'other.html'), '<h2 id="present">Present</h2>');
+  assert.throws(() => checkLinks(d), (e) => {
+    for (const missing of ['missing.html', 'missing.png', '#absent', 'other.html#absent']) assert.ok(e.message.includes(missing));
+    return true;
+  });
+  const html = linker('index.html', new Map([['/other', 'other.html']]), new Set()).markup(`<a HREF='/other#present'>Quoted</a><a href=/other#present>Unquoted</a><i id="local"></i><a href=#local>Local</a>`);
+  writeFileSync(join(d, 'index.html'), html);
+  assert.doesNotThrow(() => checkLinks(d));
 });

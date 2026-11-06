@@ -9,9 +9,9 @@ restore. Publish from the command line, from Claude and other AI apps over MCP, 
 curl, or sync a whole notes repo on every git commit. Everything is public unless you mark
 it private, and a page's URL is its file name.
 
-It runs on Node.js 24 or newer, on Node's built-in SQLite, with one dependency
-(`marked`, for Markdown); on [PostgreSQL](#postgresql) if you'd rather keep the data
-there; or on Cloudflare Workers with one command.
+It runs on Node.js 24 or newer, on Node's built-in SQLite, with two runtime dependencies
+(`marked` for Markdown and `yaml` for sync exclusions); on [PostgreSQL](#postgresql) if
+you'd rather keep the data there; or on Cloudflare Workers with one command.
 
 ```bash
 npm install -g github:lawwu/html-server   # puts `html-server` on your PATH
@@ -262,7 +262,9 @@ linking here, Markdown or HTML).
   or `![](img/diagram.png)` (uploaded by `sync`, or `PUT /api/assets/<name>`). Images over
   3 MB link instead of embedding. An asset is shown to whoever uploaded it and to anyone
   who can see one of the uploader's pages that shows it, a private note's share link
-  included; naming someone else's file in your own page doesn't publish it.
+  included. Only the owner or an editor who already has access may authorize an asset
+  reference; naming a private file in someone else's public page does not publish it.
+  Owner-authorized references in readable historical versions continue to grant access.
 - **Copy markdown** copies the note's source. Diffs show the Markdown; frontmatter tags
   follow the note, and tags you add by hand stay.
 
@@ -300,7 +302,10 @@ html-server sync ~/github/my-garden --install-hook   # re-sync on every git comm
 - **A Quartz repo is recognised** by its `quartz.config.yaml` (or `.ts`) next to
   `content/`. Sync then reads `content/` and honours the config's `ignorePatterns`. Any
   other folder is read as is, skipping hidden folders (`.obsidian`, `.git`,
-  `.ipynb_checkpoints`).
+  `.ipynb_checkpoints`). File and directory symlinks are skipped, including links inside
+  the selected folder. YAML block and inline exclusion lists are supported; invalid
+  exclusions abort before uploads or pruning. TypeScript configs must use a literal list
+  of quoted strings for `ignorePatterns` and are never executed.
 - **Pages keep their folders:** `plugins/Backlinks.md` becomes `/plugins/Backlinks.md`.
   `/plugins/` automatically lists the folder's pages and subfolders. Existing synced
   pages keep their old addresses until you run `sync DIR --migrate-paths`; the old URLs
@@ -315,7 +320,7 @@ html-server sync ~/github/my-garden --install-hook   # re-sync on every git comm
   last touched the file.
 - **`--prune`** trashes pages that came from this folder but whose file is gone (they can
   be restored), however many the folder has; pages uploaded any other way are never
-  touched. A file renamed only in case (`Notes.md` → `notes.md`) renames its page.
+  touched. An existing empty source folder can be pruned too. A file renamed only in case (`Notes.md` → `notes.md`) renames its page.
 - **`--install-hook`** adds `post-commit` and `post-merge` hooks, so every commit and every
   `git pull` re-syncs in the background (with `--prune`); output goes to
   `~/.html-server/sync.log`. Delete the hook files to stop. An existing hook of your own is
@@ -377,7 +382,7 @@ pinned. Pin with `html-server pin NAME` (`unpin` to undo), or press **Select** o
 page, tick pages and press **Feature** (**Unfeature** to undo). A page's owner or an admin
 can pin it.
 
-**Tags** label pages, any number each. An HTML page's `category` and a note's or
+**Tags** label pages. Manual tagging permits at most 20 tags per page. An HTML page's `category` and a note's or
 notebook's frontmatter tags are added automatically, and the chips filter by tag. To tag many pages at once, press
 **Select**, tick the pages, type a tag, and press Add tag or Remove tag; or
 `html-server tag add trips plan.html notes.md` (`tag rm` to remove, `tags` to list them).
@@ -540,6 +545,11 @@ rest of the code doesn't depend on Cloudflare.
 - **Moving data:** `sync` and `import` re-upload a folder to any server, so moving between
   a Node server and Cloudflare is a re-sync.
 
+If first-deploy token verification fails, the CLI preserves its existing sign-in and exits
+with an error. The new token is kept privately in `HTML_SERVER_HOME/deploy-credentials.json`
+(default `~/.html-server/deploy-credentials.json`) for recovery; that file is removed after
+successful verification. No token is replaced when secret discovery fails.
+
 ## PostgreSQL
 
 SQLite is the default and needs nothing. To keep the data in PostgreSQL instead (a
@@ -585,7 +595,7 @@ html-server create-user alice --admin --save   # PostgreSQL starts with no users
   already in use: one with pages, users or settings of its own. Usage records from people
   trying the new server first are refused too, unless you add `--replace-telemetry`.
   `--apply` copies everything (users and their token hashes, page ids and addresses, moves,
-  every version byte for byte, files, comments and replies, visibility, tags, aliases,
+  every version byte for byte, files and who may see them, comments and replies, visibility, tags, aliases,
   views and usage, settings) in one transaction, rebuilds search, links and file
   references, and checks each table against the snapshot by row count and SHA-256.
   Anything wrong and none of it is kept. Two things to know: the tables a preview or a
@@ -658,11 +668,13 @@ take over without breaking any links:
    html-server import /path/to/current/pages
    ```
 
-2. **Try it on a spare port** while the current service keeps running, and check a few old
-   links:
+2. **Try it on a spare port with a backup database** while the current service keeps
+   running, and check a few old links:
 
    ```bash
-   html-server serve --host 0.0.0.0 --port 8766
+   review_home=$(mktemp -d)
+   html-server backup "$review_home/artifacts.db"
+   HTML_SERVER_HOME="$review_home" html-server serve --host 127.0.0.1 --port 8766
    ```
 
 3. **Switch over.** Stop the current service, then start this one on the same host and
@@ -709,7 +721,8 @@ that says `did you mean 'trip-plan.html'?`, and uploading a new `trip-plan` whil
 | What changed | `curl $A/api/artifacts/trip-plan.html/diff` (previous vs latest) · `?from=1&to=3` · `?of=source` |
 | Make an old version current | `curl -X POST -H "$H" $A/api/artifacts/trip-plan.html/versions/2/restore` |
 | Make private or public | `curl -X POST -H "$H" "$A/api/artifacts/trip-plan.html/visibility?to=private"` |
-| Share a private page | send the `share_url` (`/v/<random id>`) from any response; `?v=n` works there too |
+| Share a private page | send the owner-only `share_url` (`/v/<random id>`); `?v=n` works there too |
+| Revoke a share link | `curl -X POST -H "$H" $A/api/artifacts/trip-plan.html/share` returns a replacement; the old link stops working |
 | Tag or feature | `POST /api/tags` with `{"pages": [...], "add": [...], "remove": [...]}` · `POST /api/artifacts/<name>/pin` |
 | Images and PDFs for notes | `curl -T diagram.png -H "$H" $A/api/assets/` · served at `/assets/diagram.png` to those who may see it · yours: `curl -H "$H" $A/api/assets` |
 | Comments | `curl $A/api/artifacts/trip-plan.html/comments` · add: `curl -X POST -H "$H" -d '{"body":"..."}' $A/api/artifacts/trip-plan.html/comments` |
@@ -728,10 +741,17 @@ in `/`, so `.../api/artifacts/?note=x` arrives without a name and gets a 400 tha
 this. Query parameters work when the name is spelled out in the URL. Errors are JSON:
 `{"error": "..."}`.
 
+Share capabilities appear only in responses authenticated as the page's owner. Making a
+public page private revokes its previous share link, including access to old versions;
+fetch the new owner metadata to share it again. Owners can also rotate a private page's
+link with `POST /api/artifacts/<name>/share`. After upgrading from an older version, rotate
+links for private pages that were previously public, since their metadata may have exposed
+the old capability.
+
 ## Design notes
 
-- **Lifecycle state machine.** A page is `active`, `trashed` or `purged`. Every mutation
-  goes through `transition(state, event)`, a lookup in one table, and any pair missing from
+- **Lifecycle state machine.** A page is `active`, `trashed` or `purged`. Creating versions and changing lifecycle state
+  go through `transition(state, event)`, a lookup in one table, and any pair missing from
   it returns a 409 naming the allowed events, so a trashed page can't take new versions and
   an active one can't be purged by accident. Visibility (public or private) is a separate
   column, not a state.
@@ -780,7 +800,7 @@ this. Query parameters work when the name is spelled out in the URL. Errors are 
   uses those paths itself (browsers ask for `/favicon.ico` and crawlers for `/robots.txt`;
   both get a plain 404 straight away).
 
-Not built yet: per-version deletion, rotating a share link, promoting a user to admin, and
+Not built yet: per-version deletion, promoting a user to admin, and
 per-user folders (`/alice/x.html`) if one shared namespace for names gets crowded.
 
 ## The sandbox
@@ -879,13 +899,23 @@ the site works under any path. What needs a running server is left out: ⌘K sea
 versions, history and comments, the Pages, Random, Graph and Stats sections, and the gallery's
 search, filters and layouts. Hover previews, the local graph, **Copy markdown** and
 light/dark work as on a server, since what they need is in the page. Then every link is
-followed, and one the site can't follow (a page it doesn't have, a server path) fails the
-build.
+checked for static HTML `href`/`src`/`action` attributes, CSS URLs and generated graph/preview
+data, including fragment targets. Missing destinations fail the build. Links constructed
+only by an example's JavaScript are not statically checked.
 
 `.github/workflows/pages.yml` builds and publishes the site on every push to `main`; it
 needs **Settings → Pages → Source: GitHub Actions**. GitHub Pages can't send the sandbox
 header (see [The sandbox](#the-sandbox)), so there the notes and example pages run like
 any other page of the site: fine for this repo's own pages, not for anyone else's.
+
+## Development checks
+
+Run `npm ci && npm test` for the Node suite. For real-browser isolation, navigation, focus
+and 375px accessibility checks, run `npx playwright install chromium` followed by
+`npm run test:browser`. Browser tests create their own temporary home, database and loopback
+server and stop them afterward. `PLAYWRIGHT_EXECUTABLE_PATH` optionally selects an installed
+Chromium executable. Example metadata and bytes are a single process snapshot; restart a
+development server after editing the bundled gallery.
 
 ## Versioning
 
