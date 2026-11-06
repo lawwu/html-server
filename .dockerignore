@@ -1,0 +1,14 @@
+# The Dockerfile copies only what the server runs; this keeps the rest (and anything
+# private) out of the build context.
+.git
+.github
+.claude
+node_modules
+test
+_site
+.wrangler
+.dev.vars
+*.db
+*.db-*
+.token
+*.log

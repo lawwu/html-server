@@ -1,0 +1,182 @@
+# The Docker image (Debian 13 and Node 24: see Dockerfile), published to
+# ghcr.io/lawwu/html-server for every release. Each release tag (vX.Y.Z) builds it for amd64
+# and arm64, each on its own kind of runner, checks both with scripts/docker-smoke.sh, then
+# publishes one multi-arch image from the same build cache. Pull requests that change the
+# image only build and check it.
+#
+# Image tags for v0.12.0: 0.12.0 and 0.12; `latest` when it's the newest release (the
+# highest vX.Y.Z, as latest.yml decides for the git tag), so a patch to an older version
+# doesn't move it back; from 1.0.0 also the major (1); and sha-<commit>.
+#
+# By hand (Actions → docker → Run workflow) it publishes an existing release tag again,
+# for a release cut before the image existed: then the Dockerfile and its check come
+# from the branch the run starts from, and the code from the tag.
+name: docker
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - scripts/docker-smoke.sh
+      - package.json
+      - package-lock.json
+      - .github/workflows/docker.yml
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish, such as v0.12.0
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: docker-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # What to build: the release tag, its version, and whether it's the newest release.
+  resolve:
+    name: Resolve
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.vars.outputs.ref }}
+      version: ${{ steps.vars.outputs.version }}
+      latest: ${{ steps.vars.outputs.latest }}
+      publish: ${{ steps.vars.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # every tag, to find the newest release
+      - id: vars
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            push) tag=$GITHUB_REF_NAME ;;
+            workflow_dispatch) tag=$INPUT_TAG ;;
+            *) echo "publish=false" >> "$GITHUB_OUTPUT"; echo "A pull request: build and check only."; exit 0 ;;
+          esac
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$tag isn't a release tag (vX.Y.Z)"; exit 1
+          fi
+          git rev-parse -q --verify "refs/tags/$tag^{commit}" > /dev/null || { echo "::error::There's no tag $tag."; exit 1; }
+          git merge-base --is-ancestor "$tag^{commit}" origin/main || { echo "::error::$tag isn't on main."; exit 1; }
+          version=${tag#v}
+          package=$(git show "$tag:package.json" | jq -r .version)
+          [ "$package" = "$version" ] || { echo "::error::$tag's package.json says $package."; exit 1; }
+          newest=$(git tag -l 'v*' --sort=-v:refname | grep -m1 -E '^v[0-9]+\.[0-9]+\.[0-9]+$')
+          latest=false; [ "$tag" = "$newest" ] && latest=true
+          { echo "ref=$tag"; echo "version=$version"; echo "latest=$latest"; echo "publish=true"; } >> "$GITHUB_OUTPUT"
+          echo "Publishing $tag (version $version; newest release: $newest, so latest=$latest)."
+
+  # Each architecture on its own runner, so arm64 is built and run natively, not emulated.
+  check:
+    name: Check (${{ matrix.arch }})
+    needs: resolve
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, platform: linux/amd64, runner: ubuntu-latest }
+          - { arch: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+      - &packaging
+        name: The Dockerfile, for a release cut before there was one
+        run: |
+          if [ ! -f Dockerfile ]; then
+            git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+            git checkout FETCH_HEAD -- Dockerfile .dockerignore scripts/docker-smoke.sh
+            echo "Packaging from $GITHUB_SHA, code from $(git rev-parse HEAD)."
+          fi
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: html-server:check
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
+      - run: scripts/docker-smoke.sh html-server:check ${{ matrix.platform }}
+
+  publish:
+    name: Publish
+    needs: [resolve, check]
+    if: needs.resolve.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+      - *packaging
+      # Both architectures' layers come from the checks' cache; QEMU only runs what's missing.
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          context: git # the tag's commit, not the commit a run by hand starts from
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.resolve.outputs.ref }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.resolve.outputs.ref }}
+            type=semver,pattern={{major}},value=${{ needs.resolve.outputs.ref }},enable=${{ !startsWith(needs.resolve.outputs.ref, 'v0.') }}
+            type=raw,value=latest,enable=${{ needs.resolve.outputs.latest == 'true' }}
+            type=sha
+          labels: |
+            org.opencontainers.image.title=HTML Server
+            org.opencontainers.image.description=Host, version, search and link HTML pages and Markdown notes. Debian 13, Node 24; SQLite or PostgreSQL.
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.resolve.outputs.version }}
+          annotations: |
+            org.opencontainers.image.description=Host, version, search and link HTML pages and Markdown notes. Debian 13, Node 24; SQLite or PostgreSQL.
+      - id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: |
+            type=gha,scope=amd64
+            type=gha,scope=arm64
+          provenance: mode=max
+          sbom: true
+      - name: Summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "### Published"
+            echo
+            echo "$TAGS" | sed 's/^/- `/; s/$/`/'
+            echo "- \`$IMAGE@$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
