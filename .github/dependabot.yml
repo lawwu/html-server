@@ -1,0 +1,21 @@
+# Dependabot opens a pull request each week for newer versions of the npm dependencies
+# (`marked`, the only one) and of the GitHub Actions the workflows use, one per ecosystem:
+# each group puts that week's updates into a single PR. Patch and minor ones merge
+# themselves once CI passes (.github/workflows/dependabot-auto-merge.yml); majors wait for
+# a person.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']
