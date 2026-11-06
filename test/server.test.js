@@ -339,10 +339,11 @@ test('legacy /pages/{slug} URLs: new uploads, with or without .html', async () =
   assert.equal((await req('GET', '/pages/'))[0], 404);
   assert.equal((await put('pages', '<p>x</p>'))[0], 400); // reserved name
 
-  // The gallery links to the /pages/ form; the review page's "Open page" to the share link,
-  // which a new tab can open for a private page too (its own address needs a token).
+  // The gallery links to the /pages/ form; the review page's "Open page", for the owner, to
+  // the share link, which a new tab can open for a private page too (its own address needs a
+  // token); for anyone else (who gets no share link), to the page's address.
   assert.match((await req('GET', '/'))[1], /href="\/pages\/roadmap"/);
-  assert.match((await req('GET', '/_static/review.js'))[1], /\$\('open'\)\.href = `\$\{meta\.share_url\}/);
+  assert.match((await req('GET', '/_static/review.js'))[1], /\$\('open'\)\.href = `\$\{meta\.share_url \|\| meta\.url\}/);
   assert.match((await req('GET', '/review/roadmap'))[1], /<a id="open" target="_blank" rel="noopener">/);
 });
 
