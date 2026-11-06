@@ -2,10 +2,16 @@
 
 Versions follow [semantic versioning](https://semver.org). While the version is
 `0.x`, commands and the API may still change between minor versions; `1.0.0` will
-mark them as stable. The database format is migrated in place on startup, and a
-change that couldn't be migrated would be a major version.
+mark them as stable. The README's [Stability](README.md#stability) section lists what
+that covers. The database format is migrated in place on startup, and a change that
+couldn't be migrated would be a major version.
 
 ## Unreleased
+
+- **What 1.0 will promise.** A Stability section in the README lists the public interface
+  (page addresses, the documented HTTP API, the command line, MCP tools, in-place data
+  upgrades, Cloudflare deploys and the reserved names) and what isn't part of it, such as
+  the site's look, undocumented API fields, the database tables and the code under `src/`.
 
 ## 0.11.0 (2026-11-04)
 
