@@ -47,7 +47,7 @@ async function openStore(opts) {
   }
   const { PostgresDatabase } = await import('./postgres.js');
   let db;
-  try { db = PostgresDatabase.open(url); } catch (e) { fail(`PostgreSQL: ${e.message}`); }
+  try { db = PostgresDatabase.open(url); } catch (e) { fail(/^PostgreSQL\b/.test(e.message) ? e.message : `PostgreSQL: ${e.message}`); }
   try {
     return new Store(db);
   } catch (e) {
