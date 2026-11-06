@@ -36,6 +36,12 @@ export function syncedSlug(rel) {
 export const indexFolder = (path) => path.match(/^(.+)\/index\.(?:md|markdown)$/i)?.[1] ?? null;
 
 /**
+ * The bare name [[wikilinks]] find a page by, lowercase: its file name without the
+ * extension ("notes/Plan.md" → "plan"), or for an index note its folder's ("guide/topics/index.md" → "topics").
+ */
+export const pageNameKey = (path) => (indexFolder(path) ?? path).split('/').at(-1).replace(PAGE_EXT_RE, '').toLowerCase();
+
+/**
  * A wikilink target as the links table keeps it: "Weekly Review" → "Weekly-Review", and a
  * folder path keeps its folders: "plugins/Back links" → "plugins/Back-links". '' if nothing's left.
  */

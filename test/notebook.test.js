@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { highlight } from '../src/highlight.js';
 import { notebookMarkdown, parseNotebook, renderNotebook } from '../src/notebook.js';
 import { makeServer } from '../src/server.js';
-import { Store } from '../src/store.js';
+import { testDatabase } from './fixture.js';
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
@@ -84,16 +84,22 @@ test('highlighting: tokens per language, unknown languages escaped', () => {
 });
 
 // --- hosted ----------------------------------------------------------------------------
-let server, base, admin, dir;
+let server, base, admin, dir, db, store;
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'nb-'));
-  const store = new Store(join(dir, 'a.db'));
+  db = await testDatabase(dir, 'a');
+  store = db.open();
   admin = store.createUser('ann', true);
   server = makeServer(store).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
-after(() => { server.close(); rmSync(dir, { recursive: true, force: true }); });
+after(async () => {
+  await new Promise((r) => server.close(r));
+  await store.close();
+  await db.drop();
+  rmSync(dir, { recursive: true, force: true });
+});
 const put = async (name, body) => (await fetch(`${base}/api/artifacts/${name}`, { method: 'PUT', body, headers: { Authorization: `Bearer ${admin}` } })).json();
 
 test('a notebook is a page of the site: title, tags, search, links, diffs, copy', async () => {

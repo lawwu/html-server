@@ -12,7 +12,7 @@ import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
-import { PAGE_EXT_RE, VERSION } from './config.js';
+import { VERSION } from './config.js';
 import { encodePath, pageUrl } from './paths.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
@@ -25,10 +25,49 @@ const PRUNE_PAGE = 500; // pages per request when `sync --prune` lists a folder'
 const fail = (msg) => { throw new CliError(msg); };
 
 // --- server commands --------------------------------------------------------------
-async function openStore(db) {
-  mkdirSync(dirname(db), { recursive: true, mode: 0o700 });
-  const { Store } = await import('./store.js'); // loaded lazily: client commands don't need SQLite
-  return new Store(db);
+/**
+ * The PostgreSQL URI when DATABASE_URL picks PostgreSQL, else null (SQLite, the file
+ * --db names). Both at once is a mistake: which one was meant?
+ */
+async function postgresUrl(opts) {
+  const { databaseUrl } = await import('./postgres.js'); // loads no driver: that waits until a connection
+  let url;
+  try { url = databaseUrl(process.env); } catch (e) { fail(e.message); }
+  if (url && opts.dbGiven) fail('--db names a SQLite file, but DATABASE_URL picks PostgreSQL: give one or the other');
+  return url;
+}
+
+/** The server's data: PostgreSQL if DATABASE_URL says so, else the SQLite file. Close it when done (it may hold a connection). */
+async function openStore(opts) {
+  const { Store } = await import('./store.js'); // loaded lazily: client commands don't need a database
+  const url = await postgresUrl(opts);
+  if (!url) {
+    mkdirSync(dirname(opts.db), { recursive: true, mode: 0o700 });
+    return new Store(opts.db);
+  }
+  const { PostgresDatabase } = await import('./postgres.js');
+  let db;
+  try { db = PostgresDatabase.open(url); } catch (e) { fail(`PostgreSQL: ${e.message}`); }
+  try {
+    return new Store(db);
+  } catch (e) {
+    await db.close();
+    throw e;
+  }
+}
+
+/** Where the data is, for the startup line: the SQLite file, or PostgreSQL's host and database (never its user or password). */
+async function describeStore(opts) {
+  const url = await postgresUrl(opts);
+  if (!url) return opts.db;
+  const { describeUrl } = await import('./postgres.js');
+  return describeUrl(url);
+}
+
+/** Run fn(store) on the server's data, closing it after. */
+async function withStore(opts, fn) {
+  const store = await openStore(opts);
+  try { return await fn(store); } finally { await store.close(); }
 }
 
 /** --save: sign this CLI in as the user just made, on this machine's server. */
@@ -52,6 +91,12 @@ export function defaultAdminName() {
  */
 function bootstrap(store, opts) {
   if (store.listUsers().length) return;
+  if (store.db.backend === 'postgres') {
+    // Not on PostgreSQL: an empty database there may be waiting for data to be moved in.
+    console.error('no users yet: move a SQLite database in with `html-server import-sqlite PATH --apply`,'
+      + ' or create the first admin with `html-server create-user NAME --admin --save`');
+    return;
+  }
   if (store.usernames !== 'name') {
     console.error('no users yet: create the first admin with `html-server create-user EMAIL --admin --save`');
     return;
@@ -78,21 +123,22 @@ const serverCommands = {
         + ' Only use it if you trust every page on this server.');
     }
     if (sandboxAllow.length) console.error(`pages are served with: ${csp}`);
-    const store = await openStore(opts.db);
+    const store = await openStore(opts);
+    const where = await describeStore(opts);
     bootstrap(store, opts);
     const { makeServer } = await import('./server.js');
     makeServer(store, { sandboxAllow }).listen(Number(opts.port), opts.host, () =>
-      console.error(`html-server ${VERSION} on http://${opts.host}:${opts.port}  (db: ${opts.db})`));
+      console.error(`html-server ${VERSION} on http://${opts.host}:${opts.port}  (db: ${where})`));
   },
   async 'create-user'([name], opts) {
     if (!name) fail('usage: create-user NAME [--admin] [--save]');
-    const token = (await openStore(opts.db)).createUser(name, opts.admin);
+    const token = await withStore(opts, (store) => store.createUser(name, opts.admin));
     console.log(token);
     if (opts.save) saveForCli(token, opts);
   },
   async 'reset-token'([name], opts) {
     if (!name) fail('usage: reset-token NAME [--save]');
-    const token = (await openStore(opts.db)).resetToken(name);
+    const token = await withStore(opts, (store) => store.resetToken(name));
     console.log(token);
     if (opts.save) saveForCli(token, opts);
   },
@@ -103,6 +149,10 @@ const serverCommands = {
    * backup over the database file, start it again.
    */
   async backup([target], opts) {
+    if (await postgresUrl(opts)) {
+      fail('backup copies a SQLite file. With PostgreSQL (DATABASE_URL), back up with pg_dump, e.g.'
+        + ' `pg_dump --format=custom "$DATABASE_URL" > html-server.dump` (restore with pg_restore), or with your provider\'s snapshots');
+    }
     if (!existsSync(opts.db)) fail(`no database at ${opts.db}`);
     const stamp = new Date().toLocaleString('sv-SE').replace(' ', 'T').replace(/:/g, ''); // 2026-10-20T121314, local time
     let out;
@@ -147,13 +197,37 @@ const serverCommands = {
       }
     }
   },
+  /**
+   * Move a SQLite database into the PostgreSQL DATABASE_URL names: a preview unless
+   * --apply (see src/import-sqlite.js). Never merges into a database already in use.
+   */
+  async 'import-sqlite'([path], opts) {
+    if (!path) fail('usage: import-sqlite PATH [--apply] [--replace-telemetry]');
+    if (opts.apply && opts.preview) fail('--apply and --preview: pick one (a preview is the default)');
+    const url = await postgresUrl(opts);
+    if (!url) fail('import-sqlite moves a SQLite database into PostgreSQL: set DATABASE_URL to the PostgreSQL to fill');
+    if (!existsSync(path)) fail(`no SQLite database at ${path}`);
+    const [{ importSqlite }, { describeUrl }] = await Promise.all([import('./import-sqlite.js'), import('./postgres.js')]);
+    await withStore(opts, (store) => {
+      console.log(`${opts.apply ? 'importing' : 'preview of importing'} ${path} into ${describeUrl(url)}`);
+      const r = importSqlite(path, store, { apply: opts.apply, replaceTelemetry: opts['replace-telemetry'] });
+      for (const line of r.report) console.log(line);
+      if (r.problems.length) {
+        for (const p of r.problems) console.error(`  - ${p}`);
+        fail(`nothing imported: ${r.problems.length} problem${r.problems.length === 1 ? '' : 's'} to fix first (above)`);
+      }
+      console.log(opts.apply ? 'imported: start the server with this DATABASE_URL'
+        : 'preview only: nothing imported. Run it again with --apply to import');
+    });
+  },
   async config([key, value], opts) {
-    const store = await openStore(opts.db);
-    if (key === 'usernames' && value) store.setUsernames(value);
-    else if (key === 'editing' && value) store.setEditing(value);
-    else if (key) fail('usage: config [usernames name|email] [editing owner|open]');
-    console.log(`usernames: ${store.usernames}`);
-    console.log(`editing:   ${store.editing}${store.editing === 'open' ? ' (any signed-in user can add versions to public pages)' : ' (only a page\'s owner adds versions)'}`);
+    if (key && !(['usernames', 'editing'].includes(key) && value)) fail('usage: config [usernames name|email] [editing owner|open]');
+    await withStore(opts, (store) => {
+      if (key === 'usernames') store.setUsernames(value);
+      else if (key === 'editing') store.setEditing(value);
+      console.log(`usernames: ${store.usernames}`);
+      console.log(`editing:   ${store.editing}${store.editing === 'open' ? ' (any signed-in user can add versions to public pages)' : ' (only a page\'s owner adds versions)'}`);
+    });
   },
 };
 
@@ -359,7 +433,7 @@ const clientCommands = {
    */
   async sync([dir], opts) {
     if (!dir || !existsSync(dir) || !statSync(dir).isDirectory()) fail('usage: sync DIR [--private] [--folder FOLDER] [--migrate-paths] [--prune] [--dry-run] [--install-hook]');
-    const { noteSlug, parseFrontmatter, syncedSlug, ASSET_RE } = await import('./markdown.js');
+    const { noteSlug, pageNameKey, parseFrontmatter, syncedSlug, ASSET_RE } = await import('./markdown.js');
     const { parseNotebook } = await import('./notebook.js');
     let root = resolvePath(dir);
     const quartz = quartzConfig(root);
@@ -448,7 +522,7 @@ const clientCommands = {
           name = desired;
           if (!opts['dry-run']) previous.slug = desired;
         }
-        const nameKey = noteSlug(parts.at(-1)).replace(PAGE_EXT_RE, '').toLowerCase();
+        const nameKey = pageNameKey(parts.map(noteSlug).join('/')); // an index note goes by its folder's name
         if (seen.has(name.toLowerCase())) {
           count.skipped++;
           console.error(`skipped   ${rel}: same page name as ${seen.get(name.toLowerCase())} (${name}); rename one`);
@@ -614,7 +688,7 @@ export async function main(argv) {
     args: argv,
     allowPositionals: true,
     options: {
-      db: { type: 'string', default: DEFAULT_DB },
+      db: { type: 'string' }, // DEFAULT_DB unless given: given, it can't go with DATABASE_URL
       host: { type: 'string', default: DEFAULT_HOST },
       'sandbox-allow': { type: 'string', multiple: true },
       sort: { type: 'string' },
@@ -633,6 +707,9 @@ export async function main(argv) {
       'dry-run': { type: 'boolean', default: false },
       prune: { type: 'boolean', default: false },
       'install-hook': { type: 'boolean', default: false },
+      apply: { type: 'boolean', default: false },
+      preview: { type: 'boolean', default: false },
+      'replace-telemetry': { type: 'boolean', default: false },
       json: { type: 'boolean', default: false },
       url: { type: 'string' },
       token: { type: 'string' },
@@ -641,6 +718,8 @@ export async function main(argv) {
       version: { type: 'boolean', short: 'v', default: false },
     },
   });
+  opts.dbGiven = opts.db != null;
+  opts.db ??= DEFAULT_DB;
   const [cmd, ...args] = positionals;
   if (opts.version || cmd === 'version') return console.log(VERSION);
   const run = serverCommands[cmd] || deployCommands[cmd] || accountCommands[cmd] || mcpCommands[cmd] || clientCommands[cmd];

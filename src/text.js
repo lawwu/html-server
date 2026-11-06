@@ -285,6 +285,8 @@ export const ftsQuery = (q, vocab = [], opts) => ftsMatch(queryWords(q, vocab, o
 // which for a short prefix ("th" covers thousands of words) costs more than the search.
 const WORD = /[\p{L}\p{N}\p{Co}]+/gu; // what FTS5's unicode61 tokenizer counts as a word
 const fold = (s) => (/[^\x00-\x7f]/.test(s) ? s.normalize('NFD').replace(/\p{M}/gu, '') : s).toLowerCase();
+/** A word as the search index keeps it: lowercase, accents off (what unicode61's remove_diacritics does). */
+export const foldWord = fold;
 
 /**
  * About `size` words of `text` with as many of the query's words (from queryWords) as it

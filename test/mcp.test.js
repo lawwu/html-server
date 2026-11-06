@@ -7,15 +7,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { makeServer } from '../src/server.js';
-import { Store } from '../src/store.js';
+import { testDatabase } from './fixture.js';
 
 const CLI = new URL('../src/cli.js', import.meta.url).pathname;
-let dir, store, server, url, token, mcp, next = 1;
+let dir, db, store, server, url, token, mcp, next = 1;
 const waiting = new Map();
 
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'html-server-mcp-'));
-  store = new Store(join(dir, 's.db'));
+  db = await testDatabase(dir, 's');
+  store = db.open();
   token = store.createUser('agent');
   server = makeServer(store);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -37,7 +38,8 @@ after(async () => {
   mcp.stdin.end();
   await new Promise((r) => mcp.on('exit', r)); // closes cleanly when the client hangs up
   await new Promise((r) => server.close(r));
-  store.close();
+  await store.close();
+  await db.drop();
   rmSync(dir, { recursive: true, force: true });
 });
 

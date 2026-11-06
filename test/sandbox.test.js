@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { SANDBOX_TOKENS, renderCsp } from '../src/config.js';
 import { makeServer } from '../src/server.js';
-import { Store } from '../src/store.js';
+import { testDatabase } from './fixture.js';
 
 const CLI = new URL('../src/cli.js', import.meta.url).pathname;
 const EXAMPLE = '/gallery/kmeans-step-through.html'; // a rendered page that needs no upload
@@ -30,18 +30,20 @@ async function csp(server, path = EXAMPLE) {
 }
 
 test('by default pages are sandboxed, but links they open in a new tab are not (Jira loads)', async () => {
-  const store = new Store(join(dir, 'default.db'));
+  const db = await testDatabase(dir, 'default');
+  const store = db.open();
   const header = await csp(makeServer(store));
   assert.equal(header, DEFAULT);
   assert.doesNotMatch(header, /allow-same-origin/); // the page itself stays in an opaque origin
-  store.close();
+  await db.drop();
 });
 
 test('a server instance can add sandbox permissions; other instances keep the default', async () => {
-  const store = new Store(join(dir, 'extra.db'));
+  const db = await testDatabase(dir, 'extra');
+  const store = db.open();
   assert.equal(await csp(makeServer(store, { sandboxAllow: ['allow-downloads', 'allow-popups'] })), `${DEFAULT} allow-downloads`); // no duplicates
   assert.equal(await csp(makeServer(store)), DEFAULT); // scoped to the instance, not global
-  store.close();
+  await db.drop();
 });
 
 test('unknown sandbox permissions are refused, naming the valid ones', () => {
@@ -52,8 +54,8 @@ test('unknown sandbox permissions are refused, naming the valid ones', () => {
 });
 
 // --- serve --sandbox-allow -------------------------------------------------------------
-function run(args) {
-  const p = spawn(process.execPath, [CLI, ...args], { env: { ...process.env, HTML_SERVER_HOME: join(dir, 'home') } });
+function run(args, env = {}) {
+  const p = spawn(process.execPath, [CLI, ...args], { env: { ...process.env, HTML_SERVER_HOME: join(dir, 'home'), ...env } });
   const out = { code: null, err: '' };
   p.stderr.on('data', (d) => { out.err += d; });
   const done = new Promise((r) => p.on('close', (code) => { out.code = code; r(out); }));
@@ -65,8 +67,9 @@ const freePort = () => new Promise((r) => {
 
 test('serve --sandbox-allow adds permissions (repeatable) and warns about allow-same-origin', async () => {
   const port = await freePort();
-  const { p, out } = run(['serve', '--port', String(port), '--db', join(dir, 'cli.db'),
-    '--sandbox-allow', 'allow-downloads', '--sandbox-allow', 'allow-same-origin']);
+  const db = await testDatabase(dir, 'cli');
+  const { p, out } = run(['serve', '--port', String(port), ...db.args,
+    '--sandbox-allow', 'allow-downloads', '--sandbox-allow', 'allow-same-origin'], db.env);
   try {
     let header = null;
     for (let i = 0; i < 50 && !header; i++) {
@@ -77,6 +80,8 @@ test('serve --sandbox-allow adds permissions (repeatable) and warns about allow-
     assert.match(out.err, /warning: allow-same-origin with allow-scripts lets every page's scripts act as this site/);
   } finally {
     p.kill();
+    await new Promise((r) => (p.exitCode != null ? r() : p.on('exit', r)));
+    await db.drop();
   }
 });
 

@@ -8,14 +8,16 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { ACTIVE, PURGED, TRASHED } from '../src/lifecycle.js';
 import { ROUTES, makeServer } from '../src/server.js';
 import { SKILLS, SKILLS_REPO, examples } from '../src/examples.js';
-import { Store, normalizeTag } from '../src/store.js';
+import { normalizeTag } from '../src/store.js';
+import { onPostgres, sqliteOnly, testDatabase } from './fixture.js';
 
 const BROWSER = 'Mozilla/5.0 test';
-let dir, store, server, base, admin;
+let dir, db, store, server, base, admin;
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'artifacts-'));
-  store = new Store(join(dir, 't.db'));
+  db = await testDatabase(dir);
+  store = db.open();
   admin = store.createUser('admin', true);
   server = makeServer(store);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -24,7 +26,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await new Promise((r) => server.close(r));
-  store.close();
+  await store.close();
+  await db.drop();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -336,9 +339,11 @@ test('legacy /pages/{slug} URLs: new uploads, with or without .html', async () =
   assert.equal((await req('GET', '/pages/'))[0], 404);
   assert.equal((await put('pages', '<p>x</p>'))[0], 400); // reserved name
 
-  // The gallery and the review page link to the /pages/ form.
+  // The gallery links to the /pages/ form; the review page's "Open page" to the share link,
+  // which a new tab can open for a private page too (its own address needs a token).
   assert.match((await req('GET', '/'))[1], /href="\/pages\/roadmap"/);
-  assert.match((await req('GET', '/_static/review.js'))[1], /\$\{meta.url\}/);
+  assert.match((await req('GET', '/_static/review.js'))[1], /\$\('open'\)\.href = `\$\{meta\.share_url\}/);
+  assert.match((await req('GET', '/review/roadmap'))[1], /<a id="open" target="_blank" rel="noopener">/);
 });
 
 test('open editing: others add versions to public pages; the owner keeps control', async () => {
@@ -384,7 +389,7 @@ test('older databases: existing versions are credited to the page owner', async 
   await put('old.html', '<p>before authors existed</p>');
   store.db.exec('ALTER TABLE versions DROP COLUMN author_id'); // what a 0.2.0 database looks like
   store.close();
-  store = new Store(join(dir, 't.db'));
+  store = db.open();
   server.close();
   server = makeServer(store);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -455,13 +460,13 @@ test('the home page writes snippets for its first cards only, and a one-letter s
   assert.ok((await req('GET', '/api/search?q=c'))[1].results.every((r) => r.snippet === null));
 });
 
-test('an older search index is rebuilt on startup, keeping every page findable', async () => {
+test('an older search index is rebuilt on startup, keeping every page findable', { skip: sqliteOnly }, async () => {
   await put('old.html', '<title>Lighthouse keeper</title><p>fog horn</p>');
   // Put back the 0.3.0 layout (title, body) and its version marker, as an old database has.
   store.db.exec("DROP TABLE artifacts_vocab; DROP TABLE artifacts_fts; CREATE VIRTUAL TABLE artifacts_fts USING fts5(title, body);"
     + " CREATE VIRTUAL TABLE artifacts_vocab USING fts5vocab(artifacts_fts, 'row'); DELETE FROM meta WHERE key = 'search_index'");
   store.close();
-  store = new Store(join(dir, 't.db'));
+  store = db.open();
   server.close();
   server = makeServer(store);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -599,7 +604,7 @@ test('links are backfilled once for databases from before the links table', asyn
   await put('Z.md', '# Z\n\n[[y]]'); // a note: read as Markdown, by its name
   store.db.exec("DELETE FROM links; DELETE FROM link_targets; DELETE FROM meta WHERE key LIKE 'links_%'");
   store.close();
-  store = new Store(join(dir, 't.db'));
+  store = db.open();
   server.close();
   server = makeServer(store);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -683,7 +688,7 @@ test('existing categories become tags once, on startup', async () => {
   await put('old.html', '<title>Old</title><meta name="category" content="architecture">');
   store.db.exec("DELETE FROM tags; DELETE FROM meta WHERE key = 'tags_index'");
   store.close();
-  store = new Store(join(dir, 't.db'));
+  store = db.open();
   server.close();
   server = makeServer(store);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -1575,7 +1580,7 @@ test('relative Markdown links, HTML links, backlinks and graphs survive moves an
 test('move aliases and version link bases survive reopening the database', async () => {
   await put('persist/note.md', '# Persistent\n[relative](target.md)');
   await move([{ from: 'persist/note.md', to: 'else/note.md' }]);
-  const second = new Store(join(dir, 't.db'));
+  const second = db.open();
   try {
     const page = second.find('persist/note.md');
     assert.equal(page.slug, 'else/note.md');
@@ -1651,24 +1656,26 @@ test('a /pages/ link to a name no page could have is no link: publishing, and li
   // As after an upgrade: every page's links are read again when the database opens.
   store.setSetting('links_resolved', '2');
   store.close();
-  store = new Store(join(dir, 't.db'));
+  store = db.open();
   assert.deepEqual(backlinksOf('Real.md'), ['odd.md']);
   assert.deepEqual(store.candidates('[y'), []); // a name, not a list of them
 });
 
 test("a folder's name links to its index note: synced, uploaded or moved there", async () => {
-  await put('home.md', '# Home\n\nSee [[features]], [[guide/topics]], [[roadmap]] and [[plans]].');
-  await put('features/index.md', '# Features', admin, '?name=index&path=features/index.md'); // as sync names it now
-  await put('guide/topics/index.md', '# Topics');
+  await put('home.md', '# Home\n\nSee [[features]], [[guide/topics]], [[topics]], [[howto]], [[roadmap]] and [[plans]].');
+  await put('features/index.md', '# Features', admin, '?name=index&path=features/index.md'); // as sync named it before 0.12
+  await put('guide/topics/index.md', '# Topics'); // [[topics]] too: an index note answers to its folder's own name
+  await put('guide/howto/index.md', '# How-to', admin, '?name=howto&path=guide/howto/index.md'); // as sync names it now
   await put('roadmap.md', '# Roadmap'); // as sync named a folder's index before folders
   await move([{ from: 'roadmap.md', to: 'roadmap/index.md' }]);
   await put('drafts/index.md', '# Plans');
   await move([{ from: 'drafts/index.md', to: 'plans/index.md' }]);
   const [, home] = await req('GET', '/pages/home.md');
-  for (const to of ['features/index.md', 'guide/topics/index.md', 'roadmap/index.md', 'plans/index.md']) {
+  for (const to of ['features/index.md', 'guide/topics/index.md', 'guide/howto/index.md', 'roadmap/index.md', 'plans/index.md']) {
     assert.match(home, new RegExp(`<a class="wikilink" href="/${to}">`), to);
   }
-  assert.deepEqual(await graphEdges(), ['home.md>features/index.md', 'home.md>guide/topics/index.md', 'home.md>plans/index.md', 'home.md>roadmap/index.md']);
+  assert.equal(home.match(/<a class="wikilink" href="\/guide\/topics\/index.md">/g).length, 2); // [[guide/topics]] and [[topics]]
+  assert.deepEqual(await graphEdges(), ['home.md>features/index.md', 'home.md>guide/howto/index.md', 'home.md>guide/topics/index.md', 'home.md>plans/index.md', 'home.md>roadmap/index.md']);
   assert.deepEqual(backlinksOf('features/index.md'), ['home.md']);
   // The folder itself still browses, and a page called features.md still comes first.
   assert.match((await fetch(base + '/features', { redirect: 'manual' })).headers.get('location'), /^\/features\/$/);
@@ -1740,4 +1747,61 @@ test('the review page shows history in place, and fetches changes with the saved
   assert.match(h.get('content-security-policy'), /sandbox/);
   const script = readFileSync(new URL('../public/review.js', import.meta.url), 'utf8');
   assert.match(script, /f\.setAttribute\('sandbox', ''\);\s*f\.srcdoc = html;/); // shown with no scripts and an origin of its own
+});
+
+test('/healthz: anyone may ask, GET or HEAD; it is never counted as API use, and its name is reserved', async () => {
+  const calls = () => store.one('SELECT COUNT(*) AS n FROM api_calls').n;
+  const before = calls();
+  const [s, body, h] = await req('GET', '/healthz');
+  assert.deepEqual([s, body, h.get('cache-control')], [200, { status: 'ok' }, 'no-store']);
+  const head = await fetch(`${base}/healthz`, { method: 'HEAD' });
+  assert.deepEqual([head.status, await head.text()], [200, '']);
+  assert.equal(calls(), before);
+  for (const name of ['healthz', 'HealthZ', 'healthz/status.html']) assert.equal((await put(encodeURIComponent(name).replace(/%2F/g, '/'), '<p>x</p>'))[0], 400, name);
+  await put('up.html', '<p>up</p>');
+  assert.equal((await move([{ from: 'up.html', to: 'healthz/up.html' }]))[0], 400);
+  assert.equal((await put('healthz.html', '<p>a page may still be called this</p>'))[0], 201);
+
+  // When the database doesn't answer: a 503 that says nothing more.
+  const broken = db.open();
+  const other = makeServer(broken);
+  await new Promise((r) => other.listen(0, '127.0.0.1', r));
+  try {
+    await broken.close();
+    const r = await fetch(`http://127.0.0.1:${other.address().port}/healthz`);
+    assert.deepEqual([r.status, await r.json()], [503, { status: 'unavailable' }]);
+  } finally {
+    await new Promise((r) => other.close(r));
+  }
+});
+
+test('names compare as the database compares them: links, moves and old addresses agree', async () => {
+  // A link written before its page exists, in another case: found once the page comes, and followed when it moves.
+  await put('home.md', '# Home\n\nSee [[Ölçü]].');
+  await put(encodeURIComponent('ölçü.md'), '# Ölçü');
+  assert.deepEqual(backlinksOf('ölçü.md'), ['home.md']);
+  assert.equal((await move([{ from: 'ölçü.md', to: 'units/ölçü.md' }]))[0], 200);
+  assert.deepEqual(backlinksOf('units/ölçü.md'), ['home.md']);
+  const links = (await req('GET', '/pages/home.md'))[1].match(/<a class="wikilink"[^>]*>/g);
+  assert.deepEqual(links, [`<a class="wikilink" href="/units/${encodeURIComponent('ölçü.md')}">`]);
+
+  // The same name composed and decomposed, in another case: SQLite's NOCASE folds ASCII
+  // letters only, so these are two names there; PostgreSQL's ICU collation counts them one.
+  const composed = 'Caf\u00e9.html', decomposed = 'CAFE\u0301.html';
+  await put('a.html', '<p>a</p>');
+  await put('b.html', '<p>b</p>');
+  // In one batch the second move takes the name the first just took: checked again as each lands.
+  const [s] = await move([{ from: 'a.html', to: composed }, { from: 'b.html', to: decomposed }]);
+  if (onPostgres) {
+    assert.equal(s, 409);
+    assert.ok(store.find('a.html', { exact: true }) && store.find('b.html', { exact: true })); // nothing moved
+    await move([{ from: 'a.html', to: composed }]);
+  } else {
+    assert.equal(s, 200);
+  }
+  // Its old address, once it moves on, answers to the same rule.
+  assert.equal((await move([{ from: composed, to: `menu/${composed}` }]))[0], 200);
+  const [again, e] = await put(encodeURIComponent(onPostgres ? decomposed : composed), '<p>new</p>');
+  assert.equal(again, 409);
+  assert.match(e.error, /this address has moved/);
 });

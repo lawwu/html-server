@@ -97,7 +97,9 @@ async function load(n) {
   $('restore').hidden = cur === meta.latest_version || !meta.can_edit;
   if (!$('history').hidden) showHistory();
   $('changes').disabled = cur === 1;
-  $('open').href = `${meta.url}${cur === meta.latest_version ? '' : `?v=${cur}`}`;
+  // Through the share link, like the frame: a private page's own address needs a token a
+  // new tab doesn't send, so it would 404 there.
+  $('open').href = `${meta.share_url}${cur === meta.latest_version ? '' : `?v=${cur}`}`;
   history.replaceState(null, '', `?v=${cur}`);
   showPage();
   loadComments();

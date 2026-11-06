@@ -24,6 +24,39 @@ couldn't be migrated would be a major version.
   merge themselves once the tests pass; majors wait for review, since a new `marked` major
   can change every rendered page. A version is only proposed once it's a week old, so a
   hijacked release is likely pulled before it reaches `main`; security fixes don't wait.
+- **"Open page" on the review page opens a private page too.** It linked to the page's own
+  address, which needs a token a new tab doesn't send, so a private page opened as "not
+  found". It now goes through the page's share link, for the version on show, as the review
+  frame already did. It also gets `rel="noopener"`.
+- **`[[topics]]` finds `guide/topics/index.md`.** A folder's index note answered to its
+  folder's name only at the top level; deeper down a wikilink needed the whole path. `sync`
+  now names an index note after its folder, and an upload or move without a name does too.
+- **PostgreSQL storage, optional.** Set `DATABASE_URL` to a `postgres://` URI and the
+  server and its server-side commands keep everything in PostgreSQL instead of SQLite:
+  pages, versions, users, comments, tags, assets, usage. SQLite stays the default, and
+  Cloudflare is unchanged. The driver, `pg-native`, is an optional dependency, loaded only
+  when PostgreSQL is chosen. Search uses PostgreSQL's full-text search, with the same
+  prefix, word-form and typo matching. Names compare as the database compares them:
+  PostgreSQL folds the case of every letter (SQLite only ASCII's), and moves, old
+  addresses and backlinks follow it. On PostgreSQL the first run makes no admin, and
+  `backup` points to `pg_dump`. Queries are synchronous and one server process per
+  database is assumed; see the README's PostgreSQL section.
+- **`html-server import-sqlite PATH`** moves a SQLite database into the PostgreSQL that
+  `DATABASE_URL` names. It previews by default, checking both sides and importing nothing,
+  and imports with `--apply`. It works from a private, upgraded snapshot (the file is only
+  ever read) and refuses reserved or ambiguous addresses and NUL characters. It never
+  merges into a database already in use, and replaces usage records from before the move
+  only with `--replace-telemetry`. It copies everything in one transaction, keeping ids
+  and bytes, rebuilds search and links, and checks each table by count and SHA-256 before
+  keeping any of it.
+- **`/healthz`** answers `{"status":"ok"}` (GET or HEAD) once the database answers, and a
+  503 otherwise, for load balancers and uptime monitors. It isn't counted as API use.
+  `healthz` is now a reserved page name.
+- **The tests run on PostgreSQL too** (`TEST_DATABASE_URL`), and CI runs them there as
+  well as on SQLite.
+- **Tests leave your git setup alone.** The sync tests' throwaway repositories ignore your
+  global and system git config, so a global `core.hooksPath` no longer receives (or runs)
+  their hooks.
 
 ## 0.11.0 (2026-11-04)
 

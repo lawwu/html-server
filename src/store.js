@@ -1,7 +1,8 @@
 // All data access, on SQLite: Node's built-in node:sqlite by default, or any database
 // object with the same small synchronous interface (exec, prepare → run/get/all,
 // optionally transaction(fn) and close), such as a Cloudflare Durable Object's
-// (cloudflare/sqlite.js). Each request's handler runs to completion against a
+// (cloudflare/sqlite.js) or PostgreSQL through src/postgres.js, which translates this
+// file's SQL and brings its own search index (a database's `search`; see sqliteSearch). Each request's handler runs to completion against a
 // synchronous database, so each method is atomic without locks; multi-statement writes
 // still go through tx() so a failure leaves nothing half-done.
 import { createHash, randomBytes } from 'node:crypto';
@@ -13,7 +14,7 @@ import {
 import { isPagePath, pageUrl, validatePath } from './paths.js';
 import { ACTIVE, NONE, PURGED, TRASHED, transition } from './lifecycle.js';
 import {
-  assetPaths, indexFolder, isMarkdown, linkCandidates, noteAssets, noteLines, noteLinks, noteTags, noteTitle, parseFrontmatter, renderMarkdown,
+  assetPaths, indexFolder, isMarkdown, linkCandidates, pageNameKey, noteAssets, noteLines, noteLinks, noteTags, noteTitle, parseFrontmatter, renderMarkdown,
 } from './markdown.js';
 import { isNotebook, markdownCells, notebookMarkdown, parseNotebook } from './notebook.js';
 import {
@@ -253,7 +254,19 @@ const ADDED_COLUMNS = {
   ],
 };
 // Indexes on columns that ADDED_COLUMNS may have just added.
-const ADDED_INDEXES = ['CREATE INDEX IF NOT EXISTS artifacts_by_name_key ON artifacts (name_key)'];
+const ADDED_INDEXES = [
+  'CREATE INDEX IF NOT EXISTS artifacts_by_name_key ON artifacts (name_key)',
+  // Backlink names are compared as the database compares names (see linkersOf).
+  'CREATE INDEX IF NOT EXISTS link_names_by_name_nocase ON link_names (name COLLATE NOCASE)',
+];
+/**
+ * A loose key for two names that may be the same page name: lowercase, with accents,
+ * composed or decomposed forms and compatibility forms (ﬁ, full-width letters) set aside.
+ * Wider than the database's own NOCASE (SQLite's folds ASCII case; PostgreSQL's ICU
+ * collation Unicode case and forms), so a filter by it never misses what the database
+ * would count as the same name; it may let a few more through.
+ */
+const nameKey = (n) => n.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 
 const now = () => Date.now() / 1000;
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
@@ -318,11 +331,60 @@ export function summary(a, viewerId = null) {
   };
 }
 
+/**
+ * The search index on SQLite: FTS5 over each page's title, name and body, with a vocabulary
+ * table for typo matching. A database object may bring its own with the same methods
+ * (PostgreSQL's is in postgres.js); Store calls only these for search.
+ */
+export const sqliteSearch = {
+  version: SEARCH_INDEX_VERSION,
+  exists: (s) => !!s.one("SELECT 1 AS x FROM sqlite_master WHERE name = 'artifacts_fts'"),
+  create(s) {
+    // prefix: also index each word's first 1, 2 and 3 letters, so the first keys typed
+    // in a live search don't have to gather every word that starts with them.
+    s.db.exec('DROP TABLE IF EXISTS artifacts_vocab; DROP TABLE IF EXISTS artifacts_fts;'
+      + " CREATE VIRTUAL TABLE artifacts_fts USING fts5(title, name, body, prefix='1 2 3');"
+      + " CREATE VIRTUAL TABLE artifacts_vocab USING fts5vocab(artifacts_fts, 'row');");
+  },
+  put(s, id, { title, name, body }) {
+    s.run('DELETE FROM artifacts_fts WHERE rowid = ?', id);
+    s.run('INSERT INTO artifacts_fts (rowid, title, name, body) VALUES (?,?,?,?)', id, title, name, body);
+  },
+  remove: (s, id) => s.run('DELETE FROM artifacts_fts WHERE rowid = ?', id),
+  /** The text indexed for these pages, by id. (Ids are written into the SQL: some databases bind at most 100 values.) */
+  bodies(s, ids) {
+    if (!ids.length) return new Map();
+    return new Map(s.all(`SELECT rowid AS id, body FROM artifacts_fts WHERE rowid IN (${ids.map(Number).join(',')})`).map((r) => [r.id, r.body]));
+  },
+  terms: (s) => s.all('SELECT term FROM artifacts_vocab').map((r) => r.term),
+  /**
+   * Titles first, in any order: pages whose title holds the whole query ("ACC-18"), then
+   * pages whose title has every word as typed (or a longer word it starts: "ACC 18",
+   * "[ACC-18]"); within those and after them, the chosen order. Ranked, that's pages with
+   * every word as typed anywhere before pages found only through a typo or another form of
+   * a word, then bm25, with title and file-name hits weighted above body hits.
+   */
+  search(s, { cols, where, args, words, q, ranked, order, limit, offset }) {
+    const near = words.some((w) => w.also.length);
+    const exact = ftsMatch(words.map(({ word }) => ({ word, also: [] })));
+    const inFts = 'a.id IN (SELECT rowid FROM artifacts_fts WHERE artifacts_fts MATCH ?) DESC';
+    return s.all(`SELECT ${cols}, highlight(artifacts_fts, 0, char(1), char(2)) AS title_hits`
+      + ' FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
+      + ` WHERE artifacts_fts MATCH ? AND ${where} ORDER BY instr(lower(a.title), lower(?)) > 0 DESC, ${inFts}, `
+      + (ranked ? `${near ? `${inFts}, ` : ''}bm25(artifacts_fts, ?, ?, ?)` : order) + ' LIMIT ? OFFSET ?',
+    ftsMatch(words), ...args, q.trim(), `title : (${exact})`,
+    ...(ranked ? [...(near ? [exact] : []), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body] : []), limit, offset);
+  },
+  count: (s, { where, args, words }) => s.one('SELECT COUNT(*) AS n FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid'
+    + ` JOIN users u ON u.id = a.owner_id WHERE artifacts_fts MATCH ? AND ${where}`, ftsMatch(words), ...args).n,
+};
+
 export class Store {
   /** `db`: a database file's path (node:sqlite), or an open database object (see the top of this file). */
   constructor(db) {
     // node:sqlite is loaded only when asked for a file, so runtimes without it can use the rest.
     this.db = typeof db === 'string' ? new (process.getBuiltinModule('node:sqlite').DatabaseSync)(db) : db;
+    this.search = this.db.search ?? sqliteSearch;
     this.statements = new Map();
     this.db.exec(SCHEMA);
     for (const [table, added] of Object.entries(ADDED_COLUMNS)) {
@@ -350,22 +412,18 @@ export class Store {
     this.ensureLinks();
   }
 
-  close() { this.db.close?.(); }
+  /** Close the database (a promise where closing takes time, as PostgreSQL's does). */
+  close() { return this.db.close?.(); }
 
   /** Create the search index, or rebuild it from every page's latest version if its layout changed. */
-  ensureSearchIndex() {
-    const exists = this.one("SELECT 1 AS x FROM sqlite_master WHERE name = 'artifacts_fts'");
-    if (exists && this.setting('search_index', '1') === SEARCH_INDEX_VERSION) return;
+  ensureSearchIndex({ force = false } = {}) {
+    if (!force && this.search.exists(this) && this.setting('search_index', '1') === this.search.version) return;
     this.tx(() => {
-      // prefix: also index each word's first 1, 2 and 3 letters, so the first keys typed
-      // in a live search don't have to gather every word that starts with them.
-      this.db.exec('DROP TABLE IF EXISTS artifacts_vocab; DROP TABLE IF EXISTS artifacts_fts;'
-        + " CREATE VIRTUAL TABLE artifacts_fts USING fts5(title, name, body, prefix='1 2 3');"
-        + " CREATE VIRTUAL TABLE artifacts_vocab USING fts5vocab(artifacts_fts, 'row');");
+      this.search.create(this);
       const rows = this.all('SELECT a.id, a.slug, a.description, v.html FROM artifacts a'
         + ' JOIN versions v ON v.artifact_id = a.id AND v.n = a.latest_version');
       for (const r of rows) this.index(r.id, `${r.description} ${pageMeta(r.slug, Buffer.from(r.html).toString('utf8')).body}`);
-      this.setSetting('search_index', SEARCH_INDEX_VERSION);
+      this.setSetting('search_index', this.search.version);
     });
     this.vocab = null;
   }
@@ -377,9 +435,9 @@ export class Store {
    * link_targets. The links table stays as 0.8.0 reads it, and links_index (what 0.8.0
    * checks before reading them all again itself) stays set, so rolling back needs no rebuild.
    */
-  ensureLinks() {
+  ensureLinks({ force = false } = {}) {
     const newest = this.one('SELECT MAX(created_at) AS t FROM versions').t ?? 0;
-    if (this.setting('links_resolved') === LINKS_VERSION && Number(this.setting('links_upto', '0')) >= newest) return;
+    if (!force && this.setting('links_resolved') === LINKS_VERSION && Number(this.setting('links_upto', '0')) >= newest) return;
     this.tx(() => {
       this.db.exec('DELETE FROM links; DELETE FROM link_targets; DELETE FROM link_names; DELETE FROM asset_refs;');
       const rows = this.all('SELECT a.id, a.slug, a.path, v.base_path, v.html FROM artifacts a JOIN versions v ON v.artifact_id = a.id AND v.n = a.latest_version');
@@ -414,14 +472,23 @@ export class Store {
     this.candidates(to).forEach((a, rank) => this.run('INSERT INTO link_targets (from_id, to_slug, target_id, rank) VALUES (?,?,?,?)', id, to, a.id, rank));
   }
 
-  /** Work out again what the links on these pages that may mean one of `names` (lowercase) may mean. */
+  /**
+   * Work out again what the links on these pages that may mean one of `names` may mean.
+   * Which pages: the database's name comparison (linkersOf); which of their links: a
+   * looser one (nameKey), so none it would match is left out.
+   */
   resolveLinks(ids, names) {
-    const wanted = new Set(names);
+    const wanted = new Set(names.filter(Boolean).map(nameKey));
     for (const id of ids) {
       for (const { to_slug: to } of this.all('SELECT to_slug FROM links WHERE from_id = ?', id)) {
-        if (linkCandidates(to).some((n) => wanted.has(n.toLowerCase()))) this.resolveLink(id, to);
+        if (linkCandidates(to).some((n) => wanted.has(nameKey(n)))) this.resolveLink(id, to);
       }
     }
+  }
+
+  /** Are these two the same name, as this database compares names (NOCASE)? */
+  sameName(x, y) {
+    return !!this.one('SELECT CAST(? AS TEXT) = CAST(? AS TEXT) COLLATE NOCASE AS same', x, y).same;
   }
 
   /** The names a page answers to, lowercase, the way link_names keeps them (see candidates). */
@@ -431,16 +498,17 @@ export class Store {
     const slug = a.slug.toLowerCase();
     const aliases = this.all('SELECT alias FROM aliases WHERE artifact_id = ?', id).map((r) => r.alias.toLowerCase());
     const addresses = this.all('SELECT path FROM page_addresses WHERE artifact_id = ?', id).flatMap((r) => [r.path.toLowerCase(), r.path.toLowerCase().replace(PAGE_EXT_RE, '')]);
-    const folders = [slug, ...addresses].map(indexFolder).filter(Boolean); // an index note answers to its folder's name
+    // An index note answers to its folder's path, and to the folder's own name.
+    const folders = [slug, ...addresses].map(indexFolder).filter(Boolean).flatMap((f) => [f, f.split('/').at(-1)]);
     return [slug, slug.replace(PAGE_EXT_RE, ''), a.name_key, ...addresses, ...folders, ...aliases, ...aliases.map((x) => x.replace(/\s+/g, '-'))];
   }
 
-  /** Pages with a link that may mean one of these names (lowercase). */
+  /** Pages with a link that may mean one of these names, compared as the database compares names. */
   linkersOf(names) {
     const list = [...new Set(names)].filter(Boolean), out = new Set();
     for (let i = 0; i < list.length; i += 90) { // some databases bind at most 100 values
       const part = list.slice(i, i + 90);
-      for (const r of this.all(`SELECT DISTINCT from_id FROM link_names WHERE name IN (${part.map(() => '?').join(',')})`, ...part)) out.add(r.from_id);
+      for (const r of this.all(`SELECT DISTINCT from_id FROM link_names WHERE name COLLATE NOCASE IN (${part.map(() => '?').join(',')})`, ...part)) out.add(r.from_id);
     }
     return [...out];
   }
@@ -467,11 +535,10 @@ export class Store {
    */
   index(id, text) {
     const a = this.one('SELECT title, slug FROM artifacts WHERE id = ?', id);
-    text ??= this.one('SELECT body FROM artifacts_fts WHERE rowid = ?', id)?.body ?? '';
+    text ??= this.search.bodies(this, [id]).get(id) ?? '';
     const names = [...this.all('SELECT alias FROM aliases WHERE artifact_id = ?', id).map((r) => r.alias),
       ...this.all('SELECT tag FROM tags WHERE artifact_id = ?', id).map((r) => r.tag)];
-    this.run('DELETE FROM artifacts_fts WHERE rowid = ?', id);
-    this.run('INSERT INTO artifacts_fts (rowid, title, name, body) VALUES (?,?,?,?)', id, a.title, searchName(a.slug, a.title, names), text.trim());
+    this.search.put(this, id, { title: a.title, name: searchName(a.slug, a.title, names), body: text.trim() });
     this.vocab = null;
   }
 
@@ -548,7 +615,7 @@ export class Store {
       this.run('INSERT INTO users (name, token_hash, is_admin, created_at) VALUES (?,?,?,?)',
         name, hashToken(token), isAdmin ? 1 : 0, now());
     } catch (e) {
-      if (/UNIQUE/.test(e.message)) throw new ApiError(409, `user '${name}' already exists`);
+      if (/UNIQUE/.test(e.message) || e.sqlState === '23505') throw new ApiError(409, `user '${name}' already exists`);
       throw e;
     }
     return token;
@@ -575,9 +642,7 @@ export class Store {
     this.tx(() => {
       const u = this.one('SELECT id FROM users WHERE name = ?', name);
       if (!u) throw new ApiError(404, 'no such user');
-      for (const { id } of this.all('SELECT id FROM artifacts WHERE owner_id = ?', u.id)) {
-        this.run('DELETE FROM artifacts_fts WHERE rowid = ?', id);
-      }
+      for (const { id } of this.all('SELECT id FROM artifacts WHERE owner_id = ?', u.id)) this.search.remove(this, id);
       this.run('DELETE FROM users WHERE id = ?', u.id);
     });
     this.vocab = null;
@@ -702,7 +767,7 @@ export class Store {
       let a = this.one(`${SELECT} WHERE a.slug = ?`, slug);
       if (!a && renameFrom != null) { // the same page, renamed in case only (what sync sends when a file is)
         const old = this.owned(renameFrom, userId);
-        if (old.slug.toLowerCase() !== slug.toLowerCase()) throw new ApiError(400, `'${old.slug}' can only be renamed in case, e.g. to '${old.slug.toLowerCase()}'`);
+        if (!this.sameName(old.slug, slug)) throw new ApiError(400, `'${old.slug}' can only be renamed in case, e.g. to '${old.slug.toLowerCase()}'`);
         this.run('UPDATE artifacts SET slug = ? WHERE id = ?', slug, old.id);
         a = this.one(`${SELECT} WHERE a.slug = ?`, slug);
       }
@@ -752,7 +817,7 @@ export class Store {
       if (path != null) this.run('UPDATE artifacts SET path = ? WHERE id = ?', path, id);
       // The bare name [[wikilinks]] find it by: what sync says, else the name without its
       // extension. Kept when not given, so a version from `put` or a restore keeps sync's.
-      if (nameKey || !a) this.run('UPDATE artifacts SET name_key = ? WHERE id = ?', (nameKey || slug.split('/').at(-1).replace(PAGE_EXT_RE, '')).toLowerCase(), id);
+      if (nameKey || !a) this.run('UPDATE artifacts SET name_key = ? WHERE id = ?', (nameKey || pageNameKey(slug)).toLowerCase(), id);
       this.setLinks(id, meta.links);
       this.setAssetRefs(id, meta.assets);
       // A new page, or one answering to other names now, may be what other pages' links mean.
@@ -791,17 +856,19 @@ export class Store {
         // A name without an extension is an HTML page's, which may take .html on the way (into a folder, it must).
         const [was, will] = [a.slug, to].map((s) => (s.match(PAGE_EXT_RE)?.[0] || '').toLowerCase());
         if (was !== will && !(was === '' && /^\.html?$/.test(will))) throw new ApiError(400, 'moving a page must keep its file extension');
-        const taken = this.one('SELECT id FROM artifacts WHERE lower(slug) = lower(?)', to)
-          ?? (() => { const old = this.oldAddress(to); return old ? { id: old.artifact_id } : null; })();
-        if (taken && taken.id !== a.id) throw new ApiError(409, 'destination is already in use (or reserved by a moved page)');
+        this.checkDestination(a, to);
         return { a, to };
       });
       for (const { a, to } of changes) {
         if (a.slug === to) continue;
+        // Again, as each move lands: an earlier one in this batch may have taken a name the
+        // database counts as the same (another case; in PostgreSQL, another Unicode case).
+        this.checkDestination(a, to);
         const namesBefore = this.namesOf(a.id);
         this.run('DELETE FROM page_addresses WHERE path = ? AND artifact_id = ?', to, a.id);
-        if (a.slug.toLowerCase() !== to.toLowerCase()) this.run('INSERT INTO page_addresses (path, artifact_id) VALUES (?,?)', a.slug, a.id);
-        this.run('UPDATE artifacts SET slug = ?, name_key = ? WHERE id = ?', to, to.split('/').at(-1).replace(PAGE_EXT_RE, '').toLowerCase(), a.id);
+        // The old address is kept for redirects, unless the database counts it as the new one.
+        if (!this.sameName(a.slug, to)) this.run('INSERT INTO page_addresses (path, artifact_id) VALUES (?,?)', a.slug, a.id);
+        this.run('UPDATE artifacts SET slug = ?, name_key = ? WHERE id = ?', to, pageNameKey(to), a.id);
         this.run('INSERT INTO moves (artifact_id, old_path, new_path, created_at) VALUES (?,?,?,?)', a.id, a.slug, to, now());
         this.index(a.id);
         const changed = [...namesBefore, ...this.namesOf(a.id)];
@@ -811,6 +878,13 @@ export class Store {
     });
     this.changed();
     return out;
+  }
+
+  /** Refuse to move page `a` to `to` if another page has that name, or once had it (its old addresses stay reserved). */
+  checkDestination(a, to) {
+    const taken = this.one('SELECT id FROM artifacts WHERE slug = ? COLLATE NOCASE AND id <> ?', to, a.id)
+      ?? (() => { const old = this.oldAddress(to); return old && old.artifact_id !== a.id ? { id: old.artifact_id } : null; })();
+    if (taken) throw new ApiError(409, 'destination is already in use (or reserved by a moved page)');
   }
 
   oldAddress(path) {
@@ -845,7 +919,7 @@ export class Store {
     const next = transition(a.state, event);
     if (next === PURGED) {
       this.tx(() => {
-        this.run('DELETE FROM artifacts_fts WHERE rowid = ?', a.id);
+        this.search.remove(this, a.id);
         this.run('DELETE FROM artifacts WHERE id = ?', a.id); // versions, views, comments and links to and from it cascade
       });
       this.vocab = null;
@@ -895,20 +969,9 @@ export class Store {
         .map((r) => summary(r, viewerId));
     }
     const words = queryWords(q, this.vocabulary());
-    // Titles first, in any order: pages whose title holds the whole query ("ACC-18"), then
-    // pages whose title has every word as typed (or a longer word it starts: "ACC 18",
-    // "[ACC-18]"); within those and after them, the chosen order. Ranked, that's pages with
-    // every word as typed anywhere before pages found only through a typo or another form of
-    // a word, then bm25, with title and file-name hits weighted above body hits.
-    const near = words.some((w) => w.also.length);
-    const exact = ftsMatch(words.map(({ word }) => ({ word, also: [] })));
-    const inFts = 'a.id IN (SELECT rowid FROM artifacts_fts WHERE artifacts_fts MATCH ?) DESC';
-    const rows = this.all(`SELECT a.*, u.name AS owner, ${VIEWS}, ${TAGS}, highlight(artifacts_fts, 0, char(1), char(2)) AS title_hits`
-      + ' FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
-      + ` WHERE artifacts_fts MATCH ? AND ${where} ORDER BY instr(lower(a.title), lower(?)) > 0 DESC, ${inFts}, `
-      + (ranked ? `${near ? `${inFts}, ` : ''}bm25(artifacts_fts, ?, ?, ?)` : SORT_ORDER[sort]) + ' LIMIT ? OFFSET ?',
-    ftsMatch(words), ...args, q.trim(), `title : (${exact})`,
-    ...(ranked ? [...(near ? [exact] : []), SEARCH_WEIGHTS.title, SEARCH_WEIGHTS.name, SEARCH_WEIGHTS.body] : []), limit, offset);
+    const rows = this.search.search(this, {
+      cols: `a.*, u.name AS owner, ${VIEWS}, ${TAGS}`, where, args, words, q, ranked, order: SORT_ORDER[sort], limit, offset,
+    });
     // A one-letter search gets no snippets: nearly every word would be marked.
     const texts = words.some((w) => w.word.length > 1) ? this.indexedText(rows.slice(0, snippets).map((r) => r.id)) : new Map();
     return rows.map((r) => {
@@ -943,8 +1006,7 @@ export class Store {
   count(viewerId, { q, ...filters } = {}) {
     const [where, args] = this.listFilter(viewerId, filters);
     if (!q) return this.one(`SELECT COUNT(*) AS n FROM artifacts a JOIN users u ON u.id = a.owner_id WHERE ${where}`, ...args).n;
-    return this.one('SELECT COUNT(*) AS n FROM artifacts_fts JOIN artifacts a ON a.id = artifacts_fts.rowid JOIN users u ON u.id = a.owner_id'
-      + ` WHERE artifacts_fts MATCH ? AND ${where}`, ftsMatch(queryWords(q, this.vocabulary())), ...args).n;
+    return this.search.count(this, { where, args, words: queryWords(q, this.vocabulary()) });
   }
 
   /**
@@ -959,11 +1021,8 @@ export class Store {
     return (not && pick(not)) || pick();
   }
 
-  /** The text indexed for these pages, by id. (Ids are written into the SQL: some databases bind at most 100 values.) */
-  indexedText(ids) {
-    if (!ids.length) return new Map();
-    return new Map(this.all(`SELECT rowid AS id, body FROM artifacts_fts WHERE rowid IN (${ids.map(Number).join(',')})`).map((r) => [r.id, r.body]));
-  }
+  /** The text indexed for these pages, by id. */
+  indexedText(ids) { return this.search.bodies(this, ids); }
 
   /**
    * The links this viewer sees, worked out once per change to the site: every page they can
@@ -1034,9 +1093,11 @@ export class Store {
   previews(slugs, viewerId) {
     const want = [...new Set(slugs)].slice(0, 200);
     if (!want.length) return {};
-    const rows = this.all(`SELECT a.slug, a.title, a.description, f.body, ${TAGS} FROM artifacts a JOIN artifacts_fts f ON f.rowid = a.id`
+    const found = this.all(`SELECT a.id, a.slug, a.title, a.description, ${TAGS} FROM artifacts a`
       + ` WHERE a.slug IN (${want.map(() => '?').join(',')}) AND a.state = 'active' AND (a.visibility = 'public' OR a.owner_id = ?)`,
     ...want, viewerId ?? -1);
+    const bodies = this.indexedText(found.map((r) => r.id));
+    const rows = found.filter((r) => bodies.has(r.id)).map((r) => ({ ...r, body: bodies.get(r.id) }));
     const out = {};
     for (const r of rows) {
       let text = (r.body || '').replace(/\s+/g, ' ').trim();
@@ -1128,7 +1189,7 @@ export class Store {
           + ` JOIN artifacts a ON a.id = x.artifact_id WHERE ${vis} AND x.at >= ? GROUP BY a.id ORDER BY visits DESC, views DESC, a.title LIMIT ?`, popularSince),
       },
       most_viewed: pageRows(`SELECT a.slug, a.title, (SELECT COUNT(*) FROM views x WHERE x.artifact_id = a.id) AS views FROM artifacts a`
-        + ` WHERE ${vis} AND views > 0 ORDER BY views DESC, a.title LIMIT ?`),
+        + ` WHERE ${vis} AND EXISTS (SELECT 1 FROM views x WHERE x.artifact_id = a.id) ORDER BY views DESC, a.title LIMIT ?`),
       most_edited: pageRows(`SELECT a.slug, a.title, a.latest_version AS versions FROM artifacts a WHERE ${vis} AND a.latest_version > 1`
         + ' ORDER BY a.latest_version DESC, a.title LIMIT ?'),
       tags: this.tags(viewerId).sort((x, y) => y.count - x.count || x.tag.localeCompare(y.tag)),
@@ -1240,7 +1301,7 @@ export class Store {
 
   /** Every indexed word. Only steers matching; results are still visibility-filtered. */
   vocabulary() {
-    this.vocab ??= new Vocabulary(this.all('SELECT term FROM artifacts_vocab').map((r) => r.term));
+    this.vocab ??= new Vocabulary(this.search.terms(this));
     return this.vocab;
   }
 
@@ -1290,10 +1351,11 @@ export class Store {
   rollUpApiCalls(cutoff) {
     this.tx(() => {
       this.run("INSERT INTO api_calls_daily (day, client, name, method, route, calls, errors, server_errors)"
-        + " SELECT date(at, 'unixepoch', 'localtime'), client, name, method, route, COUNT(*), SUM(status >= 400), SUM(status >= 500)"
+        + " SELECT date(at, 'unixepoch', 'localtime'), client, name, method, route, COUNT(*),"
+        + ' SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), SUM(CASE WHEN status >= 500 THEN 1 ELSE 0 END)'
         + ' FROM api_calls WHERE at < ? GROUP BY 1, 2, 3, 4, 5 ORDER BY 1'
-        + ' ON CONFLICT (day, client, name, method, route) DO UPDATE SET calls = calls + excluded.calls,'
-        + ' errors = errors + excluded.errors, server_errors = server_errors + excluded.server_errors', cutoff);
+        + ' ON CONFLICT (day, client, name, method, route) DO UPDATE SET calls = api_calls_daily.calls + excluded.calls,'
+        + ' errors = api_calls_daily.errors + excluded.errors, server_errors = api_calls_daily.server_errors + excluded.server_errors', cutoff);
       this.run('DELETE FROM api_calls WHERE at < ?', cutoff);
     });
   }
@@ -1313,8 +1375,8 @@ export class Store {
     const sinceDay = days == null ? '' : dayStr(ago(days - 1));
     const since = days == null ? 0 : new Date(`${sinceDay}T00:00`).getTime() / 1000;
     const ALL = "(SELECT date(at, 'unixepoch', 'localtime') AS day, client, name, method, route, 1 AS calls,"
-      + ' (status >= 400) AS errors, (status >= 500) AS server_errors FROM api_calls WHERE at >= ?'
-      + ' UNION ALL SELECT day, client, name, method, route, calls, errors, server_errors FROM api_calls_daily WHERE day >= ?)';
+      + ' CASE WHEN status >= 400 THEN 1 ELSE 0 END AS errors, CASE WHEN status >= 500 THEN 1 ELSE 0 END AS server_errors FROM api_calls WHERE at >= ?'
+      + ' UNION ALL SELECT day, client, name, method, route, calls, errors, server_errors FROM api_calls_daily WHERE day >= ?) AS calls_all';
     const q = (sql, ...more) => this.all(sql.replace('$ALL', ALL), since, sinceDay, ...more);
 
     const kinds = Object.fromEntries(CLIENT_KINDS.map((k) => [k, 0]));

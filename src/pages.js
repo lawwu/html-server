@@ -640,7 +640,7 @@ export function reviewPage(slug) {
 <select id="ver" aria-label="Version"></select>
 <button id="move-page" hidden>Move…</button>
 <button id="changes">Show changes</button><button id="restore" hidden>Make this version current</button>
-<a id="open" target="_blank">Open page</a> <button id="hist" aria-expanded="false" aria-controls="history">History</button> <a id="jump" href="#comments">Comments</a></header>
+<a id="open" target="_blank" rel="noopener">Open page</a> <button id="hist" aria-expanded="false" aria-controls="history">History</button> <a id="jump" href="#comments">Comments</a></header>
 <div class="review"><div id="frame-slot"><iframe id="frame" title="Page"></iframe></div><section id="history" hidden></section><aside id="comments">
 <h2 id="ctitle">Comments</h2><p id="who" class="meta"></p>
 <details id="signin"><summary>Sign in to comment</summary>
