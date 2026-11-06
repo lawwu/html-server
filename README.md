@@ -772,7 +772,8 @@ ones change:
 | `gallery/` | The example pages shown at `/gallery` |
 | `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks, the Cloudflare adapter and the docs site |
 | `scripts/build-site.js` | The docs site: this README, the Docs page, the changelog and the gallery as static pages (`npm run site`) |
-| `.github/workflows/` | `test.yml`: `npm test` on every pull request and push to `main`; `pages.yml`: the docs site, on every push to `main` |
+| `.github/workflows/` | `test.yml`: `npm test` on every pull request and push to `main`; `pages.yml`: the docs site, on every push to `main`; `latest.yml`: moves the `latest` tag to each release; `dependabot-auto-merge.yml`: merges Dependabot's patch and minor updates once `test.yml` passes |
+| `.github/dependabot.yml` | Weekly Dependabot updates for npm and GitHub Actions, one pull request each, for versions at least 7 days old |
 | `CHANGELOG.md` | What each release changed |
 | `~/.html-server/` | Your data (`artifacts.db`), the CLI's login (`credentials.json`), backups and the sync log. Not in the repo |
 

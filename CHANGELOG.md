@@ -12,6 +12,12 @@ couldn't be migrated would be a major version.
   (page addresses, the documented HTTP API, the command line, MCP tools, in-place data
   upgrades, Cloudflare deploys and the reserved names) and what isn't part of it, such as
   the site's look, undocumented API fields, the database tables and the code under `src/`.
+- **Dependabot keeps dependencies current.** Each week it opens one pull request for npm
+  (`marked`) and one for the GitHub Actions the workflows use. Patch and minor updates
+  merge themselves once the tests pass on every Node version and time zone CI covers;
+  majors wait for review, since a new `marked` major can change every rendered page. A
+  version is only proposed once it's a week old, so a hijacked release is likely pulled
+  before it reaches `main`; security fixes don't wait.
 
 ## 0.11.0 (2026-11-04)
 
