@@ -28,6 +28,6 @@
     "cf:deploy": "node src/cli.js deploy cloudflare"
   },
   "dependencies": {
-    "marked": "18.1.0"
+    "marked": "18.1.2"
   }
 }
