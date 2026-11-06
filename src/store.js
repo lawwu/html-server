@@ -259,6 +259,8 @@ const now = () => Date.now() / 1000;
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 export const hashToken = sha256;
 const localDay = (t) => new Date(t * 1000).toLocaleDateString('en-CA'); // YYYY-MM-DD, server's timezone
+/** Local midnight `back` days before today. Counted on the calendar (setDate), so a DST change can't skip a day or repeat one. */
+const dayStart = (back) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - back); return d; };
 const VIEWS = '(SELECT COUNT(*) FROM views v WHERE v.artifact_id = a.id) AS views';
 const TAGS = "(SELECT group_concat(t.tag, ',') FROM tags t WHERE t.artifact_id = a.id) AS tags_csv";
 const PREVIEW_CHARS = 420; // how much of a page a hover preview shows
@@ -1071,8 +1073,7 @@ export class Store {
     const v = viewerId ?? -1;
     const one = (sql) => this.one(sql, v);
     // The last `days` local days, today included, from midnight on the first; the days before
-    // them for comparison. Counted on the calendar (setDate), so a DST change can't skip a day or repeat one.
-    const dayStart = (back) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - back); return d; };
+    // them for comparison.
     const since = dayStart(days - 1).getTime() / 1000;
     const totals = {
       pages: one(`SELECT COUNT(*) AS n FROM artifacts a WHERE ${vis}`).n,
@@ -1373,9 +1374,10 @@ export class Store {
     if (a.owner_id !== userId) throw new ApiError(403, `'${a.slug}' belongs to ${a.owner}`);
     const total = this.one('SELECT COUNT(*) AS views, COUNT(DISTINCT visitor) AS visitors, MAX(at) AS last'
       + ' FROM views WHERE artifact_id = ?', a.id);
+    // The last `days` local days, today included, from midnight on the first (as on /stats).
     const byDay = this.all("SELECT date(at, 'unixepoch', 'localtime') AS day, COUNT(*) AS views,"
       + ' COUNT(DISTINCT visitor) AS visitors FROM views WHERE artifact_id = ? AND at >= ?'
-      + ' GROUP BY day ORDER BY day DESC', a.id, now() - days * 86400);
+      + ' GROUP BY day ORDER BY day DESC', a.id, dayStart(days - 1).getTime() / 1000);
     const byVersion = this.all('SELECT n, COUNT(*) AS c FROM views WHERE artifact_id = ? GROUP BY n ORDER BY n', a.id);
     const byVia = this.all('SELECT via, COUNT(*) AS c FROM views WHERE artifact_id = ? GROUP BY via', a.id);
     return {
