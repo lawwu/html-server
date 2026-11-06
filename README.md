@@ -568,7 +568,29 @@ html-server create-user alice --admin --save   # PostgreSQL starts with no users
   options work. Each statement may run 30 s and wait 10 s for a lock. The startup line
   says which host and database, never the user or password.
 - **First run** doesn't make an admin as it does on SQLite: an empty database may be
-  waiting for data to be moved in. Create one with `create-user NAME --admin --save`.
+  waiting for data to be moved in (below). Or create one with `create-user NAME --admin --save`.
+- **Moving a SQLite server's data in:** stop the old server (or use a fresh
+  `html-server backup`), then, with `DATABASE_URL` set,
+
+  ```bash
+  html-server import-sqlite ~/.html-server/artifacts.db            # a preview: checks, imports nothing
+  html-server import-sqlite ~/.html-server/artifacts.db --apply    # then the real thing
+  ```
+
+  The preview opens the file read-only, checks its integrity, and works on a private
+  snapshot that takes this release's upgrades (the file itself is never written). It
+  refuses pages whose addresses the server now reserves (such as `healthz`), names
+  PostgreSQL would count as one (`Café.html` and `CAFÉ.html`), and text holding a NUL
+  character, listing each so you can fix it first. It never imports into a database
+  already in use: one with pages, users or settings of its own. Usage records from people
+  trying the new server first are refused too, unless you add `--replace-telemetry`.
+  `--apply` copies everything (users and their token hashes, page ids and addresses, moves,
+  every version byte for byte, files, comments and replies, visibility, tags, aliases,
+  views and usage, settings) in one transaction, rebuilds search, links and file
+  references, and checks each table against the snapshot by row count and SHA-256.
+  Anything wrong and none of it is kept. Two things to know: the tables a preview or a
+  failed run creates stay (empty) in the database, and a finished import can't be run
+  again over its own result, since the database is then in use.
 - **Search** works the same way (prefixes, other forms of a word, typos, titles first),
   on PostgreSQL's full-text search: the first 32,768 characters of each page's title,
   name and text are indexed, with accents folded, and the whole text kept for snippets
@@ -816,6 +838,7 @@ ones change:
 | `src/server.js` | HTTP routes (the table that also generates the Docs page) and their handlers |
 | `src/store.js` | All database access, with the schema and its in-place upgrades |
 | `src/postgres.js` | Optional PostgreSQL storage: the store's SQL translated, PostgreSQL's full-text search, connection settings |
+| `src/import-sqlite.js` | `html-server import-sqlite`: a SQLite database moved into PostgreSQL, checked table by table |
 | `src/pages.js` | Server-rendered pages: the site frame, home, notes, history, stats, graph, docs, review, diffs |
 | `src/markdown.js` | Markdown notes: frontmatter, wikilinks, callouts, rendering |
 | `src/notebook.js` | Jupyter notebooks: parsing, rendering cells and outputs |
