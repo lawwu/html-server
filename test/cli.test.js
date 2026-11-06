@@ -156,7 +156,7 @@ test('first serve on an empty database makes an admin and signs the CLI in (SQLi
     for (let i = 0; i < 100 && !/html-server \S+ on http/.test(err); i++) await new Promise((r) => setTimeout(r, 50));
     if (onPostgres) {
       // An empty PostgreSQL database may be waiting for an import: no admin is made for it.
-      assert.match(err, /no users yet: create the first admin with `html-server create-user NAME --admin --save`/);
+      assert.match(err, /no users yet: move a SQLite database in with `html-server import-sqlite PATH --apply`, or create the first admin/);
       assert.match(err, /\(db: PostgreSQL [^)]*\)/); // where, but never who or how
       assert.doesNotMatch(err, /options=|search_path|password|@/);
       assert.ok(!existsSync(join(h, 'credentials.json')));
