@@ -810,6 +810,40 @@ says what each one changed, and `html-server --version` says which one you're on
 specific release with `npm install -g github:lawwu/html-server#vX.Y.Z`, or the newest with
 `#latest`; without the `#…` you get the latest `main`.
 
+### Stability
+
+While the version is 0.x, any minor release may break things, and the changelog says so
+when one does. From 1.0.0, these are the public interface, and breaking any of them needs
+a major version:
+
+- **Page addresses:** `/pages/<name>`, the short alias `/<name>`, folder addresses
+  (`/research/report.html`, `/research/`), and redirects from a moved page's old address.
+  People link to and bookmark these, so they matter most.
+- **The HTTP API** as documented at `/docs`: routes, parameters, status codes and response
+  fields. New fields may be added at any time, so read responses by key.
+- **The `html-server` command line:** commands, flags, and what `sync` does with a folder.
+- **The MCP tools:** names, inputs and results, with the same allowance for added fields.
+- **Your data:** every 1.x release upgrades the database in place on startup, and a backup
+  from any 1.x release restores into a later one.
+- **Deploying:** a Cloudflare deployment made with `html-server deploy cloudflare` keeps
+  working when redeployed with a later 1.x release.
+- **Reserved names:** the list under [Design notes](#design-notes). A new name that takes
+  an address from pages or folders would be a breaking change.
+
+Not part of the interface, and free to change in any release:
+
+- the site's HTML, CSS, layout and JavaScript (what pages look like, not their addresses);
+- the gallery's example pages;
+- API fields and routes that `/docs` doesn't document;
+- the SQLite tables and columns: use the API or a backup, not the database directly;
+- the code under `src/`, which is internal (the package publishes only the
+  `html-server` command; nothing is exported to import).
+
+Before 1.0: so far, each new site route (most recently `random`, in 0.11.0) has taken a
+name that pages and folders could otherwise use. That has to stop before the reserved
+names can be promised, either by moving new routes under a prefix the server already owns
+or by settling the full list.
+
 To cut a release, add its notes to the changelog's "Unreleased" section, then:
 
 ```bash
