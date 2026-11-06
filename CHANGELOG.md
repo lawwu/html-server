@@ -15,6 +15,10 @@ couldn't be migrated would be a major version.
   reran everything in Los Angeles time. New ones cover the counts that had none:
   visitor-days, a page's views per day, uploads per week, and API calls folded into daily
   totals.
+- **A page's views report covers the last 30 days on the calendar.** `html-server views`
+  and `/api/artifacts/<name>/views` counted back 30 × 24 hours from now, so `last_30_days`
+  could include part of a 31st day or, after the clocks went back, miss up to an hour of
+  the oldest one. The report now starts at midnight 29 days ago, the way `/stats` does.
 - **What 1.0 will promise.** A Stability section in the README lists the public interface
   (page addresses, the documented HTTP API, the command line, MCP tools, in-place data
   upgrades, Cloudflare deploys and the reserved names) and what isn't part of it, such as

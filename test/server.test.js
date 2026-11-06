@@ -1439,6 +1439,19 @@ zoneTest("visits: a visitor counts once a local day, in the visitor hash, the st
   assert.deepEqual(report.last_30_days, [{ day: next, views: 2, visitors: 1 }, { day, views: 2, visitors: 1 }]);
 });
 
+zoneTest("views: a page's report has the last 30 local days, from midnight on the first", async (t, { back }) => {
+  await put('report.html', '<p>x</p>');
+  const id = store.find('report.html').id;
+  const view = (local) => store.run("INSERT INTO views (artifact_id, n, at, visitor, via) VALUES (?, 1, ?, 'v', 'url')", id, at(local));
+  const first = addDays(back, -29);
+  view(`${addDays(first, -1)}T23:45`); // a 31st day back
+  view(`${first}T00:15`);
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(`${back}T23:30`) }); // the day the clocks go back: 25 hours long
+  const report = store.views(store.userForToken(admin).id, 'report.html');
+  assert.deepEqual(report.last_30_days, [{ day: first, views: 1, visitors: 1 }]); // not 30 × 24 hours before now
+  assert.equal(report.views, 2); // all time
+});
+
 test('search puts pages with the words in their title first, in whatever order is chosen', async () => {
   await put('ticket.html', '<title>ACC-18: login times out</title><p>The session expires after 5 minutes.</p>');
   await put('ticket-2.html', '<title>ACC 18 follow-up</title><p>Shorter sessions.</p>'); // the words, not the whole query
