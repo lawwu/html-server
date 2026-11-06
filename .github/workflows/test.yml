@@ -1,6 +1,6 @@
 # npm test on the oldest Node the package supports (package.json engines) and the current
 # LTS, each in UTC and in a time zone with daylight saving: stats and usage count local
-# days, which is where time zones have broken things before.
+# days, which is where time zones have broken things before. Then the same on PostgreSQL.
 name: test
 on:
   push:
@@ -25,3 +25,53 @@ jobs:
       - run: npm test
         env:
           TZ: ${{ matrix.tz }}
+
+  # Every test again with PostgreSQL as the database (test/fixture.js: a schema per test),
+  # the Cloudflare tests and the docs site build included. REQUIRE_POSTGRES makes a missing
+  # URL or driver a failure, and the last step checks that only the SQLite-only tests were
+  # skipped: a green run here has to have run against PostgreSQL.
+  postgres:
+    name: PostgreSQL 16, Node ${{ matrix.node }}, TZ=${{ matrix.tz }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.16', lts/*]
+        tz: [UTC, America/Los_Angeles]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: html_server
+          POSTGRES_PASSWORD: html_server
+          POSTGRES_DB: html_server_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U html_server -d html_server_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://html_server:html_server@localhost:5432/html_server_test
+      REQUIRE_POSTGRES: '1'
+      TZ: ${{ matrix.tz }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native-driver prerequisites (libpq and a C toolchain, for pg-native)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev build-essential python3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: The PostgreSQL driver loads
+        run: npm ls pg-native libpq && node -e "require('pg-native'); console.log('pg-native loaded')"
+      - name: npm test, on PostgreSQL
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination=tap.txt "test/*.test.js"
+      - name: Only the SQLite-only tests were skipped
+        run: |
+          grep -E '^# (tests|pass|fail|skipped) ' tap.txt
+          skipped=$(grep -E '^# skipped ' tap.txt | awk '{print $3}')
+          sqlite_only=$(grep -c '# SKIP SQLite only' tap.txt || true)
+          if [ "$skipped" != "$sqlite_only" ] || [ "$skipped" -gt 2 ]; then
+            echo "expected only the 2 SQLite-only tests to be skipped; $skipped were:"; grep '# SKIP' tap.txt; exit 1
+          fi
+          grep -q "^ok .*the driver loads and these tests run against PostgreSQL" tap.txt

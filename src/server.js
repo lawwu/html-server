@@ -49,6 +49,8 @@ export const ROUTES = [
   ['GET', '/api/docs\\.md', 'docsSource', 'anyone', null],
   ['GET', '/_static/(?<file>[\\w.-]+)', 'static', 'anyone', null],
   ['GET', '/_static/fonts/(?<font>[\\w.-]+\\.woff2)', 'font', 'anyone', null],
+  ['GET', '/healthz', 'health', 'anyone',
+    'For load balancers and uptime monitors (HEAD works too): `{"status":"ok"}` once the database answers, else a 503. Not counted in the usage stats'],
   // Asked for by browsers and crawlers on every visit: a 404 straight away, never a page lookup.
   ['GET', '/favicon\\.ico', 'notFound', 'anyone', null],
   ['GET', '/robots\\.txt', 'notFound', 'anyone', null],
@@ -591,6 +593,16 @@ const handlers = {
     c.send(200, a.mime, Buffer.from(a.data), { 'Content-Security-Policy': c.csp, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-cache' });
   },
   assets(c) { c.json(200, c.store.listAssets(c.user())); },
+  /** Up, and the database answers. Says nothing else, whatever went wrong: anyone may ask. */
+  health(c) {
+    try {
+      c.store.one('SELECT 1 AS ok');
+    } catch (e) {
+      console.error('health check: the database did not answer:', e.message);
+      return c.send(503, 'application/json', `${JSON.stringify({ status: 'unavailable' })}\n`, { 'Cache-Control': 'no-store' });
+    }
+    c.send(200, 'application/json', `${JSON.stringify({ status: 'ok' })}\n`, { 'Cache-Control': 'no-store' });
+  },
   notFound(c) { c.send(404, 'application/json', `${JSON.stringify({ error: 'not found' })}\n`, { 'Cache-Control': 'public, max-age=86400' }); },
   async putAsset(c, { slug }) { const u = c.user(); c.json(200, c.store.putAsset(u.id, slug, await c.body())); },
   deleteAsset(c, { slug }) { c.store.deleteAsset(c.user().id, slug); c.json(200, { deleted: slug }); },
@@ -728,8 +740,9 @@ export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) 
       if (!e.status) console.error(e);
       if (!res.headersSent) c.json(e.status || 500, { error: e.status ? e.message : 'internal error' });
     } finally {
-      console.error(`${req.method} ${url.pathname}`); // never log tokens or query strings
-      if (url.pathname.startsWith('/api/') && c.route?.handler !== 'docsSource') recordApiCall(store, req, c);
+      // Health checks come every few seconds: neither logged nor counted as API use.
+      if (c.route?.handler !== 'health') console.error(`${req.method} ${url.pathname}`); // never log tokens or query strings
+      if (url.pathname.startsWith('/api/') && !['docsSource', 'health'].includes(c.route?.handler)) recordApiCall(store, req, c);
     }
   }
 }

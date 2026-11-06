@@ -48,7 +48,7 @@ export const DEFAULT_EDITING = 'owner';
 // gallery never publishes anyone's address. Signed-in users see them in full.
 export const MASK_EMAILS_FOR_ANONYMOUS = true;
 // Top-level paths the server itself uses, so no page may take these names.
-export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'random', 'assets', 'docs', 'favicon.ico', 'robots.txt']);
+export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'random', 'assets', 'docs', 'healthz', 'favicon.ico', 'robots.txt']);
 
 // How lists of pages can be sorted (?sort=, ls --sort), with their labels on the home
 // page. Featured pages stay on top whichever is chosen. Searches sort by relevance
