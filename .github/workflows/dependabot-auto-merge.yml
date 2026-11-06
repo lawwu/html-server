@@ -2,7 +2,7 @@
 # update whose kind fetch-metadata can't tell, wait for a person: `marked` is the only
 # runtime dependency, and a new major can change every rendered page. A group's kind is
 # its largest update. Auto-merge waits for the ruleset "main: CI before merging"
-# (the four Node/TZ checks in test.yml), so nothing merges until CI passes. Needs Settings →
+# (the Node 24 check in test.yml), so nothing merges until CI passes. Needs Settings →
 # General → Allow auto-merge. A merge made with GITHUB_TOKEN starts no workflows, so
 # pages.yml doesn't run for it: the docs site catches up on the next push to main by a person.
 name: dependabot-auto-merge

@@ -1,6 +1,8 @@
-# npm test on the oldest Node the package supports (package.json engines) and the current
-# LTS, each in UTC and in a time zone with daylight saving: stats and usage count local
-# days, which is where time zones have broken things before.
+# npm test on Node 24, the oldest Node the package supports (package.json engines), on
+# every pull request and push to main. One job: the job name "Node 24" is the check the
+# ruleset "main: CI before merging" requires, so renaming it means updating the ruleset.
+# Time zones aren't a CI axis: the tests that count local days (stats, usage, visits) run
+# themselves in UTC, Los Angeles and Auckland, so a runner in UTC still checks them.
 name: test
 on:
   push:
@@ -8,20 +10,13 @@ on:
   pull_request:
 jobs:
   test:
-    name: Node ${{ matrix.node }}, TZ=${{ matrix.tz }}
+    name: Node 24
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['22.16', lts/*]
-        tz: [UTC, America/Los_Angeles]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm test
-        env:
-          TZ: ${{ matrix.tz }}
