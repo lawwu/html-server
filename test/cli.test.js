@@ -13,6 +13,9 @@ import { makeServer } from '../src/server.js';
 import { Store } from '../src/store.js';
 
 const CLI = new URL('../src/cli.js', import.meta.url).pathname;
+// Git as if freshly installed: the developer's global and system config (a core.hooksPath,
+// commit signing, an init template) neither runs in the test repos nor receives their hooks.
+const GIT_ENV = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
 let dir, home, db, server, url, store;
 
 /**
@@ -22,7 +25,7 @@ let dir, home, db, server, url, store;
 function cli(args, env = {}) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [CLI, ...args], {
-      env: { ...process.env, HTML_SERVER_HOME: home, HTML_SERVER_URL: url, HTML_SERVER_TOKEN: '', ...env },
+      env: { ...process.env, ...GIT_ENV, HTML_SERVER_HOME: home, HTML_SERVER_URL: url, HTML_SERVER_TOKEN: '', ...env },
     });
     let out = '', err = '';
     p.stdout.on('data', (d) => { out += d; });
@@ -368,7 +371,7 @@ test('sync: a file renamed in case only renames its page, rather than making a s
 
 function spawnGit(cwd, args) {
   return new Promise((resolve, reject) => {
-    const p = spawn('git', args, { cwd, stdio: 'ignore' });
+    const p = spawn('git', args, { cwd, stdio: 'ignore', env: { ...process.env, ...GIT_ENV } });
     p.on('close', (code) => (code ? reject(new Error(`git ${args.join(' ')} → ${code}`)) : resolve()));
   });
 }

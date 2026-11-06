@@ -8,6 +8,7 @@
 //
 // For search, titles, links and diffs a notebook is also read as Markdown
 // (notebookMarkdown): Markdown cells as they are, code cells as fenced blocks.
+import { Buffer } from 'node:buffer';
 import { highlight } from './highlight.js';
 import { isMarkdown, parseFrontmatter, renderMarkdown, safeDecode } from './markdown.js';
 import { escapeHtml as esc } from './text.js';

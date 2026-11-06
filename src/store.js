@@ -13,7 +13,7 @@ import {
 import { isPagePath, pageUrl, validatePath } from './paths.js';
 import { ACTIVE, NONE, PURGED, TRASHED, transition } from './lifecycle.js';
 import {
-  assetPaths, indexFolder, isMarkdown, linkCandidates, noteAssets, noteLines, noteLinks, noteTags, noteTitle, parseFrontmatter, renderMarkdown,
+  assetPaths, indexFolder, isMarkdown, linkCandidates, pageNameKey, noteAssets, noteLines, noteLinks, noteTags, noteTitle, parseFrontmatter, renderMarkdown,
 } from './markdown.js';
 import { isNotebook, markdownCells, notebookMarkdown, parseNotebook } from './notebook.js';
 import {
@@ -431,7 +431,8 @@ export class Store {
     const slug = a.slug.toLowerCase();
     const aliases = this.all('SELECT alias FROM aliases WHERE artifact_id = ?', id).map((r) => r.alias.toLowerCase());
     const addresses = this.all('SELECT path FROM page_addresses WHERE artifact_id = ?', id).flatMap((r) => [r.path.toLowerCase(), r.path.toLowerCase().replace(PAGE_EXT_RE, '')]);
-    const folders = [slug, ...addresses].map(indexFolder).filter(Boolean); // an index note answers to its folder's name
+    // An index note answers to its folder's path, and to the folder's own name.
+    const folders = [slug, ...addresses].map(indexFolder).filter(Boolean).flatMap((f) => [f, f.split('/').at(-1)]);
     return [slug, slug.replace(PAGE_EXT_RE, ''), a.name_key, ...addresses, ...folders, ...aliases, ...aliases.map((x) => x.replace(/\s+/g, '-'))];
   }
 
@@ -752,7 +753,7 @@ export class Store {
       if (path != null) this.run('UPDATE artifacts SET path = ? WHERE id = ?', path, id);
       // The bare name [[wikilinks]] find it by: what sync says, else the name without its
       // extension. Kept when not given, so a version from `put` or a restore keeps sync's.
-      if (nameKey || !a) this.run('UPDATE artifacts SET name_key = ? WHERE id = ?', (nameKey || slug.split('/').at(-1).replace(PAGE_EXT_RE, '')).toLowerCase(), id);
+      if (nameKey || !a) this.run('UPDATE artifacts SET name_key = ? WHERE id = ?', (nameKey || pageNameKey(slug)).toLowerCase(), id);
       this.setLinks(id, meta.links);
       this.setAssetRefs(id, meta.assets);
       // A new page, or one answering to other names now, may be what other pages' links mean.
@@ -801,7 +802,7 @@ export class Store {
         const namesBefore = this.namesOf(a.id);
         this.run('DELETE FROM page_addresses WHERE path = ? AND artifact_id = ?', to, a.id);
         if (a.slug.toLowerCase() !== to.toLowerCase()) this.run('INSERT INTO page_addresses (path, artifact_id) VALUES (?,?)', a.slug, a.id);
-        this.run('UPDATE artifacts SET slug = ?, name_key = ? WHERE id = ?', to, to.split('/').at(-1).replace(PAGE_EXT_RE, '').toLowerCase(), a.id);
+        this.run('UPDATE artifacts SET slug = ?, name_key = ? WHERE id = ?', to, pageNameKey(to), a.id);
         this.run('INSERT INTO moves (artifact_id, old_path, new_path, created_at) VALUES (?,?,?,?)', a.id, a.slug, to, now());
         this.index(a.id);
         const changed = [...namesBefore, ...this.namesOf(a.id)];

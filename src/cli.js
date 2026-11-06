@@ -12,7 +12,7 @@ import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
-import { PAGE_EXT_RE, VERSION } from './config.js';
+import { VERSION } from './config.js';
 import { encodePath, pageUrl } from './paths.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
@@ -359,7 +359,7 @@ const clientCommands = {
    */
   async sync([dir], opts) {
     if (!dir || !existsSync(dir) || !statSync(dir).isDirectory()) fail('usage: sync DIR [--private] [--folder FOLDER] [--migrate-paths] [--prune] [--dry-run] [--install-hook]');
-    const { noteSlug, parseFrontmatter, syncedSlug, ASSET_RE } = await import('./markdown.js');
+    const { noteSlug, pageNameKey, parseFrontmatter, syncedSlug, ASSET_RE } = await import('./markdown.js');
     const { parseNotebook } = await import('./notebook.js');
     let root = resolvePath(dir);
     const quartz = quartzConfig(root);
@@ -448,7 +448,7 @@ const clientCommands = {
           name = desired;
           if (!opts['dry-run']) previous.slug = desired;
         }
-        const nameKey = noteSlug(parts.at(-1)).replace(PAGE_EXT_RE, '').toLowerCase();
+        const nameKey = pageNameKey(parts.map(noteSlug).join('/')); // an index note goes by its folder's name
         if (seen.has(name.toLowerCase())) {
           count.skipped++;
           console.error(`skipped   ${rel}: same page name as ${seen.get(name.toLowerCase())} (${name}); rename one`);

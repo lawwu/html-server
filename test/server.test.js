@@ -336,9 +336,11 @@ test('legacy /pages/{slug} URLs: new uploads, with or without .html', async () =
   assert.equal((await req('GET', '/pages/'))[0], 404);
   assert.equal((await put('pages', '<p>x</p>'))[0], 400); // reserved name
 
-  // The gallery and the review page link to the /pages/ form.
+  // The gallery links to the /pages/ form; the review page's "Open page" to the share link,
+  // which a new tab can open for a private page too (its own address needs a token).
   assert.match((await req('GET', '/'))[1], /href="\/pages\/roadmap"/);
-  assert.match((await req('GET', '/_static/review.js'))[1], /\$\{meta.url\}/);
+  assert.match((await req('GET', '/_static/review.js'))[1], /\$\('open'\)\.href = `\$\{meta\.share_url\}/);
+  assert.match((await req('GET', '/review/roadmap'))[1], /<a id="open" target="_blank" rel="noopener">/);
 });
 
 test('open editing: others add versions to public pages; the owner keeps control', async () => {
@@ -1595,18 +1597,20 @@ test('a /pages/ link to a name no page could have is no link: publishing, and li
 });
 
 test("a folder's name links to its index note: synced, uploaded or moved there", async () => {
-  await put('home.md', '# Home\n\nSee [[features]], [[guide/topics]], [[roadmap]] and [[plans]].');
-  await put('features/index.md', '# Features', admin, '?name=index&path=features/index.md'); // as sync names it now
-  await put('guide/topics/index.md', '# Topics');
+  await put('home.md', '# Home\n\nSee [[features]], [[guide/topics]], [[topics]], [[howto]], [[roadmap]] and [[plans]].');
+  await put('features/index.md', '# Features', admin, '?name=index&path=features/index.md'); // as sync named it before 0.12
+  await put('guide/topics/index.md', '# Topics'); // [[topics]] too: an index note answers to its folder's own name
+  await put('guide/howto/index.md', '# How-to', admin, '?name=howto&path=guide/howto/index.md'); // as sync names it now
   await put('roadmap.md', '# Roadmap'); // as sync named a folder's index before folders
   await move([{ from: 'roadmap.md', to: 'roadmap/index.md' }]);
   await put('drafts/index.md', '# Plans');
   await move([{ from: 'drafts/index.md', to: 'plans/index.md' }]);
   const [, home] = await req('GET', '/pages/home.md');
-  for (const to of ['features/index.md', 'guide/topics/index.md', 'roadmap/index.md', 'plans/index.md']) {
+  for (const to of ['features/index.md', 'guide/topics/index.md', 'guide/howto/index.md', 'roadmap/index.md', 'plans/index.md']) {
     assert.match(home, new RegExp(`<a class="wikilink" href="/${to}">`), to);
   }
-  assert.deepEqual(await graphEdges(), ['home.md>features/index.md', 'home.md>guide/topics/index.md', 'home.md>plans/index.md', 'home.md>roadmap/index.md']);
+  assert.equal(home.match(/<a class="wikilink" href="\/guide\/topics\/index.md">/g).length, 2); // [[guide/topics]] and [[topics]]
+  assert.deepEqual(await graphEdges(), ['home.md>features/index.md', 'home.md>guide/howto/index.md', 'home.md>guide/topics/index.md', 'home.md>plans/index.md', 'home.md>roadmap/index.md']);
   assert.deepEqual(backlinksOf('features/index.md'), ['home.md']);
   // The folder itself still browses, and a page called features.md still comes first.
   assert.match((await fetch(base + '/features', { redirect: 'manual' })).headers.get('location'), /^\/features\/$/);

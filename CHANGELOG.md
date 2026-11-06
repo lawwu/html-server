@@ -12,6 +12,16 @@ couldn't be migrated would be a major version.
   (page addresses, the documented HTTP API, the command line, MCP tools, in-place data
   upgrades, Cloudflare deploys and the reserved names) and what isn't part of it, such as
   the site's look, undocumented API fields, the database tables and the code under `src/`.
+- **"Open page" on the review page opens a private page too.** It linked to the page's own
+  address, which needs a token a new tab doesn't send, so a private page opened as "not
+  found". It now goes through the page's share link, for the version on show, as the review
+  frame already did. It also gets `rel="noopener"`.
+- **`[[topics]]` finds `guide/topics/index.md`.** A folder's index note answered to its
+  folder's name only at the top level; deeper down a wikilink needed the whole path. `sync`
+  now names an index note after its folder, and an upload or move without a name does too.
+- **Tests leave your git setup alone.** The sync tests' throwaway repositories ignore your
+  global and system git config, so a global `core.hooksPath` no longer receives (or runs)
+  their hooks.
 
 ## 0.11.0 (2026-11-04)
 

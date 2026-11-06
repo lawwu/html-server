@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  indexFolder, linkCandidates, noteAssets, noteLinks, noteSlug, noteTags, noteTitle, pageHref, parseFrontmatter, renderMarkdown, safeDecode, syncedSlug,
+  indexFolder, linkCandidates, pageNameKey, noteAssets, noteLinks, noteSlug, noteTags, noteTitle, pageHref, parseFrontmatter, renderMarkdown, safeDecode, syncedSlug,
   wikiTarget, wikiTargets,
 } from '../src/markdown.js';
 
@@ -107,5 +107,10 @@ test('a link names pages, never anything else: /pages/ names are checked, lists 
   assert.equal(indexFolder('features/index.md'), 'features');
   assert.equal(indexFolder('a/b/INDEX.markdown'), 'a/b');
   assert.equal(indexFolder('index.md'), null); // the top's index is just a page
+  // The bare name [[wikilinks]] find a page by: an index note goes by its folder's own name.
+  assert.equal(pageNameKey('notes/Plan.md'), 'plan');
+  assert.equal(pageNameKey('guide/Topics/index.md'), 'topics');
+  assert.equal(pageNameKey('features/index.markdown'), 'features');
+  assert.equal(pageNameKey('index.md'), 'index');
   assert.equal(indexFolder('features/index.html'), null);
 });
