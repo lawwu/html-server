@@ -6,6 +6,7 @@
 // its page again, so new results never replace the cards on show: those stay where
 // they are, take the new highlights, and are reordered (CSS order) or hidden.
 import { openMove } from './move.js';
+import { acceptDrops, openUpload } from './upload.js';
 const box = document.getElementById('q');
 const results = document.getElementById('results');
 const count = document.getElementById('count');
@@ -267,4 +268,13 @@ if (selectBtn && bulk) {
       say(err.message, true);
     }
   });
+}
+
+// --- upload: the Upload button, or files dropped anywhere on the page -----------------
+// Pages go to this folder (on a folder's page) unless the dialog says otherwise.
+const uploadBtn = document.getElementById('upload');
+if (uploadBtn) {
+  const open = (files = []) => openUpload({ files, folder: uploadBtn.dataset.folder || '', onUploaded: () => search({ fresh: true }) });
+  uploadBtn.addEventListener('click', () => open());
+  acceptDrops(open);
 }

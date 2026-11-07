@@ -275,7 +275,9 @@ ${category ? `<input type="hidden" name="category" value="${esc(category)}">` : 
 ${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : ''}
 ${sort ? `<input type="hidden" name="sort" value="${esc(sort)}">` : ''}</form>
 <div class="bar2"><nav class="chips" aria-label="Categories">${chip('', 'All')}${categories.map((c) => chip(c.category, categoryLabel(c.category), c.count)).join('')}</nav>
-<div class="tools">${section === 'pages' ? sortControl({ q, category, view, sort, base, recursive }) + '<button type="button" id="select" class="select-btn">Select</button>' : ''}
+<div class="tools">${section === 'pages' ? sortControl({ q, category, view, sort, base, recursive })
+  + `<button type="button" id="upload" class="select-btn"${folder ? ` data-folder="${esc(folder)}"` : ''}>Upload</button>`
+  + '<button type="button" id="select" class="select-btn">Select</button>' : ''}
 <div class="views" role="group" aria-label="Layout">${toggle('grid', 'Grid view', grid)}${toggle('list', 'List view', list)}</div></div></div>`;
   return shell(folder ? `${folder} · HTML Server` : section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section, { explorer, search: false })}<main class="wrap">
 ${folder ? `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(folder + '/_', folder.split('/').at(-1), explorer || [], true)}</nav><h1>${esc(folder.split('/').at(-1))}</h1>
@@ -711,8 +713,14 @@ export function docsMarkdown(base, routes, { tools = [] } = {}) {
   return `# Docs
 
 [HTML Server v${VERSION}](${RELEASE_URL}) hosts, versions, searches and links HTML pages and Markdown notes.
-There are three ways in: the **command line**, **AI apps over MCP**, and the **HTTP API**. Source, changelog
-and every release: [${REPO_URL.replace('https://', '')}](${REPO_URL}). This page is Markdown: [/docs.md](/docs.md).
+There are four ways in: the **browser**, the **command line**, **AI apps over MCP**, and the **HTTP API**. Source,
+changelog and every release: [${REPO_URL.replace('https://', '')}](${REPO_URL}). This page is Markdown: [/docs.md](/docs.md).
+
+## Browser
+
+Press **Upload** on your server's home page, or drop files on it. HTML, Markdown and notebooks become pages (a file you
+already have gets a new version); images and PDFs become assets that notes embed by name. Paste your token the first
+time; the browser keeps it for this site. It sends the same requests as \`html-server put\` and \`PUT /api/assets/<name>\`.
 
 ## Command line
 

@@ -681,6 +681,7 @@ test('tags: categories become tags; tag many pages at once; filter by tag', asyn
 
   const [, home] = await req('GET', '/');
   assert.match(home, /<button type="button" id="select"/);
+  assert.match(home, /<button type="button" id="upload" class="select-btn">Upload<\/button>/); // public/upload.js
   assert.match(home, /<input type="checkbox" value="b.html"/);
   assert.match(home, /data-category="trip-plans"/); // tag chips in the filter bar
 });
@@ -1502,6 +1503,7 @@ test('folders: nested addresses, direct contents, descendants, scoped search and
   let [status, html] = await req('GET', '/research/');
   assert.equal(status, 200);
   assert.match(html, /href="\/research\/deep\/"/);
+  assert.match(html, /<button type="button" id="upload" class="select-btn" data-folder="research">/); // uploads land here
   const cards = html.slice(html.indexOf('<section id="results"'));
   assert.match(cards, /Research report/);
   assert.doesNotMatch(cards, /Unique experiment|Hidden title|Outside/);
