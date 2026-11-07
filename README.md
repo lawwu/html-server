@@ -88,7 +88,7 @@ a folder's own page it starts there), add a version note, and tick **Private** i
 should be. A file you already have becomes a new version. Each name comes from its file,
 with spaces as dashes (`Trip Plan.html` becomes `Trip-Plan.html`), and can be changed before
 uploading. The first time, paste your token; the browser keeps it for this site, as it does
-for comments. Nothing to install, so it suits a server running in [Docker](#docker) or on
+for comments, until you press **Sign out** in the sidebar. Nothing to install, so it suits a server running in [Docker](#docker) or on
 [Cloudflare](#deploy-to-cloudflare). A whole folder, kept in step as it changes, is `sync`'s
 job (below).
 
@@ -504,7 +504,9 @@ stores only its hash.
 - **In a browser,** reading needs no sign-in. To upload, comment or change pages, paste the
   token once: into **Upload** or **Select** on the home page, or **Sign in to comment** on
   a review page. It's kept in that browser's storage for this site only, out of reach of
-  the sandboxed pages.
+  the sandboxed pages. While it's there the sidebar says who you're signed in as, with
+  **Sign out** to forget it (on a review page, Sign out is next to your name). The token
+  still works everywhere else; to stop it working, replace it (`POST /api/me/token`).
 
 **A new user:** an admin runs `html-server create-user bob` (on the server) or
 `POST /api/users`, and sends bob the token over a private channel; bob runs

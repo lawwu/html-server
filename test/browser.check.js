@@ -162,6 +162,7 @@ test('upload: choose files, sign in, publish, fix a refused name, and drop more'
   await page.locator('.card[data-slug="Browser-Trip.html"]').waitFor(); // the cards behind are redrawn
   assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), token);
   assert.equal(await dialog.getByLabel('Sign-in token').isHidden(), true);
+  assert.equal(await page.locator('.session').isVisible(), true); // Sign out, from now on
 
   // Files dropped while it's open join it; a refused name stays to be fixed and sent again.
   assert.equal(await drop([['plan.md', '# Private plan']]), true);
@@ -184,6 +185,42 @@ test('upload: choose files, sign in, publish, fix a refused name, and drop more'
   // Dropped on the page itself: the drop overlay, then the dialog with the file in it.
   assert.equal(await drop([['dropped.html', '<p>Dropped</p>']]), true);
   assert.equal(await dialog.locator('.upload-list input').inputValue(), 'dropped.html');
+});
+
+test('sign out: the sidebar names who is signed in and forgets the token; notes never show it', async () => {
+  const me = [];
+  page.on('request', (r) => { if (r.url().endsWith('/api/me')) me.push(r.url()); });
+  await page.goto(base + '/');
+  assert.equal(await page.locator('.session').isHidden(), true); // nobody signed in
+  await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
+  await page.goto(base + '/');
+  await page.locator('.session').getByText('Signed in as browser-owner').waitFor();
+  await page.goto(base + '/stats');
+  await page.locator('.session').getByText('Signed in as browser-owner').waitFor();
+  assert.equal(me.length, 1); // the name is asked once per token, not on every page
+  const axe = await new AxeBuilder({ page }).include('.session').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  assert.deepEqual(axe.violations.map((v) => v.id), []);
+  await page.goto(base + '/pages/alpha.md'); // sandboxed: can't read the token, so says nothing
+  assert.equal(await page.locator('.session').isHidden(), true);
+
+  await page.goto(base + '/');
+  await page.locator('.session').getByRole('button', { name: 'Sign out' }).click();
+  await page.waitForLoadState('load');
+  assert.deepEqual(await page.evaluate(() => [localStorage.getItem('artifact_token'), localStorage.getItem('artifact_user')]), [null, null]);
+  assert.equal(await page.locator('.session').isHidden(), true);
+
+  // The review page has no sidebar: Sign out sits beside the name.
+  await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
+  await page.goto(base + '/review/alpha.md');
+  await page.locator('#who').getByText('Signed in as browser-owner').waitFor();
+  await page.locator('#who').getByRole('button', { name: 'Sign out' }).click();
+  await page.locator('#who').getByText('Reading as a guest.').waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), null);
+
+  // A token the server no longer takes still shows the line, so it can be signed out.
+  await page.evaluate(() => localStorage.setItem('artifact_token', 'ak_revoked'));
+  await page.goto(base + '/');
+  await page.locator('.session').getByText('a token this server no longer takes').waitFor();
 });
 
 for (const colorScheme of ['light', 'dark']) {

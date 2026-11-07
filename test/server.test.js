@@ -682,6 +682,7 @@ test('tags: categories become tags; tag many pages at once; filter by tag', asyn
   const [, home] = await req('GET', '/');
   assert.match(home, /<button type="button" id="select"/);
   assert.match(home, /<button type="button" id="upload" class="select-btn">Upload<\/button>/); // public/upload.js
+  assert.match(home, /<p class="session" data-session hidden>.*data-sign-out>Sign out<\/button><\/p>/); // shown by the page's script when signed in
   assert.match(home, /<input type="checkbox" value="b.html"/);
   assert.match(home, /data-category="trip-plans"/); // tag chips in the filter bar
 });

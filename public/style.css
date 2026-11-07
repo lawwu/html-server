@@ -98,6 +98,9 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 .side-nav a { color: var(--text); font-weight: 400; font-size: .95rem; }
 .side-nav a:hover { color: var(--accent-hover); }
 .side-nav a.on { color: var(--accent); font-weight: 600; }
+.session { margin: 0; font-size: 13px; color: var(--mute); }
+.link-btn { padding: 0; border: 0; border-radius: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; }
+.link-btn:hover { color: var(--accent-hover); }
 /* explorer */
 .explorer { min-height: 0; }
 .explorer > summary, .toc > summary { display: flex; align-items: center; gap: .3rem; cursor: pointer; list-style: none;

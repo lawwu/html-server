@@ -148,6 +148,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
         done(row, await send(row, token));
         ok++;
         try { localStorage.setItem(KEY, token); } catch { /* this visit only */ }
+        document.querySelectorAll('[data-session]').forEach((p) => { p.hidden = false; }); // the sidebar's Sign out
       } catch (err) {
         failed++;
         row.out.className = 'upload-out err';

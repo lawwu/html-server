@@ -42,6 +42,7 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 test('the README is the home page, as a note: explorer, graph, previews, backlinks', () => {
   const home = read('index.html');
   assert.match(home, /<h1 class="article-title">HTML Server<\/h1>/);
+  assert.doesNotMatch(home, /class="session"/); // nobody signs in to the docs site
   assert.match(home, /<ul class="tree"><li><a href="changelog.html" target="_top">Changelog<\/a><\/li><li><a href="index.html" target="_top" class="on"/);
   assert.match(home, /<a href="changelog.html"><code>CHANGELOG\.md<\/code><\/a>/); // the README's own link to the file
   assert.match(home, /<a href="https:\/\/github\.com\/lawwu\/html-server\/blob\/main\/LICENSE">/); // a repo file: GitHub shows it
