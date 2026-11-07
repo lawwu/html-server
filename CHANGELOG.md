@@ -8,6 +8,12 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **A Docker image for each release,** `ghcr.io/lawwu/html-server`: Debian 13 (trixie) and
+  Node 24, for amd64 and arm64, with the PostgreSQL driver built in and the data in a
+  `/data` volume. Each one is run on both architectures, with SQLite and with PostgreSQL,
+  before it's published. 0.12.0 is published too, built from its tag. See the README's
+  Docker section.
+
 ## 0.12.0 (2026-11-06)
 
 - **Node 24 or newer is required** (it was 22.16), so if you run HTML Server on Node 22,

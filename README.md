@@ -33,6 +33,7 @@ itself (see [The docs site](#the-docs-site)).
 - [The site](#the-site)
 - [Versions, history and review](#versions-history-and-review)
 - [Users and admins](#users-and-admins)
+- [Docker](#docker)
 - [Deploy to Cloudflare](#deploy-to-cloudflare)
 - [PostgreSQL](#postgresql)
 - [Backups and updating](#backups-and-updating)
@@ -74,7 +75,8 @@ forgets them. For scripts and CI, `login --url URL --token TOKEN` skips the ques
 or `HTML_SERVER_URL` and `HTML_SERVER_TOKEN` override the saved login for one shell.
 
 `html-server --help` lists every command, and `html-server help sync` (or
-`sync --help`) shows one. Rather not run a server? [Deploy to Cloudflare](#deploy-to-cloudflare).
+`sync --help`) shows one. Rather not install Node? Run the [Docker image](#docker). Rather
+not run a server? [Deploy to Cloudflare](#deploy-to-cloudflare).
 In Claude Code, `.claude/launch.json` has an `html-server` entry that starts it in the
 browser pane.
 
@@ -511,6 +513,50 @@ management goes through the API.
 masked for anyone not signed in** (`bob@…`); turn that off with `MASK_EMAILS_FOR_ANONYMOUS`
 in `src/config.js`.
 
+## Docker
+
+Each release is also an image, **`ghcr.io/lawwu/html-server`**, on Debian 13 (trixie) and
+Node 24, for amd64 and arm64, with the PostgreSQL driver built in. Its tags are the
+version (`0.12.0`), the minor line (`0.12`) and `latest`, the newest release.
+
+```bash
+docker run -d --name html-server --restart unless-stopped \
+  -p 127.0.0.1:8765:8765 -v html-server:/data ghcr.io/lawwu/html-server:0.12.0
+```
+
+- **Data** lives in the `/data` volume: the database, backups, and the login of the CLI
+  inside the container. The server runs as the image's `node` user (uid 1000), so a
+  folder mounted there instead of a volume must be writable by it.
+- **The first start** on an empty volume makes an admin named `node` and signs the
+  container's CLI in. For yourself, make an admin and sign your own CLI in with its token:
+  ```bash
+  docker exec html-server html-server create-user alice --admin   # prints the token once
+  html-server login                                               # http://127.0.0.1:8765 and that token
+  ```
+- **The port.** Inside its container the server listens on every interface, so `-p` can
+  reach it; `-p 127.0.0.1:8765:8765` then publishes it to this machine only, like
+  `serve`'s default. Publish it more widely only behind something like Tailscale.
+- **Other commands** run in the container: `docker exec html-server html-server backup --keep 14`
+  writes to `/data/backups`. Arguments after the image name replace the default
+  `serve --host 0.0.0.0`, so to change how it serves, give the whole command:
+  `… ghcr.io/lawwu/html-server:0.12.0 serve --host 0.0.0.0 --sandbox-allow allow-downloads`.
+- **[PostgreSQL](#postgresql):** add `-e DATABASE_URL=…`, or `--env-file` to keep the
+  password out of your shell history. The data is then in PostgreSQL, not in `/data`.
+- **Time zone.** Stats count days in the container's time zone, UTC unless you add
+  `-e TZ=America/Los_Angeles`.
+- **Health.** The image checks `/healthz` itself, so `docker ps` shows `healthy`.
+- **Updating:** back up, pull the new tag, and start a new container on the same volume;
+  the database upgrades in place on startup:
+  ```bash
+  docker exec html-server html-server backup
+  docker pull ghcr.io/lawwu/html-server:X.Y.Z
+  docker rm -f html-server   # then the docker run above, with the new tag
+  ```
+
+`.github/workflows/docker.yml` builds the image from each release tag, runs it on both
+architectures with SQLite and with PostgreSQL (`scripts/docker-smoke.sh`), and only then
+publishes it. To build your own: `docker build -t html-server .` in a clone.
+
 ## Deploy to Cloudflare
 
 HTML Server runs anywhere Node 24 runs. It can also run on **Cloudflare Workers**, with no
@@ -647,7 +693,8 @@ again. On [PostgreSQL](#postgresql), back up with `pg_dump` instead.
 
 1. `html-server backup`
 2. `npm install -g github:lawwu/html-server#vX.Y.Z` (or `git checkout vX.Y.Z` in an
-   `npm link`ed clone; `html-server deploy cloudflare` again for Cloudflare).
+   `npm link`ed clone; `html-server deploy cloudflare` again for Cloudflare; for Docker,
+   see [Docker](#docker)).
 3. Restart the server with the same flags. On startup it upgrades the database in place;
    so far every change has only added columns and tables.
 4. `html-server --version`, then open a few pages.
@@ -875,8 +922,10 @@ ones change:
 | `gallery/` | The example pages shown at `/gallery` |
 | `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks, the Cloudflare and PostgreSQL adapters and the docs site; `fixture.js` runs them on SQLite, or on PostgreSQL with `TEST_DATABASE_URL` |
 | `scripts/build-site.js` | The docs site: this README, the Docs page, the changelog and the gallery as static pages (`npm run site`) |
-| `.github/workflows/` | `test.yml`: `npm test` on Node 24 on every pull request and push to `main`, on SQLite and again on PostgreSQL; `pages.yml`: the docs site, on every push to `main`; `latest.yml`: moves the `latest` tag to each release; `dependabot-auto-merge.yml`: merges Dependabot's patch and minor updates once `test.yml` passes |
-| `.github/dependabot.yml` | Weekly Dependabot updates for npm and GitHub Actions, one pull request each, for versions at least 7 days old |
+| `Dockerfile`, `.dockerignore` | The [Docker image](#docker): Debian 13 and Node 24, the PostgreSQL driver built in, data in `/data` |
+| `scripts/docker-smoke.sh` | Checks a built image on SQLite and PostgreSQL before it's published (`scripts/docker-smoke.sh IMAGE`) |
+| `.github/workflows/` | `test.yml`: `npm test` on Node 24 on every pull request and push to `main`, on SQLite and again on PostgreSQL; `pages.yml`: the docs site, on every push to `main`; `latest.yml`: moves the `latest` tag to each release; `docker.yml`: builds, checks and publishes the Docker image for each release; `dependabot-auto-merge.yml`: merges Dependabot's patch and minor updates once `test.yml` passes |
+| `.github/dependabot.yml` | Weekly Dependabot updates for npm, GitHub Actions and the Docker base image, one pull request each, for versions at least 7 days old |
 | `CHANGELOG.md` | What each release changed |
 | `~/.html-server/` | Your data (`artifacts.db`), the CLI's login (`credentials.json`), backups and the sync log. Not in the repo |
 

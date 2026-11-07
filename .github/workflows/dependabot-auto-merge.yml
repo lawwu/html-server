@@ -1,10 +1,12 @@
 # Turns on auto-merge (squash) for Dependabot's patch and minor updates. Majors, and any
 # update whose kind fetch-metadata can't tell, wait for a person: `marked` is the only
 # runtime dependency, and a new major can change every rendered page. A group's kind is
-# its largest update. Auto-merge waits for the ruleset "main: CI before merging"
-# (the Node 24 check in test.yml), so nothing merges until CI passes. Needs Settings →
-# General → Allow auto-merge. A merge made with GITHUB_TOKEN starts no workflows, so
-# pages.yml doesn't run for it: the docs site catches up on the next push to main by a person.
+# its largest update. Docker base images wait too: the image's own check (docker.yml)
+# runs only for pull requests that change the image, so the ruleset can't require it.
+# Auto-merge waits for the ruleset "main: CI before merging" (the Node 24 check in
+# test.yml), so nothing merges until CI passes. Needs Settings → General → Allow
+# auto-merge. A merge made with GITHUB_TOKEN starts no workflows, so pages.yml doesn't
+# run for it: the docs site catches up on the next push to main by a person.
 name: dependabot-auto-merge
 on: pull_request
 permissions:
@@ -18,7 +20,9 @@ jobs:
       - id: meta
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
       - name: Auto-merge once CI passes (patch and minor only)
-        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        if: >-
+          steps.meta.outputs.package-ecosystem != 'docker' &&
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor')
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
