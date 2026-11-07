@@ -17,9 +17,12 @@ couldn't be migrated would be a major version.
   bring over a folder. On a phone, the home page's controls now wrap instead of running off
   the edge.
 - **Sign out in the browser.** When this browser has your token saved (for uploads,
-  comments, Select or Move), the sidebar says who you're signed in as, with **Sign out** to
-  forget it; on a review page it's next to your name. Sandboxed note pages, which can't read
-  the token, don't show it.
+  comments, Select or Move), the top bar says who you're signed in as, with **Sign out** to
+  forget it. Sandboxed note pages, which can't read the token, don't show it.
+- **A bar across the top of every page,** with the site's name and version, its sections
+  (Pages, Random, Graph, Stats, Gallery, Docs), search, the light/dark switch and who's
+  signed in. The left sidebar keeps the explorer and Skills. Hiding the sidebar no longer
+  hides the navigation, and the review page gets the same links as the rest of the site.
 - **A Docker image for each release,** `ghcr.io/lawwu/html-server`: Debian 13 (trixie) and
   Node 24, for amd64 and arm64, with the PostgreSQL driver built in and the data in a
   `/data` volume. Each one is run on both architectures, with SQLite and with PostgreSQL,

@@ -58,7 +58,7 @@ test('the README is the home page, as a note: explorer, graph, previews, backlin
 test('what needs a server is left out: search, history, comments, the graph and stats pages', () => {
   for (const f of ['index.html', 'changelog.html', 'docs.html', 'gallery/index.html']) {
     const html = read(f);
-    const nav = html.match(/<nav class="side-nav"[^>]*>(.*?)<\/nav>/)[1];
+    const nav = html.match(/<nav class="site-nav"[^>]*>(.*?)<\/nav>/)[1];
     assert.deepEqual([...nav.matchAll(/>([^<]+)<\/a>/g)].map((m) => m[1]), ['Gallery', 'Docs'], f);
     for (const gone of ['class="side-search"', 'Titles only here', 'target="_top">history</a>', 'target="_top">comments</a>',
       'class="graph-expand"', '_static/gallery.js', 'id="search"']) {

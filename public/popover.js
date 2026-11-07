@@ -110,7 +110,7 @@ function hide() {
 
 document.addEventListener('mouseover', (e) => {
   const link = e.target.closest?.('a[href]');
-  if (!link || link.closest('.popover, .tree, .graph-box, .side-nav')) return;
+  if (!link || link.closest('.popover, .tree, .graph-box, .topbar')) return;
   const p = previewOf(link);
   if (!p) return;
   clearTimeout(hideTimer);

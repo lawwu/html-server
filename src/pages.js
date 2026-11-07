@@ -41,19 +41,19 @@ export const footer = () => `<footer class="site-foot"><a href="${RELEASE_URL}">
 // and `sidebar`). Runs in <head> so the page never flashes the other way.
 export const PREFS_HEAD = `<script>try{const r=document.documentElement,t=localStorage.getItem('theme');if(t)r.dataset.theme=t;
 if(localStorage.getItem('sidebar')==='hidden')r.dataset.sidebar='hidden'}catch{}</script>`;
-// Who this browser is signed in as, and Sign out: the sidebar's line, shown only where the
+// Who this browser is signed in as, and Sign out: the top bar's line, shown only where the
 // page can read the saved token. A sandboxed note can't (its storage throws), so there it
 // stays hidden. The name is fetched once per token and kept beside it, so pages don't each
-// call /api/me. Sign out forgets both; any [data-sign-out] button does it (the review page
-// adds one). The token itself lives with the forms that ask for it (gallery, upload, review).
-const SESSION_LINE = '<p class="session" data-session hidden><span data-session-who>Signed in</span> · <button type="button" class="link-btn" data-sign-out>Sign out</button></p>';
+// call /api/me. Sign out forgets both. The token itself lives with the forms that ask for
+// it (gallery, upload, review).
+const SESSION_LINE = '<span class="session" data-session hidden><span class="sr-only" data-session-as></span><span data-session-who>Signed in</span> · <button type="button" class="link-btn" data-sign-out>Sign out</button></span>';
 const SESSION_SCRIPT = `document.addEventListener('click',(e)=>{if(!e.target.closest('[data-sign-out]'))return;
 try{localStorage.removeItem('artifact_token');localStorage.removeItem('artifact_user')}catch{}location.reload()});
 document.querySelectorAll('[data-session]').forEach((p)=>{let t='';try{t=localStorage.getItem('artifact_token')||''}catch{return}if(!t)return;
-const who=p.querySelector('[data-session-who]'),tail=t.slice(-8),show=(n)=>{who.textContent='Signed in as '+n};p.hidden=false;
+const who=p.querySelector('[data-session-who]'),tail=t.slice(-8),show=(n)=>{p.querySelector('[data-session-as]').textContent='Signed in as ';who.textContent=n;who.title='Signed in as '+n};p.hidden=false;
 let saved=null;try{saved=JSON.parse(localStorage.getItem('artifact_user')||'null')}catch{}
 if(saved&&saved.tail===tail&&saved.name)return show(saved.name);
-fetch('/api/me',{headers:{Authorization:'Bearer '+t}}).then((r)=>{if(r.status===401)who.textContent='Signed in with a token this server no longer takes';return r.ok?r.json():null})
+fetch('/api/me',{headers:{Authorization:'Bearer '+t}}).then((r)=>{if(r.status===401){who.textContent='Token not accepted';who.title='This server no longer takes the saved token'}return r.ok?r.json():null})
 .then((me)=>{if(!me)return;show(me.name);try{localStorage.setItem('artifact_user',JSON.stringify({tail,name:me.name}))}catch{}}).catch(()=>{})});`;
 // The switches, and on a phone the explorer starts closed. The sidebar's button says which way it goes.
 const SIDEBAR_SCRIPT = `<script>document.querySelectorAll('[data-theme-toggle]').forEach((b)=>b.addEventListener('click',()=>{
@@ -87,14 +87,15 @@ const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9"
 const copyButton = (label = 'Copy markdown') => `<button type="button" class="copy-source" data-copy-source="page-source">${COPY_ICON}<span>${label}</span></button>`;
 
 /**
- * Every page the server draws itself, in Quartz's frame: the sidebar on the left
- * (from siteNav), the page in the middle, an optional sidebar on the right, the footer.
- * `frame: false` (the review page) is just the body.
+ * Every page the server draws itself, in Quartz's frame under a bar across the top: the
+ * top bar and the sidebar on the left (from siteNav), the page in the middle, an optional
+ * sidebar on the right, the footer.
+ * `frame: false` (the review page) is just the body; `search` adds ⌘K search (framed pages have it).
  */
-const shell = (title, body, { scripts = [], bodyAttrs = '', frame = true } = {}) => `<!doctype html>
+const shell = (title, body, { scripts = [], bodyAttrs = '', frame = true, search = frame } = {}) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>${PREFS_HEAD}<link rel="stylesheet" href="/_static/style.css"><link rel="stylesheet" href="/_static/note.css"></head>
-<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${SIDEBAR_SCRIPT}${frame && !STATIC_SITE ? inlined().search : ''}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
+<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${SIDEBAR_SCRIPT}${search && !STATIC_SITE ? inlined().search : ''}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
 
 const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('ch') ? 'es' : 's'}`;
@@ -112,23 +113,31 @@ const ICONS = {
 };
 
 /**
- * The left sidebar on every page the server draws, laid out like Quartz's: the site
- * title, search and the light/dark switch, the site's sections, then (on notes and the
- * home page) the explorer. Links use target="_top" so they work from a framed note too.
+ * The bar across the top of every page the server draws: the button that hides the sidebar
+ * (where there is one), the site's name and version, its sections, then search, the
+ * light/dark switch and who's signed in. Links use target="_top" so they work from a framed
+ * note too. `search: false` on the home page, which has its own search box.
  */
-export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE, example = null } = {}) {
+export function topBar(active, { current = null, search = !STATIC_SITE, sidebar = true } = {}) {
   const item = (href, label, key) => `<li><a href="${href}" target="_top"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a></li>`;
   const random = `/random${current ? `?not=${encodeURIComponent(current)}` : ''}`; // never the page you're on, unless it's the only one
   const live = STATIC_SITE ? '' : item('/', 'Pages', 'pages') + item(random, 'Random', 'random') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
-  const toggle = `<button type="button" class="icon-btn" data-theme-toggle aria-label="Switch light or dark">${ICONS.sun}${ICONS.moon}</button>`;
-  const hide = `<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"
-  aria-label="Hide the sidebar" title="Hide the sidebar">${ICONS.sidebar}</button>`;
-  return `${hide}<aside class="sidebar left" id="left-sidebar">
-<div class="side-top"><h2 class="page-title"><a href="/" target="_top">HTML Server</a></h2>
-<a class="gh" href="${RELEASE_URL}" target="_top" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a>${search ? '' : toggle}</div>
-${search ? `<div class="side-row"><form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>${toggle}</div>` : ''}
-<nav class="side-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}</ul></nav>
-${STATIC_SITE ? '' : SESSION_LINE}
+  const theme = `<button type="button" class="icon-btn" data-theme-toggle aria-label="Switch light or dark">${ICONS.sun}${ICONS.moon}</button>`;
+  const hide = sidebar ? `<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"
+  aria-label="Hide the sidebar" title="Hide the sidebar">${ICONS.sidebar}</button>` : '';
+  const find = search ? `<form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>` : '';
+  return `<header class="topbar">${hide}<a class="brand" href="/" target="_top">HTML Server</a>
+<a class="gh" href="${RELEASE_URL}" target="_top" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a>
+<nav class="site-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}</ul></nav>
+<div class="top-tools">${find}${theme}${STATIC_SITE ? '' : SESSION_LINE}</div></header>`;
+}
+
+/**
+ * The top bar, then the left sidebar: the explorer (on notes and the home page) and the
+ * skills, laid out like Quartz's.
+ */
+export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE, example = null } = {}) {
+  return `${topBar(active, { current, search })}<aside class="sidebar left" id="left-sidebar">
 ${explorer ? explorerNav(explorer, current) : ''}
 ${skillsNav(example)}
 </aside>`;
@@ -660,7 +669,7 @@ ${a.versions.length > 1 ? `<form class="compare" action="/review/${S}/changes" m
 }
 
 export function reviewPage(slug) {
-  return shell('Review', `<header class="bar"><h1><a href="/">HTML Server</a> / <span id="title"></span></h1>
+  return shell('Review', `${topBar(null, { sidebar: false })}<header class="bar"><h1><span id="title"></span></h1>
 <select id="ver" aria-label="Version"></select>
 <button id="move-page" hidden>Move…</button>
 <button id="changes">Show changes</button><button id="restore" hidden>Make this version current</button>
@@ -672,7 +681,7 @@ export function reviewPage(slug) {
 <input id="tok" type="password" autocomplete="off"> <p><button id="save">Save</button></p></details>
 <form id="new"><textarea id="body" placeholder="Comment on this version"></textarea>
 <p><button>Post</button> <span id="err" class="err"></span></p></form>
-<div id="list"></div></aside></div>`, { scripts: ['review.js'], bodyAttrs: `data-slug="${esc(slug)}"`, frame: false });
+<div id="list"></div></aside></div>`, { scripts: ['review.js'], bodyAttrs: `data-slug="${esc(slug)}"`, frame: false, search: true });
 }
 
 /** Side-by-side changes. Served sandboxed (it shows page content), so styles are inline. */

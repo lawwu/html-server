@@ -187,16 +187,18 @@ test('upload: choose files, sign in, publish, fix a refused name, and drop more'
   assert.equal(await dialog.locator('.upload-list input').inputValue(), 'dropped.html');
 });
 
-test('sign out: the sidebar names who is signed in and forgets the token; notes never show it', async () => {
+test('sign out: the top bar names who is signed in and forgets the token; notes never show it', async () => {
+  const signedIn = (name) => page.waitForFunction((n) => document.querySelector('.session:not([hidden])')?.textContent.startsWith(`Signed in as ${n} ·`), name);
   const me = [];
   page.on('request', (r) => { if (r.url().endsWith('/api/me')) me.push(r.url()); });
   await page.goto(base + '/');
   assert.equal(await page.locator('.session').isHidden(), true); // nobody signed in
   await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
   await page.goto(base + '/');
-  await page.locator('.session').getByText('Signed in as browser-owner').waitFor();
+  await signedIn('browser-owner'); // "Signed in as" is for screen readers; the bar shows the name
+  assert.equal(await page.locator('.session [data-session-who]').textContent(), 'browser-owner');
   await page.goto(base + '/stats');
-  await page.locator('.session').getByText('Signed in as browser-owner').waitFor();
+  await signedIn('browser-owner');
   assert.equal(me.length, 1); // the name is asked once per token, not on every page
   const axe = await new AxeBuilder({ page }).include('.session').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   assert.deepEqual(axe.violations.map((v) => v.id), []);
@@ -209,18 +211,37 @@ test('sign out: the sidebar names who is signed in and forgets the token; notes 
   assert.deepEqual(await page.evaluate(() => [localStorage.getItem('artifact_token'), localStorage.getItem('artifact_user')]), [null, null]);
   assert.equal(await page.locator('.session').isHidden(), true);
 
-  // The review page has no sidebar: Sign out sits beside the name.
+  // The review page has the top bar too.
   await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
   await page.goto(base + '/review/alpha.md');
   await page.locator('#who').getByText('Signed in as browser-owner').waitFor();
-  await page.locator('#who').getByRole('button', { name: 'Sign out' }).click();
+  await signedIn('browser-owner');
+  await page.locator('.session').getByRole('button', { name: 'Sign out' }).click();
   await page.locator('#who').getByText('Reading as a guest.').waitFor();
   assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), null);
 
   // A token the server no longer takes still shows the line, so it can be signed out.
   await page.evaluate(() => localStorage.setItem('artifact_token', 'ak_revoked'));
   await page.goto(base + '/');
-  await page.locator('.session').getByText('a token this server no longer takes').waitFor();
+  await page.locator('.session [data-session-who]').getByText('Token not accepted').waitFor();
+});
+
+test('the top bar: the same sections on every page, and still there with the sidebar hidden', async () => {
+  const sections = () => page.getByRole('navigation', { name: 'Site' }).getByRole('link').allTextContents();
+  const want = ['Pages', 'Random', 'Graph', 'Stats', 'Gallery', 'Docs'];
+  for (const path of ['/', '/stats', '/docs', '/pages/alpha.md', '/pages/links.html', '/review/alpha.md']) {
+    await page.goto(base + path);
+    assert.deepEqual(await sections(), want, path);
+  }
+  await page.goto(base + '/stats');
+  await page.getByRole('button', { name: 'Hide the sidebar' }).click();
+  assert.equal(await page.locator('#left-sidebar').isHidden(), true);
+  assert.deepEqual(await sections(), want);
+  await page.getByRole('link', { name: 'Graph', exact: true }).click();
+  await page.waitForURL(base + '/graph');
+  assert.equal(await page.locator('#left-sidebar').isHidden(), true); // the choice is kept
+  await page.getByRole('button', { name: 'Show the sidebar' }).click();
+  assert.equal(await page.locator('#left-sidebar').isVisible(), true);
 });
 
 for (const colorScheme of ['light', 'dark']) {

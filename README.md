@@ -88,7 +88,7 @@ a folder's own page it starts there), add a version note, and tick **Private** i
 should be. A file you already have becomes a new version. Each name comes from its file,
 with spaces as dashes (`Trip Plan.html` becomes `Trip-Plan.html`), and can be changed before
 uploading. The first time, paste your token; the browser keeps it for this site, as it does
-for comments, until you press **Sign out** in the sidebar. Nothing to install, so it suits a server running in [Docker](#docker) or on
+for comments, until you press **Sign out** in the top bar. Nothing to install, so it suits a server running in [Docker](#docker) or on
 [Cloudflare](#deploy-to-cloudflare). A whole folder, kept in step as it changes, is `sync`'s
 job (below).
 
@@ -219,7 +219,7 @@ paths in `publish_page`, folder filters in search/list, and the `move_pages` too
 Any single-file HTML page: reports, explainers, dashboards, small tools. A page's
 JavaScript runs, in a sandbox that keeps it away from the API and your sign-in.
 
-**In a browser tab** a page sits in the site's frame: the sidebar, a title bar with its
+**In a browser tab** a page sits in the site's frame: the top bar and sidebar, a title bar with its
 tags, history, comments, **Copy HTML** and "full page ↗", then the page itself in its own
 design, then its local graph and backlinks. The frame grows to the page's full height, so
 the whole thing scrolls as one page: natively with [responsive
@@ -348,12 +348,13 @@ The pages the server draws borrow Quartz's default theme (MIT): its colours, its
 typefaces (Schibsted Grotesk, Source Sans 3, IBM Plex Mono, served from this server under
 the SIL Open Font License, licences in `public/fonts`) and its three-column layout.
 
-- **Left sidebar** on every page: the title, the running version (linking to its
-  release), search, a light/dark switch, the site's sections (Pages, Random, Graph, Stats,
-  Gallery, Docs), an **explorer** of folders and pages, and **Skills**. The button at its
-  top left hides it and brings it back, and the choice is kept like light/dark. An HTML page
-  in the frame takes the whole width beside it (all of it when it's hidden). On a phone it collapses above
-  the page.
+- **Top bar** on every page: the title, the running version (linking to its release), the
+  site's sections (Pages, Random, Graph, Stats, Gallery, Docs), search, a light/dark switch,
+  and who you're signed in as, with **Sign out**. It's on the review page too.
+- **Left sidebar** under it: an **explorer** of folders and pages, and **Skills**. The
+  button at the top bar's left hides it and brings it back, and the choice is kept like
+  light/dark; the top bar stays either way. An HTML page in the frame takes the whole width
+  beside it (all of it when it's hidden). On a phone it collapses above the page.
 - **Skills:** the eight skills of [effective-html](https://github.com/plannotator/effective-html)
   (agent skills for HTML artifacts), each with two examples in the gallery, one on data
   or machine learning and one on Claude Code, and a link to the skill itself.
@@ -504,8 +505,8 @@ stores only its hash.
 - **In a browser,** reading needs no sign-in. To upload, comment or change pages, paste the
   token once: into **Upload** or **Select** on the home page, or **Sign in to comment** on
   a review page. It's kept in that browser's storage for this site only, out of reach of
-  the sandboxed pages. While it's there the sidebar says who you're signed in as, with
-  **Sign out** to forget it (on a review page, Sign out is next to your name). The token
+  the sandboxed pages. While it's there the top bar says who you're signed in as, with
+  **Sign out** to forget it. The token
   still works everywhere else; to stop it working, replace it (`POST /api/me/token`).
 
 **A new user:** an admin runs `html-server create-user bob` (on the server) or

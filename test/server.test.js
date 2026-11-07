@@ -480,7 +480,7 @@ test('an older search index is rebuilt on startup, keeping every page findable',
 test('site header, title and search box', async () => {
   const [, page] = await req('GET', '/');
   assert.match(page, /<title>HTML Server<\/title>/);
-  assert.match(page, /<h2 class="page-title"><a href="\/" target="_top">HTML Server<\/a><\/h2>/);
+  assert.match(page, /<header class="topbar">[^]*<a class="brand" href="\/" target="_top">HTML Server<\/a>/);
   assert.match(page, /<a href="\/gallery" target="_top">Gallery<\/a>/);
   assert.match(page, /placeholder="Search pages"/);
   assert.doesNotMatch(page, /typos are fine/);
@@ -682,7 +682,7 @@ test('tags: categories become tags; tag many pages at once; filter by tag', asyn
   const [, home] = await req('GET', '/');
   assert.match(home, /<button type="button" id="select"/);
   assert.match(home, /<button type="button" id="upload" class="select-btn">Upload<\/button>/); // public/upload.js
-  assert.match(home, /<p class="session" data-session hidden>.*data-sign-out>Sign out<\/button><\/p>/); // shown by the page's script when signed in
+  assert.match(home, /<span class="session" data-session hidden>.*data-sign-out>Sign out<\/button><\/span><\/div><\/header>/); // the top bar's last; shown by the page's script when signed in
   assert.match(home, /<input type="checkbox" value="b.html"/);
   assert.match(home, /data-category="trip-plans"/); // tag chips in the filter bar
 });
@@ -1069,7 +1069,7 @@ test('notes are pages of the site: sidebars, footer and stylesheet; previews wit
   await put('raw.html', '<p>my own html</p>');
   const [, note] = await req('GET', '/pages/Note');
   assert.match(note, /<style>[^<]*\.sidebar \{[^<]*\.article-title/s); // the site's styles and the note's, inlined
-  assert.match(note, /<aside class="sidebar left" id="left-sidebar">[^]*<h2 class="page-title"><a href="\/" target="_top">HTML Server<\/a>/);
+  assert.match(note, /<header class="topbar">[^]*<a class="brand" href="\/" target="_top">HTML Server<\/a>[^]*<\/header><aside class="sidebar left" id="left-sidebar">/);
   assert.match(note, /<details class="explorer" open>[^]*<a href="\/pages\/Note.md" target="_top" class="on" aria-current="page">Note<\/a>/);
   assert.match(note, /<aside class="sidebar right">/);
   assert.match(note, /<footer class="site-foot">/);
@@ -1078,12 +1078,12 @@ test('notes are pages of the site: sidebars, footer and stylesheet; previews wit
   assert.equal(JSON.parse(note.match(/<script id="page-source" type="application\/json">([^<]*)<\/script>/)[1]), '# Note\n\nHello'); // what it copies
   const dark = await (await fetch(`${base}/pages/Note`, { headers: { cookie: 'theme=dark' } })).text();
   assert.match(dark, /<html lang="en" data-theme="dark">/); // the switch's choice reaches sandboxed notes by cookie
-  // So does a hidden sidebar; the button that hides it sits outside it, so it stays put.
+  // So does a hidden sidebar; the button that hides it is in the top bar, so it stays put.
   const hidden = async (cookie) => (await (await fetch(`${base}/pages/Note`, { headers: { cookie } })).text()).match(/<html[^>]*>/)[0];
   assert.equal(await hidden('theme=dark; sidebar=hidden'), '<html lang="en" data-theme="dark" data-sidebar="hidden">');
   assert.equal(await hidden('sidebar=shown'), '<html lang="en">');
   assert.equal(await hidden('sidebar=hiddenx'), '<html lang="en">');
-  assert.match(note, /<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"\s+aria-label="Hide the sidebar" title="Hide the sidebar"><svg[^]*<\/button><aside class="sidebar left" id="left-sidebar">/);
+  assert.match(note, /<header class="topbar"><button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"\s+aria-label="Hide the sidebar" title="Hide the sidebar"><svg[^]*?<\/button><a class="brand"/);
   assert.match(note, /localStorage.getItem\('sidebar'\)==='hidden'\)r.dataset.sidebar='hidden'/); // pages that can read storage: read in <head>
   const [, preview] = await req('GET', '/pages/Note?preview=1');
   assert.doesNotMatch(preview, /class="sidebar|<footer class="site-foot"/);
