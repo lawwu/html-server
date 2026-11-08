@@ -65,6 +65,20 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
   gap: 1.2rem; padding: 1.75rem 2rem 2rem; overflow-y: auto; scrollbar-width: thin; }
 /* Sections keep their full height and the sidebar scrolls: shrunk to fit, a long explorer drew over Skills. */
 .sidebar > * { flex-shrink: 0; }
+/* Pages with nothing for the sidebar (stats, graph, docs, history) take the whole width,
+   in line with the top bar. */
+.page:not(:has(> .sidebar.left)) { grid-template-columns: minmax(0, 1fr); }
+.page:not(:has(> .sidebar.left)) > main, .page:not(:has(> .sidebar.left)) > .site-foot { grid-column: 1; }
+@media (min-width: 801px) {
+  .page:not(:has(> .sidebar.left)) > main, .page:not(:has(> .sidebar.left)) > .site-foot { padding-left: 1.5rem; }
+}
+/* With only a right sidebar (the docs' contents): the page, then it; under 1200px it moves below. */
+.page:not(:has(> .sidebar.left)):has(> .sidebar.right) { grid-template-columns: minmax(0, 1fr) var(--side); }
+.page:not(:has(> .sidebar.left)) > .sidebar.right { grid-column: 2; }
+@media (max-width: 1200px) {
+  .page:not(:has(> .sidebar.left)):has(> .sidebar.right) { grid-template-columns: minmax(0, 1fr); }
+  .page:not(:has(> .sidebar.left)) > .sidebar.right { grid-column: 1; }
+}
 .page > .wrap { max-width: none; margin: 0; padding: 1.75rem 2.5rem 3rem 1rem; }
 /* The top bar: the site's name and version, its sections, then search, light/dark and who's signed in. */
 .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem; padding: .65rem 1.5rem;

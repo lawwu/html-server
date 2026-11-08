@@ -351,11 +351,13 @@ the SIL Open Font License, licences in `public/fonts`) and its three-column layo
 - **Top bar** on every page: the title, the running version (linking to its release), the
   site's sections (Pages, Graph, Stats, Gallery, Docs), search, a light/dark switch,
   and who you're signed in as, with **Sign out**. It's on the review page too.
-- **Left sidebar** under it: an **explorer** of folders and pages, and **Skills**. The
-  button at the top bar's left hides it and brings it back, and the choice is kept like
-  light/dark; the top bar stays either way. An HTML page in the frame takes the whole width
-  beside it (all of it when it's hidden). On a phone it collapses above the page.
-- **Skills:** the eight skills of [effective-html](https://github.com/plannotator/effective-html)
+- **Left sidebar** under it, for content: on the home page and your pages, an **explorer**
+  of folders and pages; on the Gallery's pages, **Skills**. Stats, Graph, Docs and History
+  have no sidebar and use the whole width. The button at the top bar's left hides it and
+  brings it back, and the choice is kept like light/dark; the top bar stays either way. An
+  HTML page in the frame takes the whole width beside it (all of it when it's hidden). On a
+  phone it collapses above the page.
+- **Skills,** in the Gallery's sidebar: the eight skills of [effective-html](https://github.com/plannotator/effective-html)
   (agent skills for HTML artifacts), each with two examples in the gallery, one on data
   or machine learning and one on Claude Code, and a link to the skill itself.
 - **A random page:** `/random` opens a random page you can see (there's no link to it;
@@ -435,7 +437,7 @@ counted.
 folder, read-only, so every install has them and they never mix with your own. In a browser
 tab an example sits in the site's frame, as your pages do (`?raw=1` for the example alone).
 Sixteen of them show the skills of [effective-html](https://github.com/plannotator/effective-html),
-two per skill: filter by **Effective HTML**, or open them from the sidebar's Skills. To make
+two per skill: filter by **Effective HTML**, or open them from Skills in the Gallery's sidebar. To make
 one your own, copy it and `html-server put` it.
 
 **Docs** (`/docs`, also `/api`): the command line, MCP and the HTTP API on one page, built

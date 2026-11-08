@@ -132,18 +132,21 @@ export function topBar(active, { search = !STATIC_SITE, sidebar = true } = {}) {
 }
 
 /**
- * The top bar, then the left sidebar: the explorer (on notes and the home page) and the
- * skills, laid out like Quartz's.
+ * The top bar, then the left sidebar, which holds content: your pages' explorer (on the
+ * home page and your pages), or on the gallery's pages the skills its examples show. A page
+ * with neither (stats, graph, docs, history) has no sidebar and takes the whole width.
  */
 export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE, example = null } = {}) {
+  const skills = active === 'gallery';
+  if (!explorer && !skills) return topBar(active, { search, sidebar: false });
   return `${topBar(active, { search })}<aside class="sidebar left" id="left-sidebar">
 ${explorer ? explorerNav(explorer, current) : ''}
-${skillsNav(example)}
+${skills ? skillsNav(example) : ''}
 </aside>`;
 }
 
 /**
- * The sidebar's Skills: plannotator/effective-html's skills, each a folder holding the gallery's
+ * The gallery's Skills: plannotator/effective-html's skills, each a folder holding the gallery's
  * examples of it and a link to the skill itself; the folder of the example being viewed is open.
  */
 function skillsNav(current) {

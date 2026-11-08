@@ -820,8 +820,9 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match((await req('GET', '/gallery'))[1], /Featured <span>1<\/span>[^]*?Maps of content <span>3<\/span>[^]*?Architecture/);
 });
 
-test('skills: the sidebar lists effective-html\'s skills with their examples, which open in the frame', async () => {
-  const [, stats] = await req('GET', '/stats'); // on every page with a sidebar
+test('skills: the gallery\'s sidebar lists effective-html\'s skills with their examples, which open in the frame', async () => {
+  const [, stats] = await req('GET', '/gallery'); // the gallery's pages only: your pages' sidebar is your explorer
+  for (const path of ['/', '/stats', '/docs']) assert.doesNotMatch((await req('GET', path))[1], /class="explorer skills"/, path);
   const esc = (t) => t.replace(/'/g, '&#39;');
   for (const s of SKILLS) {
     assert.match(stats, new RegExp(`<summary title="${s.use}"><svg[^]*?</svg><span>${s.name}</span></summary>`), s.name);

@@ -233,20 +233,28 @@ test('the top bar: the same sections on every page, and still there with the sid
     await page.goto(base + path);
     assert.deepEqual(await sections(), want, path);
   }
-  await page.goto(base + '/stats');
+  await page.goto(base + '/');
   await page.getByRole('button', { name: 'Hide the sidebar' }).click();
   assert.equal(await page.locator('#left-sidebar').isHidden(), true);
   assert.deepEqual(await sections(), want);
-  await page.getByRole('link', { name: 'Graph', exact: true }).click();
-  await page.waitForURL(base + '/graph');
+  await page.goto(base + '/pages/alpha.md');
   assert.equal(await page.locator('#left-sidebar').isHidden(), true); // the choice is kept
   await page.getByRole('button', { name: 'Show the sidebar' }).click();
   assert.equal(await page.locator('#left-sidebar').isVisible(), true);
+  // Pages with nothing for a sidebar have none, and no button for one; Skills are the gallery's.
+  for (const path of ['/stats', '/graph', '/docs']) {
+    await page.goto(base + path);
+    assert.deepEqual([await page.locator('#left-sidebar').count(), await page.locator('.sidebar-toggle').count()], [0, 0], path);
+  }
+  for (const [path, skills] of [['/', 0], ['/pages/alpha.md', 0], ['/gallery', 1], ['/gallery/ab-test-readout.html', 1]]) {
+    await page.goto(base + path);
+    assert.equal(await page.locator('#left-sidebar .skills').count(), skills, path);
+  }
 });
 
 test('a sidebar longer than the window scrolls; its sections never overlap', async () => {
-  await page.setViewportSize({ width: 1280, height: 360 }); // shorter than the explorer and skills together
-  for (const path of ['/', '/pages/alpha.md']) {
+  await page.setViewportSize({ width: 1280, height: 300 }); // shorter than the skills with a folder open
+  for (const path of ['/gallery/ab-test-readout.html', '/pages/alpha.md']) {
     await page.goto(base + path);
     const boxes = await page.locator('.sidebar > *:visible').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return [r.top, r.bottom, e.scrollHeight <= Math.ceil(r.height)]; }));
     boxes.forEach(([, bottom, fits], i) => {
@@ -254,7 +262,7 @@ test('a sidebar longer than the window scrolls; its sections never overlap', asy
       if (boxes[i + 1] && boxes[i + 1][0] < boxes[i][0] + 1) return; // the right sidebar starts its own column
       if (boxes[i + 1]) assert.ok(bottom <= boxes[i + 1][0], `${path}: section ${i} runs into the next`);
     });
-    assert.equal(await page.locator('.sidebar.left').evaluate((s) => s.scrollHeight > s.clientHeight), true, path);
+    if (path.startsWith('/gallery')) assert.equal(await page.locator('.sidebar.left').evaluate((s) => s.scrollHeight > s.clientHeight), true, path);
   }
 });
 

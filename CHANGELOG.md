@@ -21,7 +21,9 @@ couldn't be migrated would be a major version.
   forget it. Sandboxed note pages, which can't read the token, don't show it.
 - **A bar across the top of every page,** with the site's name and version, its sections
   (Pages, Graph, Stats, Gallery, Docs), search, the light/dark switch and who's signed in.
-  The left sidebar keeps the explorer and Skills. Hiding the sidebar no longer hides the
+  The left sidebar is for content: your pages' explorer, or on the Gallery's pages the
+  Skills, which no longer sit under your own pages. Stats, Graph, Docs and History have no
+  sidebar and use the whole width. Hiding the sidebar no longer hides the
   navigation, and the review page gets the same links as the rest of the site. The Random
   link is gone; `/random` still opens a random page.
 - **A long explorer no longer runs over Skills** in the sidebar. With more pages than fit on
