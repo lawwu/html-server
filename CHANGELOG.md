@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.13.0 (2026-11-07)
+
 - **Upload from the browser.** The home page has an **Upload** button, and files dropped
   anywhere on it open the same dialog: HTML pages, Markdown notes and notebooks, and the
   images and PDFs notes embed. Choose the folder (a folder's page starts there), add a
