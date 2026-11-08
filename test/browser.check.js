@@ -241,11 +241,22 @@ test('the top bar: the same sections on every page, and still there with the sid
   assert.equal(await page.locator('#left-sidebar').isHidden(), true); // the choice is kept
   await page.getByRole('button', { name: 'Show the sidebar' }).click();
   assert.equal(await page.locator('#left-sidebar').isVisible(), true);
-  // Pages with nothing for a sidebar (no explorer of your pages) have none, and no button for one.
-  for (const path of ['/stats', '/graph', '/docs', '/docs/about', '/gallery', '/gallery/ab-test-readout.html']) {
+});
+
+test('moving between pages shifts nothing: the bar, its links and the page start in the same place', async () => {
+  const where = () => page.evaluate(() => {
+    const box = (s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r && [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; };
+    return { brand: box('.brand'), nav: box('.site-nav'), bar: box('.topbar'), main: box('.page > main')?.[0] };
+  });
+  await page.goto(base + '/');
+  const home = await where();
+  for (const path of ['/pages/alpha.md', '/pages/links.html', '/gallery', '/gallery/ab-test-readout.html', '/stats', '/graph', '/docs', '/about', '/history/alpha.md']) {
     await page.goto(base + path);
-    assert.deepEqual([await page.locator('#left-sidebar').count(), await page.locator('.sidebar-toggle').count()], [0, 0], path);
+    assert.deepEqual(await where(), home, path);
   }
+  await page.goto(base + '/review/alpha.md'); // no sidebar, and a layout of its own; the bar is the same
+  const review = await where();
+  assert.deepEqual([review.brand, review.nav, review.bar], [home.brand, home.nav, home.bar]);
 });
 
 test('a sidebar longer than the window scrolls; its sections never overlap', async () => {
@@ -266,7 +277,7 @@ for (const colorScheme of ['light', 'dark']) {
   test(`375px ${colorScheme}: no horizontal overflow, contrast or ARIA regressions`, async () => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.emulateMedia({ colorScheme });
-    for (const path of ['/', '/docs', '/docs/about', '/stats', '/pages/alpha.md', '/review/alpha.md']) {
+    for (const path of ['/', '/docs', '/about', '/stats', '/pages/alpha.md', '/review/alpha.md']) {
       await page.goto(base + path);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, path);
       const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();

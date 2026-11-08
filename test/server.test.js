@@ -820,16 +820,18 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match((await req('GET', '/gallery'))[1], /Featured <span>1<\/span>[^]*?Maps of content <span>3<\/span>[^]*?Architecture/);
 });
 
-test('about and skills: /docs/about lists effective-html\'s skills with their examples, each of which names its skill', async () => {
-  const [aboutStatus, about] = await req('GET', '/docs/about');
+test('about and skills: /about lists effective-html\'s skills with their examples, each of which names its skill', async () => {
+  const [aboutStatus, about] = await req('GET', '/about');
   assert.equal(aboutStatus, 200);
   assert.match(about, /<h1 class="article-title">About<\/h1>/);
   assert.match(about, /<a href="https:\/\/claude.dev\/blog\/using-claude-code-the-unreasonable-effectiveness-of-html\/">The unreasonable effectiveness of HTML<\/a>/);
   assert.match(about, /<a href="\/gallery\/featured-unreasonable-effectiveness-of-html.html">a one-page summary<\/a>/);
-  assert.match(about, /<a href="\/docs\/about" target="_top" class="on" aria-current="page">About<\/a>/); // in the top bar
-  assert.match((await req('GET', '/docs/about.md'))[1], /^HTML Server hosts the pages/);
+  assert.match(about, /<a href="\/about" target="_top" class="on" aria-current="page">About<\/a>/); // in the top bar
+  assert.match((await req('GET', '/about.md'))[1], /^HTML Server hosts the pages/);
+  assert.equal((await put('about', '<p>x</p>'))[0], 400); // a reserved name now, as a page and as a folder
+  assert.equal((await put('about/team.md', '# Team'))[0], 400);
   for (const path of ['/', '/gallery', '/stats']) assert.doesNotMatch((await req('GET', path))[1], /class="explorer skills"/, path); // no Skills sidebar
-  assert.match((await req('GET', '/gallery'))[1], /made with the <a href="https:\/\/github.com\/plannotator\/effective-html"[^>]*>effective-html<\/a> skills[^<]*<a href="\/docs\/about">Why HTML\?<\/a>/);
+  assert.match((await req('GET', '/gallery'))[1], /made with the <a href="https:\/\/github.com\/plannotator\/effective-html"[^>]*>effective-html<\/a> skills[^<]*<a href="\/about">Why HTML\?<\/a>/);
   const esc = (t) => t.replace(/'/g, '&#39;');
   for (const s of SKILLS) {
     assert.ok(about.includes(`<a href="${SKILLS_REPO}/tree/main/skills/${s.name}">${s.name}</a>`), s.name);
@@ -853,7 +855,7 @@ test('about and skills: /docs/about lists effective-html\'s skills with their ex
   assert.equal(frameCsp, null); // the server's own page; the example inside stays sandboxed
   assert.match(frame, /<iframe class="page-frame auto" src="\/gallery\/ab-test-readout.html\?embed=1" title="[^"]+"><\/iframe>/);
   assert.match(frame, /<nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="\/gallery" target="_top">Gallery<\/a>/);
-  assert.doesNotMatch(frame, /id="left-sidebar"/); // the gallery's pages take the whole width
+  assert.match(frame, /<aside class="sidebar left" id="left-sidebar">\n<details class="explorer"/); // your pages' explorer, as on every page
   assert.match(frame, /<a class="tag-link" href="\/gallery\?category=effective-html">Effective HTML<\/a>/);
   // Over each example, the skill it shows, linked to the skill itself; other gallery pages have no such line.
   for (const s of SKILLS) for (const [file] of s.examples) {

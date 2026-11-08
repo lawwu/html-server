@@ -33,6 +33,7 @@
   --accent: #7b97aa; --accent-soft: rgba(143, 159, 169, .15); --mark: #b3aa0288; color-scheme: dark;
     --tok-keyword: #ff7b72; --tok-string: #a5d6ff; --tok-number: #79c0ff; --tok-comment: #8b949e; --tok-builtin: #d2a8ff; --tok-decorator: #ffa657; }
 * { box-sizing: border-box; }
+html { scrollbar-gutter: stable; } /* a page short enough to have no scrollbar sits where a long one does */
 [hidden] { display: none !important; } /* hidden always wins over a component's own display */
 body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 var(--body-font); }
 h1, h2, h3, h4 { font-family: var(--head-font); color: var(--fg); }
@@ -65,20 +66,6 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
   gap: 1.2rem; padding: 1.75rem 2rem 2rem; overflow-y: auto; scrollbar-width: thin; }
 /* Sections keep their full height and the sidebar scrolls: shrunk to fit, a long explorer drew over Skills. */
 .sidebar > * { flex-shrink: 0; }
-/* Pages with nothing for the sidebar (stats, graph, docs, history) take the whole width,
-   in line with the top bar. */
-.page:not(:has(> .sidebar.left)) { grid-template-columns: minmax(0, 1fr); }
-.page:not(:has(> .sidebar.left)) > main, .page:not(:has(> .sidebar.left)) > .site-foot { grid-column: 1; }
-@media (min-width: 801px) {
-  .page:not(:has(> .sidebar.left)) > main, .page:not(:has(> .sidebar.left)) > .site-foot { padding-left: 1.5rem; }
-}
-/* With only a right sidebar (the docs' contents): the page, then it; under 1200px it moves below. */
-.page:not(:has(> .sidebar.left)):has(> .sidebar.right) { grid-template-columns: minmax(0, 1fr) var(--side); }
-.page:not(:has(> .sidebar.left)) > .sidebar.right { grid-column: 2; }
-@media (max-width: 1200px) {
-  .page:not(:has(> .sidebar.left)):has(> .sidebar.right) { grid-template-columns: minmax(0, 1fr); }
-  .page:not(:has(> .sidebar.left)) > .sidebar.right { grid-column: 1; }
-}
 .page > .wrap { max-width: none; margin: 0; padding: 1.75rem 2.5rem 3rem 1rem; }
 /* The top bar: the site's name and version, its sections, then search, light/dark and who's signed in. */
 .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem; padding: .65rem 1.5rem;
@@ -98,6 +85,7 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
    top bar's first, so it stays in the same place either way. On a phone the sidebar is above the page,
    so it always shows. */
 .sidebar-toggle { margin: 0 -.5rem 0 -.6rem; border-radius: 7px; color: var(--mute); }
+.toggle-slot { visibility: hidden; }
 .sidebar-toggle:hover, .sidebar-toggle:focus-visible { color: var(--fg); background: var(--accent-soft); }
 @media (min-width: 801px) {
   :root[data-sidebar="hidden"] { --left: 0px; }
@@ -118,7 +106,8 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 .site-nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .15rem 1.1rem; }
 .site-nav a { color: var(--text); font-weight: 400; font-size: .95rem; }
 .site-nav a:hover { color: var(--accent-hover); }
-.site-nav a.on { color: var(--accent); font-weight: 600; }
+/* The current section: colour and an underline, not bold, which would widen it and move the links after it. */
+.site-nav a.on { color: var(--accent); text-decoration: underline 2px; text-underline-offset: .45em; }
 .session { font-size: 13px; color: var(--mute); white-space: nowrap; }
 .link-btn { padding: 0; border: 0; border-radius: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; }
 .link-btn:hover { color: var(--accent-hover); }

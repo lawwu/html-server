@@ -351,13 +351,13 @@ the SIL Open Font License, licences in `public/fonts`) and its three-column layo
 - **Top bar** on every page: the title, the running version (linking to its release), the
   site's sections (Pages, Graph, Stats, Gallery, Docs, About), search, a light/dark switch,
   and who you're signed in as, with **Sign out**. It's on the review page too.
-- **Left sidebar** under it, on the home page and your pages: an **explorer** of folders
-  and pages. The Gallery, Stats, Graph, Docs and History have none and use the whole
-  width. The button at the top bar's left hides it and
+- **Left sidebar** under it on every page: an **explorer** of your folders and pages. Every
+  page has the same frame, so nothing shifts as you move between them. The button at the
+  top bar's left hides it and
   brings it back, and the choice is kept like light/dark; the top bar stays either way. An
   HTML page in the frame takes the whole width beside it (all of it when it's hidden). On a
   phone it collapses above the page.
-- **About** (`/docs/about`): why HTML, from Thariq Shihipar's essay [The unreasonable
+- **About** (`/about`): why HTML, from Thariq Shihipar's essay [The unreasonable
   effectiveness of HTML](https://claude.dev/blog/using-claude-code-the-unreasonable-effectiveness-of-html/);
   why a server for it; and the eight skills of [effective-html](https://github.com/plannotator/effective-html)
   (agent skills for HTML artifacts), each with its examples in the gallery, one on data or
@@ -862,7 +862,7 @@ the old capability.
   read through one module, so the same code serves from Node or from a Cloudflare Durable
   Object.
 - **Reserved names:** `api`, `v`, `review`, `pages`, `history`, `gallery`, `graph`, `stats`,
-  `random`, `assets`, `docs`, `healthz`, `favicon.ico` and `robots.txt` can't be page names, because the server
+  `random`, `assets`, `docs`, `about`, `healthz`, `favicon.ico` and `robots.txt` can't be page names, because the server
   uses those paths itself (browsers ask for `/favicon.ico` and crawlers for `/robots.txt`;
   both get a plain 404 straight away).
 
@@ -1021,7 +1021,7 @@ Not part of the interface, and free to change in any release:
 - the code under `src/`, which is internal (the package publishes only the
   `html-server` command; nothing is exported to import).
 
-Before 1.0: so far, each new site route (most recently `random`, in 0.11.0) has taken a
+Before 1.0: so far, each new site route (most recently `about`, after 0.12.0) has taken a
 name that pages and folders could otherwise use. That has to stop before the reserved
 names can be promised, either by moving new routes under a prefix the server already owns
 or by settling the full list.

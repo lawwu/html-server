@@ -46,8 +46,8 @@ export const ROUTES = [
   ['GET', '/docs/?', 'docs', 'anyone', 'This page: using HTML Server from the command line, MCP and HTTP'],
   ['GET', '/api/?', 'docs', 'anyone', 'The same page'],
   ['GET', '/docs\\.md', 'docsSource', 'anyone', 'This page as Markdown'],
-  ['GET', '/docs/about', 'about', 'anyone', 'About HTML Server: why HTML, why a server for it, and the effective-html skills the gallery\'s examples were made with'],
-  ['GET', '/docs/about\\.md', 'aboutSource', 'anyone', null],
+  ['GET', '/about', 'about', 'anyone', 'About HTML Server: why HTML, why a server for it, and the effective-html skills the gallery\'s examples were made with'],
+  ['GET', '/about\\.md', 'aboutSource', 'anyone', null],
   ['GET', '/api/docs\\.md', 'docsSource', 'anyone', null],
   ['GET', '/_static/(?<file>[\\w.-]+)', 'static', 'anyone', null],
   ['GET', '/_static/fonts/(?<font>[\\w.-]+\\.woff2)', 'font', 'anyone', null],
@@ -256,7 +256,7 @@ class Ctx {
     const base = opts.base || (opts.section === 'gallery' ? '/gallery' : '/');
     if (this.query.get('fragment')) return this.html(resultsBody(items, opts.q, { base, count: countLabel(items, opts) }));
     const view = VIEWS.includes(this.query.get('view')) ? this.query.get('view') : 'grid';
-    this.html(galleryPage(items, { ...opts, ...page(), view, explorer: opts.section === 'pages' ? this.store.explorer(this.viewerId()) : null }));
+    this.html(galleryPage(items, { ...opts, ...page(), view, explorer: this.explorer() }));
   }
 
   /**
@@ -395,6 +395,8 @@ class Ctx {
 
   /** The docs page's Markdown: CLI, MCP and API (pages.js docsMarkdown). */
   docs() { return docsMarkdown(this.origin(), ROUTES, { tools: MCP_TOOLS }); }
+  /** The viewer's pages, for the explorer in every page's sidebar. */
+  explorer() { return this.store.explorer(this.viewerId()); }
 
   /** ?days= for the usage stats: a number of days (default 30), or `all`. */
   usageDays() {
@@ -493,7 +495,7 @@ const handlers = {
     const body = await c.jsonBody();
     c.json(200, { results: c.store.movePages(user.id, body.moves) });
   },
-  stats(c) { c.html(statsPage(c.store.stats(c.viewerId(), { popular: c.popularWeeks() }))); },
+  stats(c) { c.html(statsPage(c.store.stats(c.viewerId(), { popular: c.popularWeeks() }), { explorer: c.explorer() })); },
   statsData(c) { c.json(200, c.store.stats(c.viewerId(), { popular: c.popularWeeks() })); },
   random(c) {
     const filter = (k) => c.query.get(k) || undefined;
@@ -505,7 +507,7 @@ const handlers = {
   },
   usageData(c) { c.user({ admin: true }); c.json(200, c.store.usage({ days: c.usageDays() })); },
   usage(c) { c.user({ admin: true }); c.html(usageSection(c.store.usage({ days: c.usageDays() }))); },
-  graph(c) { c.html(graphPage(c.store.graph(c.viewerId(), c.graphScope()))); },
+  graph(c) { c.html(graphPage(c.store.graph(c.viewerId(), c.graphScope()), { explorer: c.explorer() })); },
   graphData(c) { c.json(200, c.store.graph(c.viewerId(), c.graphScope())); },
   examples(c) {
     const q = (c.query.get('q') || '').trim();
@@ -518,13 +520,13 @@ const handlers = {
     const body = exampleHtml(file);
     if (!body) throw new ApiError(404, 'no such example');
     // As with a page: a browser tab gets the site's frame, and the frame's iframe the example sized to fit.
-    if (c.wantsFrame()) return c.html(exampleFramePage(examples().find((e) => e.slug === file)));
+    if (c.wantsFrame()) return c.html(exampleFramePage(examples().find((e) => e.slug === file), { explorer: c.explorer() }));
     if (c.query.get('embed') && !c.preview()) return c.page(withInFrame(withInPageLinks(withEmbedSizing(body))));
     c.page(c.preview() || c.query.get('toc') === '0' ? body : withToc(body));
   },
-  docs(c) { c.html(markdownPage({ title: 'Docs', md: c.docs(), active: 'docs', sourceUrl: '/docs.md' })); },
+  docs(c) { c.html(markdownPage({ title: 'Docs', md: c.docs(), active: 'docs', sourceUrl: '/docs.md', explorer: c.explorer() })); },
   docsSource(c) { c.send(200, 'text/markdown; charset=utf-8', c.docs()); },
-  about(c) { c.html(markdownPage({ title: 'About', md: aboutMarkdown(), active: 'about', sourceUrl: '/docs/about.md' })); },
+  about(c) { c.html(markdownPage({ title: 'About', md: aboutMarkdown(), active: 'about', sourceUrl: '/about.md', explorer: c.explorer() })); },
   aboutSource(c) { c.send(200, 'text/markdown; charset=utf-8', aboutMarkdown()); },
   font(c, { font }) {
     let body;
@@ -566,7 +568,7 @@ const handlers = {
   // Always the shell: the script loads the page with the viewer's saved token, so
   // private pages work and missing ones show "not found" in place.
   review(c, { slug }) { c.html(reviewPage(slug)); },
-  history(c, { slug }) { c.html(historyPage(c.store.describe(slug, c.viewerId()))); },
+  history(c, { slug }) { c.html(historyPage(c.store.describe(slug, c.viewerId()), { explorer: c.explorer() })); },
   reviewChanges(c, { slug }) {
     const [from, to, a, b] = c.store.diff(slug, c.viewerId(), c.int('from'), c.int('to'), c.query.get('of') || 'text');
     c.page(diffPage(from, to, a, b, { back: c.query.get('back') ? `/history/${encodePath(slug)}` : null }));
