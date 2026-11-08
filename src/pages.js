@@ -127,35 +127,20 @@ export function topBar(active, { search = !STATIC_SITE, sidebar = true } = {}) {
   const find = search ? `<form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>` : '';
   return `<header class="topbar">${hide}<a class="brand" href="/" target="_top">HTML Server</a>
 <a class="gh" href="${RELEASE_URL}" target="_top" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a>
-<nav class="site-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}</ul></nav>
+<nav class="site-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}${item('/docs/about', 'About', 'about')}</ul></nav>
 <div class="top-tools">${find}${theme}${STATIC_SITE ? '' : SESSION_LINE}</div></header>`;
 }
 
 /**
- * The top bar, then the left sidebar, which holds content: your pages' explorer (on the
- * home page and your pages), or on the gallery's pages the skills its examples show. A page
- * with neither (stats, graph, docs, history) has no sidebar and takes the whole width.
+ * The top bar, then the left sidebar with your pages' explorer, on the home page and your
+ * pages. Other pages (the gallery, stats, graph, docs, history) have no sidebar and take the
+ * whole width.
  */
-export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE, example = null } = {}) {
-  const skills = active === 'gallery';
-  if (!explorer && !skills) return topBar(active, { search, sidebar: false });
+export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE } = {}) {
+  if (!explorer) return topBar(active, { search, sidebar: false });
   return `${topBar(active, { search })}<aside class="sidebar left" id="left-sidebar">
-${explorer ? explorerNav(explorer, current) : ''}
-${skills ? skillsNav(example) : ''}
+${explorerNav(explorer, current)}
 </aside>`;
-}
-
-/**
- * The gallery's Skills: plannotator/effective-html's skills, each a folder holding the gallery's
- * examples of it and a link to the skill itself; the folder of the example being viewed is open.
- */
-function skillsNav(current) {
-  const skills = SKILLS.map((s) => `<li class="folder"><details${s.examples.some(([f]) => f === current) ? ' open' : ''}>
-<summary title="${esc(s.use)}">${ICONS.chevron}<span>${esc(s.name)}</span></summary><ul>${s.examples.map(([f, label]) => `<li><a href="/gallery/${f}" target="_top"${
-    f === current ? ' class="on" aria-current="page"' : ''}>${esc(label)}</a></li>`).join('')}<li><a class="ext" href="${SKILLS_REPO}/tree/main/skills/${s.name}" target="_blank" rel="noopener">The skill ↗</a></li></ul></details></li>`).join('');
-  const all = STATIC_SITE ? '/gallery' : '/gallery?category=effective-html'; // the docs site's gallery has no filters
-  return `<details class="explorer skills" open><summary><span>Skills</span>${ICONS.chevron}</summary><ul class="tree">${skills}</ul>
-<p class="skills-from">From <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a> · <a href="${all}" target="_top">all examples</a></p></details>`;
 }
 
 /**
@@ -293,7 +278,7 @@ export function galleryPage(items, { q = '', category = '', categories = [], vie
   const grid = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>';
   const list = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="2" width="14" height="2.5" rx="1.2"/><rect x="1" y="6.75" width="14" height="2.5" rx="1.2"/><rect x="1" y="11.5" width="14" height="2.5" rx="1.2"/></svg>';
   const intro = section === 'gallery'
-    ? '<p class="intro">Example pages that ship with HTML Server: what single-file HTML can do, from explainers and diagrams to small tools. Open one, or use it as a starting point for your own.</p>'
+    ? `<p class="intro">Example pages that ship with HTML Server: what single-file HTML can do, from explainers and diagrams to small tools. Many were made with the <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a> skills, and those name their skill at the top. Open one, or use it as a starting point for your own. <a href="/docs/about">Why HTML?</a></p>`
     : '';
   // Search, filters, sorting and layouts ask the server for the cards again.
   const controls = STATIC_SITE ? '' : `<form id="search" role="search" data-base="${base}"><input id="q" name="q" value="${esc(q)}" placeholder="${folder ? 'Search this folder' : section === 'gallery' ? 'Search examples' : 'Search pages'}" autocomplete="off" autofocus>
@@ -561,7 +546,7 @@ function skillLine(slug) {
 }
 
 export function exampleFramePage(e) {
-  return shell(`${e.title} · HTML Server`, `${siteNav('gallery', { example: e.slug })}<main class="center framed">
+  return shell(`${e.title} · HTML Server`, `${siteNav('gallery')}<main class="center framed">
 <header class="frame-head"><div class="frame-title">
 <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="/gallery" target="_top">Gallery</a><span class="sep" aria-hidden="true">❯</span><span aria-current="page">${esc(e.title)}</span></nav>
 <h1 class="article-title">${esc(e.title)}</h1>
@@ -723,6 +708,63 @@ td.del{background:var(--del);color:var(--deltx)}td.ins{background:var(--ins);col
 .gap td{text-align:center;color:var(--mute);padding:.4rem}
 .back{display:block;padding:.6rem .75rem;border-bottom:1px solid var(--line);color:inherit;font-size:13px}.same{padding:1.5rem;color:var(--mute)}
 </style></head><body>${back ? `<a class="back" href="${esc(back)}" target="_top">← History</a>` : ''}${body}</body></html>`;
+}
+
+/**
+ * About HTML Server, as Markdown: why HTML (Thariq Shihipar's essay), why a server for it,
+ * and the effective-html skills the gallery's examples were made with, listed from SKILLS
+ * so the table can't drift. Served at /docs/about (and /docs/about.md), linked from the top bar.
+ */
+export function aboutMarkdown() {
+  const ESSAY = 'https://claude.dev/blog/using-claude-code-the-unreasonable-effectiveness-of-html/';
+  const skills = SKILLS.map((s) => `| [${s.name}](${SKILLS_REPO}/tree/main/skills/${s.name}) | ${s.use} | ${
+    s.examples.map(([f, label]) => `[${label}](/gallery/${f})`).join(' · ')} |`).join('\n');
+  return `HTML Server hosts the pages you and your AI agents make (HTML pages, Markdown notes and
+Jupyter notebooks), gives each one an address, and keeps every version. It's open source,
+MIT-licensed: [${REPO_URL.replace('https://', '')}](${REPO_URL}).
+
+## Why HTML
+
+In [The unreasonable effectiveness of HTML](${ESSAY}) (claude.dev, May 2026), Thariq Shihipar
+suggests one change of habit: when you ask Claude Code for a plan, a spec, a review or a
+report, ask for an HTML file instead of Markdown. His reasons, briefly:
+
+- **Long Markdown goes unread.** A plan hundreds of lines long gets skimmed at best; a page
+  with sections, tabs and a diagram gets read.
+- **HTML carries more:** tables, figures, real diagrams, options side by side, code and
+  controls, where Markdown falls back on ASCII boxes.
+- **Hand-editing matters less now.** Markdown's strength was being easy to edit by hand,
+  which counts for less when the agent drafts and revises.
+- **A page can answer back.** Sliders, toggles and copy buttons let the reader adjust a
+  choice and hand it straight back to the agent.
+- **It's worth the tokens.** HTML costs more to generate, and he finds the gain in quality,
+  and in how much gets read, worth it.
+
+The gallery has [a one-page summary](/gallery/featured-unreasonable-effectiveness-of-html.html),
+with an example of each kind of page the essay describes. Read the essay itself for his.
+
+## Why a server
+
+An HTML file on your laptop is easy to make and hard to share: it has no address and no
+history, and nobody else can find it. HTML Server gives each page:
+
+- **An address** to send, public or private (a private page has a share link).
+- **Every version,** with diffs, restore, and comments on each, so a page can be reviewed
+  the way code is.
+- **Search, links and a graph** across everything: backlinks, hover previews and each
+  page's local graph, so pages find each other.
+- **Many ways in:** **Upload** in the browser, the \`html-server\` command line, Claude and
+  other AI apps over MCP, and the HTTP API. See [Docs](/docs).
+
+## Making good pages: effective-html
+
+[effective-html](${SKILLS_REPO}) (MIT) is a set of agent skills for pages like these. Each
+example in the [Gallery](/gallery) made with one says so at the top, linked to its skill.
+
+| Skill | What it makes | Examples |
+| --- | --- | --- |
+${skills}
+`;
 }
 
 /**

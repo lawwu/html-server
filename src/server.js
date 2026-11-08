@@ -7,7 +7,7 @@ import {
   CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
+import { VIEWS, aboutMarkdown, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
 import { renderMarkdown, safeDecode } from './markdown.js';
 import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
@@ -46,6 +46,8 @@ export const ROUTES = [
   ['GET', '/docs/?', 'docs', 'anyone', 'This page: using HTML Server from the command line, MCP and HTTP'],
   ['GET', '/api/?', 'docs', 'anyone', 'The same page'],
   ['GET', '/docs\\.md', 'docsSource', 'anyone', 'This page as Markdown'],
+  ['GET', '/docs/about', 'about', 'anyone', 'About HTML Server: why HTML, why a server for it, and the effective-html skills the gallery\'s examples were made with'],
+  ['GET', '/docs/about\\.md', 'aboutSource', 'anyone', null],
   ['GET', '/api/docs\\.md', 'docsSource', 'anyone', null],
   ['GET', '/_static/(?<file>[\\w.-]+)', 'static', 'anyone', null],
   ['GET', '/_static/fonts/(?<font>[\\w.-]+\\.woff2)', 'font', 'anyone', null],
@@ -522,6 +524,8 @@ const handlers = {
   },
   docs(c) { c.html(markdownPage({ title: 'Docs', md: c.docs(), active: 'docs', sourceUrl: '/docs.md' })); },
   docsSource(c) { c.send(200, 'text/markdown; charset=utf-8', c.docs()); },
+  about(c) { c.html(markdownPage({ title: 'About', md: aboutMarkdown(), active: 'about', sourceUrl: '/docs/about.md' })); },
+  aboutSource(c) { c.send(200, 'text/markdown; charset=utf-8', aboutMarkdown()); },
   font(c, { font }) {
     let body;
     try { body = fileBytes(`public/fonts/${font}`); } catch { throw new ApiError(404, 'not found'); }

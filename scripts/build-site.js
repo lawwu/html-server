@@ -38,6 +38,8 @@ function siteMap() {
     ['/pages/CHANGELOG.md', 'changelog.html'],
     ['/docs', 'docs.html'],
     ['/docs.md', 'docs.md'],
+    ['/docs/about', 'about.html'],
+    ['/docs/about.md', 'about.md'],
     ['/gallery', 'gallery/index.html'],
     // Each example, and the copy its gallery card shows (?preview=1: no contents sidebar).
     ...examples().flatMap((e) => [[e.url, `gallery/${e.slug}`], [`${e.url}?preview=1`, `gallery/preview/${e.slug}`]]),

@@ -228,7 +228,7 @@ test('sign out: the top bar names who is signed in and forgets the token; notes 
 
 test('the top bar: the same sections on every page, and still there with the sidebar hidden', async () => {
   const sections = () => page.getByRole('navigation', { name: 'Site' }).getByRole('link').allTextContents();
-  const want = ['Pages', 'Graph', 'Stats', 'Gallery', 'Docs'];
+  const want = ['Pages', 'Graph', 'Stats', 'Gallery', 'Docs', 'About'];
   for (const path of ['/', '/stats', '/docs', '/pages/alpha.md', '/pages/links.html', '/review/alpha.md']) {
     await page.goto(base + path);
     assert.deepEqual(await sections(), want, path);
@@ -241,20 +241,16 @@ test('the top bar: the same sections on every page, and still there with the sid
   assert.equal(await page.locator('#left-sidebar').isHidden(), true); // the choice is kept
   await page.getByRole('button', { name: 'Show the sidebar' }).click();
   assert.equal(await page.locator('#left-sidebar').isVisible(), true);
-  // Pages with nothing for a sidebar have none, and no button for one; Skills are the gallery's.
-  for (const path of ['/stats', '/graph', '/docs']) {
+  // Pages with nothing for a sidebar (no explorer of your pages) have none, and no button for one.
+  for (const path of ['/stats', '/graph', '/docs', '/docs/about', '/gallery', '/gallery/ab-test-readout.html']) {
     await page.goto(base + path);
     assert.deepEqual([await page.locator('#left-sidebar').count(), await page.locator('.sidebar-toggle').count()], [0, 0], path);
-  }
-  for (const [path, skills] of [['/', 0], ['/pages/alpha.md', 0], ['/gallery', 1], ['/gallery/ab-test-readout.html', 1]]) {
-    await page.goto(base + path);
-    assert.equal(await page.locator('#left-sidebar .skills').count(), skills, path);
   }
 });
 
 test('a sidebar longer than the window scrolls; its sections never overlap', async () => {
-  await page.setViewportSize({ width: 1280, height: 300 }); // shorter than the skills with a folder open
-  for (const path of ['/gallery/ab-test-readout.html', '/pages/alpha.md']) {
+  await page.setViewportSize({ width: 1280, height: 200 }); // shorter than the explorer
+  for (const path of ['/', '/pages/alpha.md']) {
     await page.goto(base + path);
     const boxes = await page.locator('.sidebar > *:visible').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return [r.top, r.bottom, e.scrollHeight <= Math.ceil(r.height)]; }));
     boxes.forEach(([, bottom, fits], i) => {
@@ -262,7 +258,7 @@ test('a sidebar longer than the window scrolls; its sections never overlap', asy
       if (boxes[i + 1] && boxes[i + 1][0] < boxes[i][0] + 1) return; // the right sidebar starts its own column
       if (boxes[i + 1]) assert.ok(bottom <= boxes[i + 1][0], `${path}: section ${i} runs into the next`);
     });
-    if (path.startsWith('/gallery')) assert.equal(await page.locator('.sidebar.left').evaluate((s) => s.scrollHeight > s.clientHeight), true, path);
+    assert.equal(await page.locator('.sidebar.left').evaluate((s) => s.scrollHeight > s.clientHeight), true, path);
   }
 });
 
@@ -270,7 +266,7 @@ for (const colorScheme of ['light', 'dark']) {
   test(`375px ${colorScheme}: no horizontal overflow, contrast or ARIA regressions`, async () => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.emulateMedia({ colorScheme });
-    for (const path of ['/', '/docs', '/stats', '/pages/alpha.md', '/review/alpha.md']) {
+    for (const path of ['/', '/docs', '/docs/about', '/stats', '/pages/alpha.md', '/review/alpha.md']) {
       await page.goto(base + path);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, path);
       const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();

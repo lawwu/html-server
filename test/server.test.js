@@ -820,20 +820,25 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match((await req('GET', '/gallery'))[1], /Featured <span>1<\/span>[^]*?Maps of content <span>3<\/span>[^]*?Architecture/);
 });
 
-test('skills: the gallery\'s sidebar lists effective-html\'s skills with their examples, which open in the frame', async () => {
-  const [, stats] = await req('GET', '/gallery'); // the gallery's pages only: your pages' sidebar is your explorer
-  for (const path of ['/', '/stats', '/docs']) assert.doesNotMatch((await req('GET', path))[1], /class="explorer skills"/, path);
+test('about and skills: /docs/about lists effective-html\'s skills with their examples, each of which names its skill', async () => {
+  const [aboutStatus, about] = await req('GET', '/docs/about');
+  assert.equal(aboutStatus, 200);
+  assert.match(about, /<h1 class="article-title">About<\/h1>/);
+  assert.match(about, /<a href="https:\/\/claude.dev\/blog\/using-claude-code-the-unreasonable-effectiveness-of-html\/">The unreasonable effectiveness of HTML<\/a>/);
+  assert.match(about, /<a href="\/gallery\/featured-unreasonable-effectiveness-of-html.html">a one-page summary<\/a>/);
+  assert.match(about, /<a href="\/docs\/about" target="_top" class="on" aria-current="page">About<\/a>/); // in the top bar
+  assert.match((await req('GET', '/docs/about.md'))[1], /^HTML Server hosts the pages/);
+  for (const path of ['/', '/gallery', '/stats']) assert.doesNotMatch((await req('GET', path))[1], /class="explorer skills"/, path); // no Skills sidebar
+  assert.match((await req('GET', '/gallery'))[1], /made with the <a href="https:\/\/github.com\/plannotator\/effective-html"[^>]*>effective-html<\/a> skills[^<]*<a href="\/docs\/about">Why HTML\?<\/a>/);
   const esc = (t) => t.replace(/'/g, '&#39;');
   for (const s of SKILLS) {
-    assert.match(stats, new RegExp(`<summary title="${s.use}"><svg[^]*?</svg><span>${s.name}</span></summary>`), s.name);
-    assert.ok(stats.includes(`<a class="ext" href="${SKILLS_REPO}/tree/main/skills/${s.name}" target="_blank" rel="noopener">The skill ↗</a>`), s.name);
+    assert.ok(about.includes(`<a href="${SKILLS_REPO}/tree/main/skills/${s.name}">${s.name}</a>`), s.name);
     assert.ok(s.examples.length >= 2, s.name); // at least one on data or ML, one on Claude Code
     for (const [file, label] of s.examples) {
-      assert.ok(stats.includes(`<a href="/gallery/${file}" target="_top">${esc(label)}</a>`), file);
+      assert.ok(about.includes(`<a href="/gallery/${file}">${esc(label)}</a>`), file);
       assert.equal(examples().find((e) => e.slug === file)?.category, 'effective-html', file); // shipped, in the gallery's group
     }
   }
-  assert.match(stats, /<a href="\/gallery\?category=effective-html" target="_top">all examples<\/a>/);
   const [, group] = await req('GET', '/gallery?category=effective-html');
   assert.equal(group.match(/<article class="card/g).length, 18);
   assert.match(group, /Effective HTML <span>18<\/span>/);
@@ -848,8 +853,7 @@ test('skills: the gallery\'s sidebar lists effective-html\'s skills with their e
   assert.equal(frameCsp, null); // the server's own page; the example inside stays sandboxed
   assert.match(frame, /<iframe class="page-frame auto" src="\/gallery\/ab-test-readout.html\?embed=1" title="[^"]+"><\/iframe>/);
   assert.match(frame, /<nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="\/gallery" target="_top">Gallery<\/a>/);
-  assert.match(frame, /<details open>\n<summary title="Reports, explainers, data stories and small tools">/);
-  assert.match(frame, /<a href="\/gallery\/ab-test-readout.html" target="_top" class="on" aria-current="page">A\/B test readout<\/a>/);
+  assert.doesNotMatch(frame, /id="left-sidebar"/); // the gallery's pages take the whole width
   assert.match(frame, /<a class="tag-link" href="\/gallery\?category=effective-html">Effective HTML<\/a>/);
   // Over each example, the skill it shows, linked to the skill itself; other gallery pages have no such line.
   for (const s of SKILLS) for (const [file] of s.examples) {

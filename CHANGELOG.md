@@ -20,13 +20,18 @@ couldn't be migrated would be a major version.
   comments, Select or Move), the top bar says who you're signed in as, with **Sign out** to
   forget it. Sandboxed note pages, which can't read the token, don't show it.
 - **A bar across the top of every page,** with the site's name and version, its sections
-  (Pages, Graph, Stats, Gallery, Docs), search, the light/dark switch and who's signed in.
-  The left sidebar is for content: your pages' explorer, or on the Gallery's pages the
-  Skills, which no longer sit under your own pages. Stats, Graph, Docs and History have no
-  sidebar and use the whole width. Hiding the sidebar no longer hides the
+  (Pages, Graph, Stats, Gallery, Docs, About), search, the light/dark switch and who's
+  signed in. The left sidebar is your pages' explorer, on the home page and your pages; the
+  Gallery, Stats, Graph, Docs and History have none and use the whole width. Hiding the
+  sidebar no longer hides the
   navigation, and the review page gets the same links as the rest of the site. The Random
   link is gone; `/random` still opens a random page.
-- **A long explorer no longer runs over Skills** in the sidebar. With more pages than fit on
+- **About** (`/docs/about`, in the top bar): why HTML, from Thariq Shihipar's essay "The
+  unreasonable effectiveness of HTML", why a server for it, and effective-html's eight
+  skills with the gallery's examples of each. It replaces the sidebar's Skills section;
+  each of those examples still names its skill, linked, at the top. It lives under `/docs`
+  so it takes no name from pages or folders.
+- **A long explorer no longer runs over the next section** in the sidebar. With more pages than fit on
   screen, the explorer was squeezed to the window's height and its list drew on top of the
   next section; now the sidebar scrolls instead. The same goes for the contents and
   backlinks in a note's right sidebar.
