@@ -20,9 +20,10 @@ couldn't be migrated would be a major version.
   comments, Select or Move), the top bar says who you're signed in as, with **Sign out** to
   forget it. Sandboxed note pages, which can't read the token, don't show it.
 - **A bar across the top of every page,** with the site's name and version, its sections
-  (Pages, Random, Graph, Stats, Gallery, Docs), search, the light/dark switch and who's
-  signed in. The left sidebar keeps the explorer and Skills. Hiding the sidebar no longer
-  hides the navigation, and the review page gets the same links as the rest of the site.
+  (Pages, Graph, Stats, Gallery, Docs), search, the light/dark switch and who's signed in.
+  The left sidebar keeps the explorer and Skills. Hiding the sidebar no longer hides the
+  navigation, and the review page gets the same links as the rest of the site. The Random
+  link is gone; `/random` still opens a random page.
 - **A Docker image for each release,** `ghcr.io/lawwu/html-server`: Debian 13 (trixie) and
   Node 24, for amd64 and arm64, with the PostgreSQL driver built in and the data in a
   `/data` volume. Each one is run on both architectures, with SQLite and with PostgreSQL,

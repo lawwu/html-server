@@ -1018,7 +1018,7 @@ test('an HTML page opened in a browser tab gets the frame; iframes, clients and 
   // ⌘K inside the page opens search, and links it follows open in the tab: the page tells the frame, which checks the viewer clicked.
   assert.match(embedded, /<script data-html-server-in-frame>[^]*tell\('search'\)[^]*tell\('go', \{ href: url.href \}\)/);
   assert.match(frame, /if\(d.htmlServer==='go'\)[^<]*navigator.userActivation\?.isActive===true\)location.assign\(u.href\)/);
-  assert.match(frame, /<li><a href="\/random\?not=framed.html" target="_top">Random<\/a><\/li>/); // never the page you're on
+  assert.match(frame, /<nav class="site-nav" aria-label="Site"><ul><li><a href="\/" target="_top" class="on" aria-current="page">Pages<\/a><\/li><li><a href="\/graph"/); // no Random link: /random still works
   assert.doesNotMatch(embedded, /data-artifact-toc-script|data-artifact-version-badge/);
   await put('app.html', '<html><head><meta name="html-server-frame" content="window"></head><body>app</body></html>');
   const [app] = await get('/pages/app?embed=1', 'iframe'); // a page can ask to stay at window height
@@ -1027,7 +1027,7 @@ test('an HTML page opened in a browser tab gets the frame; iframes, clients and 
   const [note] = await get('/pages/Points', 'document'); // notes are already pages of the site
   assert.match(note, /<h1 class="article-title">Points<\/h1>/);
   assert.doesNotMatch(note, /<iframe class="page-frame"/);
-  assert.match(note, /<a href="\/random\?not=Points.md" target="_top">Random<\/a>/);
+  assert.doesNotMatch(note, />Random<\/a>/);
 });
 
 test('random: a page you can see, never the one you are on unless it is the only one', async () => {

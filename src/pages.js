@@ -118,10 +118,9 @@ const ICONS = {
  * light/dark switch and who's signed in. Links use target="_top" so they work from a framed
  * note too. `search: false` on the home page, which has its own search box.
  */
-export function topBar(active, { current = null, search = !STATIC_SITE, sidebar = true } = {}) {
+export function topBar(active, { search = !STATIC_SITE, sidebar = true } = {}) {
   const item = (href, label, key) => `<li><a href="${href}" target="_top"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a></li>`;
-  const random = `/random${current ? `?not=${encodeURIComponent(current)}` : ''}`; // never the page you're on, unless it's the only one
-  const live = STATIC_SITE ? '' : item('/', 'Pages', 'pages') + item(random, 'Random', 'random') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
+  const live = STATIC_SITE ? '' : item('/', 'Pages', 'pages') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
   const theme = `<button type="button" class="icon-btn" data-theme-toggle aria-label="Switch light or dark">${ICONS.sun}${ICONS.moon}</button>`;
   const hide = sidebar ? `<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"
   aria-label="Hide the sidebar" title="Hide the sidebar">${ICONS.sidebar}</button>` : '';
@@ -137,7 +136,7 @@ export function topBar(active, { current = null, search = !STATIC_SITE, sidebar 
  * skills, laid out like Quartz's.
  */
 export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE, example = null } = {}) {
-  return `${topBar(active, { current, search })}<aside class="sidebar left" id="left-sidebar">
+  return `${topBar(active, { search })}<aside class="sidebar left" id="left-sidebar">
 ${explorer ? explorerNav(explorer, current) : ''}
 ${skillsNav(example)}
 </aside>`;

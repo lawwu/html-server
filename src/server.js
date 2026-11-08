@@ -32,7 +32,7 @@ export const ROUTES = [
     `Totals, views and uploads over time, the most popular pages (most visits over the last ${POPULAR_WEEKS} weeks; \`?weeks=\` 1-${POPULAR_MAX_WEEKS} or \`all\`), the most edited, tags, recent uploads`],
   ['GET', '/api/stats', 'statsData', 'anyone*', 'The same numbers as JSON (the same `?weeks=`)'],
   ['GET', '/random', 'random', 'anyone*',
-    'Go to a random page you can see (a redirect). `?folder=` or `?category=` picks one in a folder or with a tag; `?not=<name>` skips that page (the sidebar\'s Random link skips the page you\'re on)'],
+    'Go to a random page you can see (a redirect). `?folder=` or `?category=` picks one in a folder or with a tag; `?not=<name>` skips that page'],
   ['GET', '/api/stats/usage', 'usageData', 'admin',
     'API usage, last 30 days (`?days=365`, or `?days=all`): calls by kind of client (MCP, CLI, browser, other HTTP), over time, the most used MCP tools and CLI commands, the busiest routes, errors. Details are kept 90 days, daily totals for good'],
   ['GET', '/stats/usage', 'usage', 'admin', null], // the same, as the section /stats shows admins

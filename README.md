@@ -349,7 +349,7 @@ typefaces (Schibsted Grotesk, Source Sans 3, IBM Plex Mono, served from this ser
 the SIL Open Font License, licences in `public/fonts`) and its three-column layout.
 
 - **Top bar** on every page: the title, the running version (linking to its release), the
-  site's sections (Pages, Random, Graph, Stats, Gallery, Docs), search, a light/dark switch,
+  site's sections (Pages, Graph, Stats, Gallery, Docs), search, a light/dark switch,
   and who you're signed in as, with **Sign out**. It's on the review page too.
 - **Left sidebar** under it: an **explorer** of folders and pages, and **Skills**. The
   button at the top bar's left hides it and brings it back, and the choice is kept like
@@ -358,9 +358,9 @@ the SIL Open Font License, licences in `public/fonts`) and its three-column layo
 - **Skills:** the eight skills of [effective-html](https://github.com/plannotator/effective-html)
   (agent skills for HTML artifacts), each with two examples in the gallery, one on data
   or machine learning and one on Claude Code, and a link to the skill itself.
-- **Random:** opens a random page you can see, never the one you're on (unless it's the
-  only one). `/random?folder=research` or `/random?category=trips` picks one in a folder
-  or with a tag.
+- **A random page:** `/random` opens a random page you can see (there's no link to it;
+  bookmark it). `/random?folder=research` or `/random?category=trips` picks one in a
+  folder or with a tag, and `?not=NAME` skips a page.
 - **Search from anywhere:** ⌘K, Ctrl+K or `/` opens a search box with live results;
   arrows move, Enter opens. Inside an HTML page in the frame, ⌘K and Ctrl+K do too. On
   the home page the same keys go to its own search box, which filters the cards instead,
@@ -960,7 +960,7 @@ with a throwaway database holding `README.md` and `CHANGELOG.md` as notes, and s
 it answers: the README is a note, with its explorer, local graph, contents and backlinks,
 and the Docs page is built from the code as on every server. Links are made relative, so
 the site works under any path. What needs a running server is left out: ⌘K search, page
-versions, history and comments, the Pages, Random, Graph and Stats sections, and the gallery's
+versions, history and comments, the Pages, Graph and Stats sections, and the gallery's
 search, filters and layouts. Hover previews, the local graph, **Copy markdown** and
 light/dark work as on a server, since what they need is in the page. Then every link is
 checked for static HTML `href`/`src`/`action` attributes, CSS URLs and generated graph/preview

@@ -228,7 +228,7 @@ test('sign out: the top bar names who is signed in and forgets the token; notes 
 
 test('the top bar: the same sections on every page, and still there with the sidebar hidden', async () => {
   const sections = () => page.getByRole('navigation', { name: 'Site' }).getByRole('link').allTextContents();
-  const want = ['Pages', 'Random', 'Graph', 'Stats', 'Gallery', 'Docs'];
+  const want = ['Pages', 'Graph', 'Stats', 'Gallery', 'Docs'];
   for (const path of ['/', '/stats', '/docs', '/pages/alpha.md', '/pages/links.html', '/review/alpha.md']) {
     await page.goto(base + path);
     assert.deepEqual(await sections(), want, path);
