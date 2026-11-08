@@ -28,7 +28,7 @@ itself (see [The docs site](#the-docs-site)).
 ## Contents
 
 - [Install and run](#install-and-run)
-- [Publishing: CLI, AI apps, curl](#publishing-cli-ai-apps-curl)
+- [Publishing: the browser, CLI, AI apps, curl](#publishing-the-browser-cli-ai-apps-curl)
 - [What you can host](#what-you-can-host): [HTML pages](#html-pages), [Markdown notes](#markdown-notes), [Jupyter notebooks](#jupyter-notebooks), [syncing a folder or Quartz repo](#syncing-a-folder-or-quartz-repo)
 - [The site](#the-site)
 - [Versions, history and review](#versions-history-and-review)
@@ -80,7 +80,17 @@ not run a server? [Deploy to Cloudflare](#deploy-to-cloudflare).
 In Claude Code, `.claude/launch.json` has an `html-server` entry that starts it in the
 browser pane.
 
-## Publishing: CLI, AI apps, curl
+## Publishing: the browser, CLI, AI apps, curl
+
+**The browser.** Press **Upload** on the home page, or drop files anywhere on it: HTML
+pages, Markdown notes and notebooks, and the images and PDFs notes embed. Pick a folder (on
+a folder's own page it starts there), add a version note, and tick **Private** if a page
+should be. A file you already have becomes a new version. Each name comes from its file,
+with spaces as dashes (`Trip Plan.html` becomes `Trip-Plan.html`), and can be changed before
+uploading. The first time, paste your token; the browser keeps it for this site, as it does
+for comments, until you press **Sign out** in the sidebar. Nothing to install, so it suits a server running in [Docker](#docker) or on
+[Cloudflare](#deploy-to-cloudflare). A whole folder, kept in step as it changes, is `sync`'s
+job (below).
 
 **The CLI:**
 
@@ -491,9 +501,12 @@ stores only its hash.
 - **The CLI** keeps it in `~/.html-server/credentials.json` after `login` (or after the
   first `serve` on the server's own machine).
 - **curl, scripts and agents** send it as `Authorization: Bearer <token>`.
-- **In a browser,** reading needs no sign-in. To comment, a reviewer clicks **Sign in to
-  comment** on the review page and pastes their token once; it's kept in that browser's
-  storage for this site only, out of reach of the sandboxed pages.
+- **In a browser,** reading needs no sign-in. To upload, comment or change pages, paste the
+  token once: into **Upload** or **Select** on the home page, or **Sign in to comment** on
+  a review page. It's kept in that browser's storage for this site only, out of reach of
+  the sandboxed pages. While it's there the sidebar says who you're signed in as, with
+  **Sign out** to forget it (on a review page, Sign out is next to your name). The token
+  still works everywhere else; to stop it working, replace it (`POST /api/me/token`).
 
 **A new user:** an admin runs `html-server create-user bob` (on the server) or
 `POST /api/users`, and sends bob the token over a private channel; bob runs
@@ -528,7 +541,8 @@ docker run -d --name html-server --restart unless-stopped \
   inside the container. The server runs as the image's `node` user (uid 1000), so a
   folder mounted there instead of a volume must be writable by it.
 - **The first start** on an empty volume makes an admin named `node` and signs the
-  container's CLI in. For yourself, make an admin and sign your own CLI in with its token:
+  container's CLI in. For yourself, make an admin, then paste its token into **Upload** on
+  the home page, or sign your own CLI in with it:
   ```bash
   docker exec html-server html-server create-user alice --admin   # prints the token once
   html-server login                                               # http://127.0.0.1:8765 and that token
@@ -918,7 +932,7 @@ ones change:
 | `src/deploy.js` | `html-server deploy cloudflare` |
 | `src/config.js` | Every tunable constant, with the reason for its value |
 | `cloudflare/`, `wrangler.toml` | The Cloudflare Worker and Durable Object, its SQLite adapter, its upload limit, and the file bundler |
-| `public/` | Browser code and styles: search, previews, graphs, the contents sidebar, frame sizing, copy buttons; `fonts/` with their licences |
+| `public/` | Browser code and styles: search, previews, graphs, the contents sidebar, frame sizing, copy buttons, the upload dialog (`upload.js`); `fonts/` with their licences |
 | `gallery/` | The example pages shown at `/gallery` |
 | `test/` | `npm test`: units, the HTTP API end to end with a fresh database per test, the CLI, MCP, Markdown, notebooks, the Cloudflare and PostgreSQL adapters and the docs site; `fixture.js` runs them on SQLite, or on PostgreSQL with `TEST_DATABASE_URL` |
 | `scripts/build-site.js` | The docs site: this README, the Docs page, the changelog and the gallery as static pages (`npm run site`) |

@@ -8,6 +8,18 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Upload from the browser.** The home page has an **Upload** button, and files dropped
+  anywhere on it open the same dialog: HTML pages, Markdown notes and notebooks, and the
+  images and PDFs notes embed. Choose the folder (a folder's page starts there), add a
+  version note, tick Private; names come from the files, spaces as dashes, and can be
+  changed first. It signs in with the token the site already keeps for comments, so
+  publishing needs nothing installed. The CLI is unchanged, and `sync` is still the way to
+  bring over a folder. On a phone, the home page's controls now wrap instead of running off
+  the edge.
+- **Sign out in the browser.** When this browser has your token saved (for uploads,
+  comments, Select or Move), the sidebar says who you're signed in as, with **Sign out** to
+  forget it; on a review page it's next to your name. Sandboxed note pages, which can't read
+  the token, don't show it.
 - **A Docker image for each release,** `ghcr.io/lawwu/html-server`: Debian 13 (trixie) and
   Node 24, for amd64 and arm64, with the PostgreSQL driver built in and the data in a
   `/data` volume. Each one is run on both architectures, with SQLite and with PostgreSQL,

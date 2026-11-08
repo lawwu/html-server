@@ -136,3 +136,24 @@ test('Myers\' diff finds a shortest edit, as the table does, in memory for the l
   // Versions with almost nothing in common: given up on within the work limit.
   assert.throws(() => opcodes(big, big.map((l) => `${l}!`)), (e) => e.status === 422 && /too many changes to show/.test(e.message));
 });
+
+test('browser uploads suggest a name the server takes (public/upload.js)', async () => {
+  const { cleanName } = await import('../public/upload.js');
+  const { SLUG_RE } = await import('../src/config.js');
+  const cases = {
+    'Trip Plan.html': 'Trip-Plan.html',
+    '  weekly   review.md ': 'weekly-review.md',
+    'Über uns (draft).md': 'Über-uns-draft.md',
+    '日本語 メモ.md': '日本語-メモ.md',
+    '_notes.md': 'notes.md',
+    'report #3.ipynb': 'report-3.ipynb',
+    '???': 'page.html',
+  };
+  for (const [from, to] of Object.entries(cases)) {
+    assert.equal(cleanName(from), to, from);
+    assert.match(cleanName(from), SLUG_RE, from);
+  }
+  const long = cleanName(`${'a'.repeat(150)}.html`);
+  assert.equal(long, `${'a'.repeat(95)}.html`); // shortened, keeping its extension
+  assert.match(long, SLUG_RE);
+});

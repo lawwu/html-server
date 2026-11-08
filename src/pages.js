@@ -41,6 +41,20 @@ export const footer = () => `<footer class="site-foot"><a href="${RELEASE_URL}">
 // and `sidebar`). Runs in <head> so the page never flashes the other way.
 export const PREFS_HEAD = `<script>try{const r=document.documentElement,t=localStorage.getItem('theme');if(t)r.dataset.theme=t;
 if(localStorage.getItem('sidebar')==='hidden')r.dataset.sidebar='hidden'}catch{}</script>`;
+// Who this browser is signed in as, and Sign out: the sidebar's line, shown only where the
+// page can read the saved token. A sandboxed note can't (its storage throws), so there it
+// stays hidden. The name is fetched once per token and kept beside it, so pages don't each
+// call /api/me. Sign out forgets both; any [data-sign-out] button does it (the review page
+// adds one). The token itself lives with the forms that ask for it (gallery, upload, review).
+const SESSION_LINE = '<p class="session" data-session hidden><span data-session-who>Signed in</span> · <button type="button" class="link-btn" data-sign-out>Sign out</button></p>';
+const SESSION_SCRIPT = `document.addEventListener('click',(e)=>{if(!e.target.closest('[data-sign-out]'))return;
+try{localStorage.removeItem('artifact_token');localStorage.removeItem('artifact_user')}catch{}location.reload()});
+document.querySelectorAll('[data-session]').forEach((p)=>{let t='';try{t=localStorage.getItem('artifact_token')||''}catch{return}if(!t)return;
+const who=p.querySelector('[data-session-who]'),tail=t.slice(-8),show=(n)=>{who.textContent='Signed in as '+n};p.hidden=false;
+let saved=null;try{saved=JSON.parse(localStorage.getItem('artifact_user')||'null')}catch{}
+if(saved&&saved.tail===tail&&saved.name)return show(saved.name);
+fetch('/api/me',{headers:{Authorization:'Bearer '+t}}).then((r)=>{if(r.status===401)who.textContent='Signed in with a token this server no longer takes';return r.ok?r.json():null})
+.then((me)=>{if(!me)return;show(me.name);try{localStorage.setItem('artifact_user',JSON.stringify({tail,name:me.name}))}catch{}}).catch(()=>{})});`;
 // The switches, and on a phone the explorer starts closed. The sidebar's button says which way it goes.
 const SIDEBAR_SCRIPT = `<script>document.querySelectorAll('[data-theme-toggle]').forEach((b)=>b.addEventListener('click',()=>{
 const r=document.documentElement,dark=(r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))==='dark';
@@ -51,7 +65,8 @@ const label=()=>{const hidden=r.dataset.sidebar==='hidden';b.setAttribute('aria-
 label();b.addEventListener('click',()=>{const hide=r.dataset.sidebar!=='hidden';if(hide)r.dataset.sidebar='hidden';else delete r.dataset.sidebar;label();
 try{localStorage.setItem('sidebar',hide?'hidden':'shown')}catch{}
 try{document.cookie='sidebar='+(hide?'hidden':'shown')+'; path=/; max-age=31536000; samesite=lax'}catch{}})});
-if(matchMedia('(max-width: 800px)').matches)document.querySelectorAll('details.explorer').forEach((d)=>d.removeAttribute('open'));</script>`;
+if(matchMedia('(max-width: 800px)').matches)document.querySelectorAll('details.explorer').forEach((d)=>d.removeAttribute('open'));
+${SESSION_SCRIPT}</script>`;
 
 // Search (⌘K) and hover previews: inlined, since a sandboxed note may not load scripts.
 // Modules, so each keeps its own scope.
@@ -113,6 +128,7 @@ export function siteNav(active, { explorer = null, current = null, search = !STA
 <a class="gh" href="${RELEASE_URL}" target="_top" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a>${search ? '' : toggle}</div>
 ${search ? `<div class="side-row"><form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>${toggle}</div>` : ''}
 <nav class="side-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}</ul></nav>
+${STATIC_SITE ? '' : SESSION_LINE}
 ${explorer ? explorerNav(explorer, current) : ''}
 ${skillsNav(example)}
 </aside>`;
@@ -275,7 +291,9 @@ ${category ? `<input type="hidden" name="category" value="${esc(category)}">` : 
 ${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : ''}
 ${sort ? `<input type="hidden" name="sort" value="${esc(sort)}">` : ''}</form>
 <div class="bar2"><nav class="chips" aria-label="Categories">${chip('', 'All')}${categories.map((c) => chip(c.category, categoryLabel(c.category), c.count)).join('')}</nav>
-<div class="tools">${section === 'pages' ? sortControl({ q, category, view, sort, base, recursive }) + '<button type="button" id="select" class="select-btn">Select</button>' : ''}
+<div class="tools">${section === 'pages' ? sortControl({ q, category, view, sort, base, recursive })
+  + `<button type="button" id="upload" class="select-btn"${folder ? ` data-folder="${esc(folder)}"` : ''}>Upload</button>`
+  + '<button type="button" id="select" class="select-btn">Select</button>' : ''}
 <div class="views" role="group" aria-label="Layout">${toggle('grid', 'Grid view', grid)}${toggle('list', 'List view', list)}</div></div></div>`;
   return shell(folder ? `${folder} · HTML Server` : section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section, { explorer, search: false })}<main class="wrap">
 ${folder ? `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(folder + '/_', folder.split('/').at(-1), explorer || [], true)}</nav><h1>${esc(folder.split('/').at(-1))}</h1>
@@ -711,8 +729,14 @@ export function docsMarkdown(base, routes, { tools = [] } = {}) {
   return `# Docs
 
 [HTML Server v${VERSION}](${RELEASE_URL}) hosts, versions, searches and links HTML pages and Markdown notes.
-There are three ways in: the **command line**, **AI apps over MCP**, and the **HTTP API**. Source, changelog
-and every release: [${REPO_URL.replace('https://', '')}](${REPO_URL}). This page is Markdown: [/docs.md](/docs.md).
+There are four ways in: the **browser**, the **command line**, **AI apps over MCP**, and the **HTTP API**. Source,
+changelog and every release: [${REPO_URL.replace('https://', '')}](${REPO_URL}). This page is Markdown: [/docs.md](/docs.md).
+
+## Browser
+
+Press **Upload** on your server's home page, or drop files on it. HTML, Markdown and notebooks become pages (a file you
+already have gets a new version); images and PDFs become assets that notes embed by name. Paste your token the first
+time; the browser keeps it for this site. It sends the same requests as \`html-server put\` and \`PUT /api/assets/<name>\`.
 
 ## Command line
 

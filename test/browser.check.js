@@ -126,6 +126,103 @@ test('a search starting with no results reports its newly inserted card', async 
   assert.equal(await page.locator('.card:visible').count(), 1);
 });
 
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+/** Drop files on the page the way a browser does (a DataTransfer of Files), after dragging them in. */
+const drop = (files) => page.evaluate((files) => {
+  const dt = new DataTransfer();
+  for (const [name, body] of files) dt.items.add(new File([body], name));
+  document.body.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }));
+  const overlay = document.body.classList.contains('dropping');
+  document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  return overlay && !document.body.classList.contains('dropping');
+}, files);
+
+test('upload: choose files, sign in, publish, fix a refused name, and drop more', async () => {
+  await page.goto(base + '/');
+  await page.locator('#upload').click();
+  const dialog = page.locator('.upload-dialog');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'choose files');
+  await dialog.locator('input[type="file"]').setInputFiles([
+    { name: 'Browser Trip.html', mimeType: 'text/html', buffer: Buffer.from('<title>Browser trip</title><p>From the browser</p>') },
+    { name: 'diagram.png', mimeType: 'image/png', buffer: PNG },
+    { name: 'slides.pptx', mimeType: 'application/octet-stream', buffer: Buffer.from('x') },
+  ]);
+  assert.deepEqual(await dialog.locator('.upload-list input').evaluateAll((els) => els.map((e) => e.value)), ['Browser-Trip.html', 'diagram.png']);
+  await dialog.getByText('slides.pptx: not a page, image or PDF').waitFor();
+  await dialog.getByLabel('Version note').fill('from the dialog');
+  await dialog.getByRole('button', { name: 'Upload 2 files' }).click();
+  await dialog.getByText('Paste your sign-in token first.').waitFor(); // nothing sent
+  await dialog.getByLabel('Sign-in token').fill(token);
+  await dialog.getByRole('button', { name: 'Upload 2 files' }).click();
+  await dialog.getByText('Uploaded 2.').waitFor();
+  const meta = await (await fetch(base + '/api/artifacts/Browser-Trip.html')).json();
+  assert.deepEqual([meta.visibility, meta.versions.at(-1).note], ['public', 'from the dialog']);
+  const assets = await (await fetch(base + '/api/assets', { headers: { Authorization: `Bearer ${token}` } })).json();
+  assert.ok(assets.some((a) => a.name === 'diagram.png'));
+  await page.locator('.card[data-slug="Browser-Trip.html"]').waitFor(); // the cards behind are redrawn
+  assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), token);
+  assert.equal(await dialog.getByLabel('Sign-in token').isHidden(), true);
+  assert.equal(await page.locator('.session').isVisible(), true); // Sign out, from now on
+
+  // Files dropped while it's open join it; a refused name stays to be fixed and sent again.
+  assert.equal(await drop([['plan.md', '# Private plan']]), true);
+  const row = dialog.locator('.upload-list li').last();
+  await row.locator('input').fill('plan');
+  await dialog.getByLabel('Folder for pages').fill('trips');
+  await dialog.getByRole('checkbox', { name: /Private/ }).check();
+  await dialog.getByRole('button', { name: 'Upload', exact: true }).click();
+  await row.getByText(/needs its file extension/).waitFor();
+  await row.locator('input').fill('plan.md');
+  await dialog.getByRole('button', { name: 'Upload', exact: true }).click();
+  await dialog.getByText('Uploaded 1.').waitFor();
+  const href = await row.getByRole('link').getAttribute('href');
+  assert.match(href, /^\/v\//); // a private page opens by its share link: a new tab sends no token
+  assert.equal((await fetch(base + '/trips/plan.md')).status, 404);
+  assert.equal((await fetch(base + href)).status, 200);
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'detached' });
+
+  // Dropped on the page itself: the drop overlay, then the dialog with the file in it.
+  assert.equal(await drop([['dropped.html', '<p>Dropped</p>']]), true);
+  assert.equal(await dialog.locator('.upload-list input').inputValue(), 'dropped.html');
+});
+
+test('sign out: the sidebar names who is signed in and forgets the token; notes never show it', async () => {
+  const me = [];
+  page.on('request', (r) => { if (r.url().endsWith('/api/me')) me.push(r.url()); });
+  await page.goto(base + '/');
+  assert.equal(await page.locator('.session').isHidden(), true); // nobody signed in
+  await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
+  await page.goto(base + '/');
+  await page.locator('.session').getByText('Signed in as browser-owner').waitFor();
+  await page.goto(base + '/stats');
+  await page.locator('.session').getByText('Signed in as browser-owner').waitFor();
+  assert.equal(me.length, 1); // the name is asked once per token, not on every page
+  const axe = await new AxeBuilder({ page }).include('.session').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  assert.deepEqual(axe.violations.map((v) => v.id), []);
+  await page.goto(base + '/pages/alpha.md'); // sandboxed: can't read the token, so says nothing
+  assert.equal(await page.locator('.session').isHidden(), true);
+
+  await page.goto(base + '/');
+  await page.locator('.session').getByRole('button', { name: 'Sign out' }).click();
+  await page.waitForLoadState('load');
+  assert.deepEqual(await page.evaluate(() => [localStorage.getItem('artifact_token'), localStorage.getItem('artifact_user')]), [null, null]);
+  assert.equal(await page.locator('.session').isHidden(), true);
+
+  // The review page has no sidebar: Sign out sits beside the name.
+  await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
+  await page.goto(base + '/review/alpha.md');
+  await page.locator('#who').getByText('Signed in as browser-owner').waitFor();
+  await page.locator('#who').getByRole('button', { name: 'Sign out' }).click();
+  await page.locator('#who').getByText('Reading as a guest.').waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), null);
+
+  // A token the server no longer takes still shows the line, so it can be signed out.
+  await page.evaluate(() => localStorage.setItem('artifact_token', 'ak_revoked'));
+  await page.goto(base + '/');
+  await page.locator('.session').getByText('a token this server no longer takes').waitFor();
+});
+
 for (const colorScheme of ['light', 'dark']) {
   test(`375px ${colorScheme}: no horizontal overflow, contrast or ARIA regressions`, async () => {
     await page.setViewportSize({ width: 375, height: 812 });
@@ -136,5 +233,20 @@ for (const colorScheme of ['light', 'dark']) {
       const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
       assert.deepEqual(result.violations.map((v) => ({ id: v.id, targets: v.nodes.map((n) => n.target) })), [], path);
     }
+    // The upload dialog, with a file it can't take and an error showing.
+    await page.goto(base + '/');
+    await page.locator('#upload').click();
+    await page.locator('.upload-dialog input[type="file"]').setInputFiles([
+      { name: 'A long file name for a phone screen.html', mimeType: 'text/html', buffer: Buffer.from('<p>x</p>') },
+      { name: 'slides.pptx', mimeType: 'application/octet-stream', buffer: Buffer.from('x') },
+    ]);
+    await page.locator('.upload-dialog [type="submit"]').click(); // no token saved in this context
+    await page.locator('.upload-status.err').waitFor();
+    assert.equal(await page.evaluate(() => {
+      const d = document.querySelector('.upload-dialog');
+      return document.documentElement.scrollWidth <= innerWidth && d.scrollWidth <= d.clientWidth;
+    }), true, 'upload dialog');
+    const result = await new AxeBuilder({ page }).include('.upload-dialog').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    assert.deepEqual(result.violations.map((v) => ({ id: v.id, targets: v.nodes.map((n) => n.target) })), [], 'upload dialog');
   });
 }

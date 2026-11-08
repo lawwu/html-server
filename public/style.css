@@ -98,6 +98,9 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 .side-nav a { color: var(--text); font-weight: 400; font-size: .95rem; }
 .side-nav a:hover { color: var(--accent-hover); }
 .side-nav a.on { color: var(--accent); font-weight: 600; }
+.session { margin: 0; font-size: 13px; color: var(--mute); }
+.link-btn { padding: 0; border: 0; border-radius: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; }
+.link-btn:hover { color: var(--accent-hover); }
 /* explorer */
 .explorer { min-height: 0; }
 .explorer > summary, .toc > summary { display: flex; align-items: center; gap: .3rem; cursor: pointer; list-style: none;
@@ -283,6 +286,8 @@ details[open] > summary > .chev { rotate: 90deg; }
 .list .card.pinned { border-color: var(--line); }
 .tools { display: flex; gap: .5rem; flex: none; align-items: flex-start; }
 .select-btn { padding: .3rem .7rem; font-size: 13px; }
+/* On a phone the sort, Upload, Select and layout controls don't fit beside the tag chips. */
+@media (max-width: 600px) { .bar2, .tools { flex-wrap: wrap; } .tools { flex-shrink: 1; } }
 .card { position: relative; }
 .pick { display: none; position: absolute; z-index: 1; top: .55rem; left: .55rem; background: var(--card); border-radius: 6px;
   padding: .15rem .3rem; box-shadow: 0 1px 4px rgba(0,0,0,.2); cursor: pointer; }
@@ -491,3 +496,31 @@ details[open] > summary > .chev { rotate: 90deg; }
 .move-preview { max-height:12rem; overflow:auto; overflow-wrap:anywhere; padding-left:1.2rem; }
 .move-buttons { display:flex; justify-content:flex-end; gap:.7rem; }
 .move-error { color:#b42318; }
+/* Upload (public/upload.js): the dialog, and the whole page while files are dragged over it. */
+.upload-dialog .drop-zone { margin: 1rem 0; padding: .9rem 1rem; border: 2px dashed var(--line); border-radius: 10px; text-align: center; }
+.upload-dialog .drop-zone p { margin: .2rem 0; }
+.upload-dialog .drop-zone button { font-weight: 600; color: var(--accent); }
+.dropping .upload-dialog .drop-zone { border-color: var(--accent); background: var(--accent-soft); }
+.upload-list { list-style: none; padding: 0; margin: 0; }
+.upload-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .3rem .6rem;
+  padding: .5rem 0; border-bottom: 1px solid var(--line); }
+.upload-list li.skip { grid-template-columns: 1fr; }
+.upload-dialog .upload-list input { width: 100%; margin: 0; padding: .35rem .55rem; }
+.upload-list .meta { margin: 0; }
+.upload-list .ghost { border-color: transparent; color: var(--mute); padding: .1rem .55rem; }
+.upload-out { grid-column: 1 / -1; font-size: 13px; overflow-wrap: anywhere; }
+.upload-out:empty { display: none; }
+.upload-status { margin: .5rem 0 0; font-size: 14px; color: var(--mute); }
+.upload-status:empty { display: none; }
+.upload-out.err, .upload-list .skip .meta, .upload-status.err { color: #b42318; }
+.upload-dialog .upload-private { display: flex; gap: .55rem; align-items: flex-start; font-size: 14px; }
+.upload-dialog .upload-private input { display: inline; width: auto; flex: none; margin: .25rem 0 0; accent-color: var(--accent); }
+.dropping::after { content: "Drop files to upload"; position: fixed; inset: .75rem; z-index: 10; display: grid; place-items: center;
+  border: 3px dashed var(--accent); border-radius: 16px; background: color-mix(in srgb, var(--bg) 88%, transparent);
+  color: var(--fg); font: 600 1.4rem var(--head-font); pointer-events: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .move-error, :root:not([data-theme="light"]) .upload-out.err,
+  :root:not([data-theme="light"]) .upload-list .skip .meta, :root:not([data-theme="light"]) .upload-status.err { color: #ff8a7a; }
+}
+:root[data-theme="dark"] .move-error, :root[data-theme="dark"] .upload-out.err, :root[data-theme="dark"] .upload-list .skip .meta,
+:root[data-theme="dark"] .upload-status.err { color: #ff8a7a; }
