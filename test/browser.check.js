@@ -244,6 +244,20 @@ test('the top bar: the same sections on every page, and still there with the sid
   assert.equal(await page.locator('#left-sidebar').isVisible(), true);
 });
 
+test('a sidebar longer than the window scrolls; its sections never overlap', async () => {
+  await page.setViewportSize({ width: 1280, height: 360 }); // shorter than the explorer and skills together
+  for (const path of ['/', '/pages/alpha.md']) {
+    await page.goto(base + path);
+    const boxes = await page.locator('.sidebar > *:visible').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return [r.top, r.bottom, e.scrollHeight <= Math.ceil(r.height)]; }));
+    boxes.forEach(([, bottom, fits], i) => {
+      assert.ok(fits, `${path}: section ${i} is cut short`);
+      if (boxes[i + 1] && boxes[i + 1][0] < boxes[i][0] + 1) return; // the right sidebar starts its own column
+      if (boxes[i + 1]) assert.ok(bottom <= boxes[i + 1][0], `${path}: section ${i} runs into the next`);
+    });
+    assert.equal(await page.locator('.sidebar.left').evaluate((s) => s.scrollHeight > s.clientHeight), true, path);
+  }
+});
+
 for (const colorScheme of ['light', 'dark']) {
   test(`375px ${colorScheme}: no horizontal overflow, contrast or ARIA regressions`, async () => {
     await page.setViewportSize({ width: 375, height: 812 });

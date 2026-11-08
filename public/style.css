@@ -63,6 +63,8 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 .page > .site-foot { grid-column: 2; grid-row: 4; }
 .sidebar { position: sticky; top: 0; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column;
   gap: 1.2rem; padding: 1.75rem 2rem 2rem; overflow-y: auto; scrollbar-width: thin; }
+/* Sections keep their full height and the sidebar scrolls: shrunk to fit, a long explorer drew over Skills. */
+.sidebar > * { flex-shrink: 0; }
 .page > .wrap { max-width: none; margin: 0; padding: 1.75rem 2.5rem 3rem 1rem; }
 /* The top bar: the site's name and version, its sections, then search, light/dark and who's signed in. */
 .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem; padding: .65rem 1.5rem;
@@ -107,7 +109,6 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 .link-btn { padding: 0; border: 0; border-radius: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; }
 .link-btn:hover { color: var(--accent-hover); }
 /* explorer */
-.explorer { min-height: 0; }
 .explorer > summary, .toc > summary { display: flex; align-items: center; gap: .3rem; cursor: pointer; list-style: none;
   font: 600 1rem/1.4 var(--head-font); color: var(--fg); }
 .explorer summary::-webkit-details-marker, .toc summary::-webkit-details-marker { display: none; }

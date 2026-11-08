@@ -24,6 +24,10 @@ couldn't be migrated would be a major version.
   The left sidebar keeps the explorer and Skills. Hiding the sidebar no longer hides the
   navigation, and the review page gets the same links as the rest of the site. The Random
   link is gone; `/random` still opens a random page.
+- **A long explorer no longer runs over Skills** in the sidebar. With more pages than fit on
+  screen, the explorer was squeezed to the window's height and its list drew on top of the
+  next section; now the sidebar scrolls instead. The same goes for the contents and
+  backlinks in a note's right sidebar.
 - **A Docker image for each release,** `ghcr.io/lawwu/html-server`: Debian 13 (trixie) and
   Node 24, for amd64 and arm64, with the PostgreSQL driver built in and the data in a
   `/data` volume. Each one is run on both architectures, with SQLite and with PostgreSQL,
