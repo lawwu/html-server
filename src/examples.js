@@ -9,7 +9,8 @@ export const EXAMPLE_FILE_RE = /^[A-Za-z0-9][\w.-]*\.html$/;
 
 // The skills in plannotator/effective-html (MIT), what each is for, and the gallery's examples
 // of each: at least one on data, data science or machine learning, one on Claude Code (built
-// from its docs). The sidebar lists them under Skills; the examples' category is effective-html.
+// from its docs). Each example names its skill (pages.js skillLine); /about lists them all;
+// the examples' category is effective-html.
 export const SKILLS_REPO = 'https://github.com/plannotator/effective-html';
 export const SKILLS = [
   { name: 'html', use: 'Reports, explainers, data stories and small tools',

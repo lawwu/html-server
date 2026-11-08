@@ -41,19 +41,19 @@ export const footer = () => `<footer class="site-foot"><a href="${RELEASE_URL}">
 // and `sidebar`). Runs in <head> so the page never flashes the other way.
 export const PREFS_HEAD = `<script>try{const r=document.documentElement,t=localStorage.getItem('theme');if(t)r.dataset.theme=t;
 if(localStorage.getItem('sidebar')==='hidden')r.dataset.sidebar='hidden'}catch{}</script>`;
-// Who this browser is signed in as, and Sign out: the sidebar's line, shown only where the
+// Who this browser is signed in as, and Sign out: the top bar's line, shown only where the
 // page can read the saved token. A sandboxed note can't (its storage throws), so there it
 // stays hidden. The name is fetched once per token and kept beside it, so pages don't each
-// call /api/me. Sign out forgets both; any [data-sign-out] button does it (the review page
-// adds one). The token itself lives with the forms that ask for it (gallery, upload, review).
-const SESSION_LINE = '<p class="session" data-session hidden><span data-session-who>Signed in</span> · <button type="button" class="link-btn" data-sign-out>Sign out</button></p>';
+// call /api/me. Sign out forgets both. The token itself lives with the forms that ask for
+// it (gallery, upload, review).
+const SESSION_LINE = '<span class="session" data-session hidden><span class="sr-only" data-session-as></span><span data-session-who>Signed in</span> · <button type="button" class="link-btn" data-sign-out>Sign out</button></span>';
 const SESSION_SCRIPT = `document.addEventListener('click',(e)=>{if(!e.target.closest('[data-sign-out]'))return;
 try{localStorage.removeItem('artifact_token');localStorage.removeItem('artifact_user')}catch{}location.reload()});
 document.querySelectorAll('[data-session]').forEach((p)=>{let t='';try{t=localStorage.getItem('artifact_token')||''}catch{return}if(!t)return;
-const who=p.querySelector('[data-session-who]'),tail=t.slice(-8),show=(n)=>{who.textContent='Signed in as '+n};p.hidden=false;
+const who=p.querySelector('[data-session-who]'),tail=t.slice(-8),show=(n)=>{p.querySelector('[data-session-as]').textContent='Signed in as ';who.textContent=n;who.title='Signed in as '+n};p.hidden=false;
 let saved=null;try{saved=JSON.parse(localStorage.getItem('artifact_user')||'null')}catch{}
 if(saved&&saved.tail===tail&&saved.name)return show(saved.name);
-fetch('/api/me',{headers:{Authorization:'Bearer '+t}}).then((r)=>{if(r.status===401)who.textContent='Signed in with a token this server no longer takes';return r.ok?r.json():null})
+fetch('/api/me',{headers:{Authorization:'Bearer '+t}}).then((r)=>{if(r.status===401){who.textContent='Token not accepted';who.title='This server no longer takes the saved token'}return r.ok?r.json():null})
 .then((me)=>{if(!me)return;show(me.name);try{localStorage.setItem('artifact_user',JSON.stringify({tail,name:me.name}))}catch{}}).catch(()=>{})});`;
 // The switches, and on a phone the explorer starts closed. The sidebar's button says which way it goes.
 const SIDEBAR_SCRIPT = `<script>document.querySelectorAll('[data-theme-toggle]').forEach((b)=>b.addEventListener('click',()=>{
@@ -87,14 +87,15 @@ const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9"
 const copyButton = (label = 'Copy markdown') => `<button type="button" class="copy-source" data-copy-source="page-source">${COPY_ICON}<span>${label}</span></button>`;
 
 /**
- * Every page the server draws itself, in Quartz's frame: the sidebar on the left
- * (from siteNav), the page in the middle, an optional sidebar on the right, the footer.
- * `frame: false` (the review page) is just the body.
+ * Every page the server draws itself, in Quartz's frame under a bar across the top: the
+ * top bar and the sidebar on the left (from siteNav), the page in the middle, an optional
+ * sidebar on the right, the footer.
+ * `frame: false` (the review page) is just the body; `search` adds ⌘K search (framed pages have it).
  */
-const shell = (title, body, { scripts = [], bodyAttrs = '', frame = true } = {}) => `<!doctype html>
+const shell = (title, body, { scripts = [], bodyAttrs = '', frame = true, search = frame } = {}) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>${PREFS_HEAD}<link rel="stylesheet" href="/_static/style.css"><link rel="stylesheet" href="/_static/note.css"></head>
-<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${SIDEBAR_SCRIPT}${frame && !STATIC_SITE ? inlined().search : ''}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
+<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${SIDEBAR_SCRIPT}${search && !STATIC_SITE ? inlined().search : ''}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
 
 const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('ch') ? 'es' : 's'}`;
@@ -112,39 +113,34 @@ const ICONS = {
 };
 
 /**
- * The left sidebar on every page the server draws, laid out like Quartz's: the site
- * title, search and the light/dark switch, the site's sections, then (on notes and the
- * home page) the explorer. Links use target="_top" so they work from a framed note too.
+ * The bar across the top of every page the server draws: the button that hides the sidebar
+ * (where there is one), the site's name and version, its sections, then search, the
+ * light/dark switch and who's signed in. Links use target="_top" so they work from a framed
+ * note too. A page without a sidebar (the review page) keeps the button's room, so the bar's
+ * contents sit in the same place on every page.
  */
-export function siteNav(active, { explorer = null, current = null, search = !STATIC_SITE, example = null } = {}) {
+export function topBar(active, { sidebar = true } = {}) {
+  const search = !STATIC_SITE;
   const item = (href, label, key) => `<li><a href="${href}" target="_top"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a></li>`;
-  const random = `/random${current ? `?not=${encodeURIComponent(current)}` : ''}`; // never the page you're on, unless it's the only one
-  const live = STATIC_SITE ? '' : item('/', 'Pages', 'pages') + item(random, 'Random', 'random') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
-  const toggle = `<button type="button" class="icon-btn" data-theme-toggle aria-label="Switch light or dark">${ICONS.sun}${ICONS.moon}</button>`;
-  const hide = `<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"
-  aria-label="Hide the sidebar" title="Hide the sidebar">${ICONS.sidebar}</button>`;
-  return `${hide}<aside class="sidebar left" id="left-sidebar">
-<div class="side-top"><h2 class="page-title"><a href="/" target="_top">HTML Server</a></h2>
-<a class="gh" href="${RELEASE_URL}" target="_top" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a>${search ? '' : toggle}</div>
-${search ? `<div class="side-row"><form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>${toggle}</div>` : ''}
-<nav class="side-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}</ul></nav>
-${STATIC_SITE ? '' : SESSION_LINE}
-${explorer ? explorerNav(explorer, current) : ''}
-${skillsNav(example)}
-</aside>`;
+  const live = STATIC_SITE ? '' : item('/', 'Pages', 'pages') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
+  const theme = `<button type="button" class="icon-btn" data-theme-toggle aria-label="Switch light or dark">${ICONS.sun}${ICONS.moon}</button>`;
+  const hide = sidebar ? `<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"
+  aria-label="Hide the sidebar" title="Hide the sidebar">${ICONS.sidebar}</button>` : '<span class="icon-btn sidebar-toggle toggle-slot" aria-hidden="true"></span>'; // its room, so the name stays put
+  const find = search ? `<form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>` : '';
+  return `<header class="topbar">${hide}<a class="brand" href="/" target="_top">HTML Server</a>
+<a class="gh" href="${RELEASE_URL}" target="_top" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a>
+<nav class="site-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}${item('/about', 'About', 'about')}</ul></nav>
+<div class="top-tools">${find}${theme}${STATIC_SITE ? '' : SESSION_LINE}</div></header>`;
 }
 
 /**
- * The sidebar's Skills: plannotator/effective-html's skills, each a folder holding the gallery's
- * examples of it and a link to the skill itself; the folder of the example being viewed is open.
+ * The top bar, then the left sidebar with your pages' explorer: the same frame on every
+ * page, so moving between them shifts nothing.
  */
-function skillsNav(current) {
-  const skills = SKILLS.map((s) => `<li class="folder"><details${s.examples.some(([f]) => f === current) ? ' open' : ''}>
-<summary title="${esc(s.use)}">${ICONS.chevron}<span>${esc(s.name)}</span></summary><ul>${s.examples.map(([f, label]) => `<li><a href="/gallery/${f}" target="_top"${
-    f === current ? ' class="on" aria-current="page"' : ''}>${esc(label)}</a></li>`).join('')}<li><a class="ext" href="${SKILLS_REPO}/tree/main/skills/${s.name}" target="_blank" rel="noopener">The skill ↗</a></li></ul></details></li>`).join('');
-  const all = STATIC_SITE ? '/gallery' : '/gallery?category=effective-html'; // the docs site's gallery has no filters
-  return `<details class="explorer skills" open><summary><span>Skills</span>${ICONS.chevron}</summary><ul class="tree">${skills}</ul>
-<p class="skills-from">From <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a> · <a href="${all}" target="_top">all examples</a></p></details>`;
+export function siteNav(active, { explorer = [], current = null } = {}) {
+  return `${topBar(active)}<aside class="sidebar left" id="left-sidebar">
+${explorerNav(explorer, current)}
+</aside>`;
 }
 
 /**
@@ -282,7 +278,7 @@ export function galleryPage(items, { q = '', category = '', categories = [], vie
   const grid = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>';
   const list = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="2" width="14" height="2.5" rx="1.2"/><rect x="1" y="6.75" width="14" height="2.5" rx="1.2"/><rect x="1" y="11.5" width="14" height="2.5" rx="1.2"/></svg>';
   const intro = section === 'gallery'
-    ? '<p class="intro">Example pages that ship with HTML Server: what single-file HTML can do, from explainers and diagrams to small tools. Open one, or use it as a starting point for your own.</p>'
+    ? `<p class="intro">Example pages that ship with HTML Server: what single-file HTML can do, from explainers and diagrams to small tools. Many were made with the <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a> skills, and those name their skill at the top. Open one, or use it as a starting point for your own. <a href="/about">Why HTML?</a></p>`
     : '';
   // Search, filters, sorting and layouts ask the server for the cards again.
   const controls = STATIC_SITE ? '' : `<form id="search" role="search" data-base="${base}"><input id="q" name="q" value="${esc(q)}" placeholder="${folder ? 'Search this folder' : section === 'gallery' ? 'Search examples' : 'Search pages'}" autocomplete="off" autofocus>
@@ -295,7 +291,7 @@ ${sort ? `<input type="hidden" name="sort" value="${esc(sort)}">` : ''}</form>
   + `<button type="button" id="upload" class="select-btn"${folder ? ` data-folder="${esc(folder)}"` : ''}>Upload</button>`
   + '<button type="button" id="select" class="select-btn">Select</button>' : ''}
 <div class="views" role="group" aria-label="Layout">${toggle('grid', 'Grid view', grid)}${toggle('list', 'List view', list)}</div></div></div>`;
-  return shell(folder ? `${folder} · HTML Server` : section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section, { explorer, search: false })}<main class="wrap">
+  return shell(folder ? `${folder} · HTML Server` : section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section, { explorer })}<main class="wrap">
 ${folder ? `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(folder + '/_', folder.split('/').at(-1), explorer || [], true)}</nav><h1>${esc(folder.split('/').at(-1))}</h1>
 ${folders.length ? `<nav class="folder-list" aria-label="Subfolders">${folders.map((f) => `<a href="/${encodePath(f.path)}/">▸ ${esc(f.name)}</a>`).join('')}</nav>` : ''}
 <p><a href="${esc(link({ recursive: recursive ? '' : '1' }))}">${recursive ? 'Show direct contents' : 'Include subfolders'}</a>${q ? ' · Search includes subfolders' : ''}</p>` : ''}
@@ -317,7 +313,7 @@ ${section === 'pages' ? `<div id="bulk" class="bulk" hidden role="region" aria-l
  * Pages and the links between them, drawn by public/graph.js. The data is embedded
  * (it's the same as /api/graph), so the page draws without a second request.
  */
-export function graphPage(data) {
+export function graphPage(data, { explorer } = {}) {
   const cats = [...new Set(data.nodes.map((n) => n.category).filter(Boolean))].sort();
   const json = JSON.stringify({ ...data, labels: Object.fromEntries(cats.map((c) => [c, categoryLabel(c)])) })
     .replace(/</g, '\\u003c');
@@ -330,7 +326,7 @@ export function graphPage(data) {
 a link from one page to another (<code>/pages/x</code>, <code>/x</code> or a relative <code>x.html</code>); a small ring is a
 tag, joined to the pages that carry it. Hover to see a node's neighbours, click to open it, drag dots or the background,
 scroll to zoom.</p>`;
-  return shell(focus ? `Graph: ${focus.title} · HTML Server` : 'Graph · HTML Server', `${siteNav('graph')}<main class="wrap graph-wrap">
+  return shell(focus ? `Graph: ${focus.title} · HTML Server` : 'Graph · HTML Server', `${siteNav('graph', { explorer })}<main class="wrap graph-wrap">
 ${intro}
 <p class="meta">${plural(data.nodes.length, 'page')} · ${plural(data.edges.length, 'link')} · ${plural(linked, 'page')} with links</p>
 <div id="graph-frame" class="graph-frame"><div id="graph-tools" class="graph-tools"></div>
@@ -340,7 +336,7 @@ ${intro}
 }
 
 /** /stats: headline numbers, then views and uploads over time, top pages, tags, recent changes; for admins, API usage. */
-export function statsPage(s) {
+export function statsPage(s, { explorer } = {}) {
   const t = s.totals;
   const kb = (n) => (n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
   const md = (d) => new Date(`${d}T12:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -356,7 +352,7 @@ export function statsPage(s) {
   <a href="${esc(r.url)}">${esc(r.title)}</a><span class="meta">v${r.n} · ${esc(r.author)}${r.note ? ` · ${esc(r.note)}` : ''}</span></li>`).join('')}</ol>`
     : '<p class="empty">Nothing yet.</p>';
   const minor = [[t.tags, 'tags'], [t.comments, 'comments'], [t.authors, t.authors === 1 ? 'author' : 'authors'], [kb(t.bytes), 'of pages']];
-  return shell('Stats · HTML Server', `${siteNav('stats')}<main class="wrap stats">
+  return shell('Stats · HTML Server', `${siteNav('stats', { explorer })}<main class="wrap stats">
 <header class="stats-head"><h1>Stats</h1>
 <p class="lede">Across the ${plural(t.pages, 'page')} you can see${t.featured ? `, ${t.featured} featured` : ''}. Views leave out previews, bots and command-line tools.</p></header>
 <section class="hero" aria-label="Headline numbers">
@@ -549,8 +545,8 @@ function skillLine(slug) {
   return skill ? `<p class="skill-line">Made with the <a href="${SKILLS_REPO}/tree/main/skills/${skill.name}" target="_blank" rel="noopener">${esc(skill.name)} ↗</a> skill from <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a>: ${esc(skill.use.charAt(0).toLowerCase() + skill.use.slice(1))}</p>` : '';
 }
 
-export function exampleFramePage(e) {
-  return shell(`${e.title} · HTML Server`, `${siteNav('gallery', { example: e.slug })}<main class="center framed">
+export function exampleFramePage(e, { explorer } = {}) {
+  return shell(`${e.title} · HTML Server`, `${siteNav('gallery', { explorer })}<main class="center framed">
 <header class="frame-head"><div class="frame-title">
 <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="/gallery" target="_top">Gallery</a><span class="sep" aria-hidden="true">❯</span><span aria-current="page">${esc(e.title)}</span></nav>
 <h1 class="article-title">${esc(e.title)}</h1>
@@ -632,7 +628,7 @@ ${expand}
 }
 
 /** Every version, newest first: view it, see what it changed, or compare any two. */
-export function historyPage(a) {
+export function historyPage(a, { explorer } = {}) {
   const S = encodePath(a.slug);
   const when = (t) => { // "2026-10-20 07:12": short, sortable, never wraps
     const d = new Date(t * 1000);
@@ -646,7 +642,7 @@ export function historyPage(a) {
     · <a href="/review/${S}?v=${v.n}">review</a></td></tr>`).join('');
   const opts = (sel) => a.versions.slice().reverse()
     .map((v) => `<option value="${v.n}"${v.n === sel ? ' selected' : ''}>v${v.n}</option>`).join('');
-  return shell(`History: ${a.title} · HTML Server`, `${siteNav()}<main class="wrap history">
+  return shell(`History: ${a.title} · HTML Server`, `${siteNav(null, { explorer })}<main class="wrap history">
 <p class="meta"><a href="/pages/${S}">${esc(a.title)}</a> · <a href="/graph?page=${S}">Graph</a></p>
 <h1>History</h1>
 <p class="meta">${esc(a.slug)} · ${a.versions.length} version${a.versions.length === 1 ? '' : 's'} · owned by ${esc(a.owner)}</p>
@@ -660,7 +656,7 @@ ${a.versions.length > 1 ? `<form class="compare" action="/review/${S}/changes" m
 }
 
 export function reviewPage(slug) {
-  return shell('Review', `<header class="bar"><h1><a href="/">HTML Server</a> / <span id="title"></span></h1>
+  return shell('Review', `${topBar(null, { sidebar: false })}<header class="bar"><h1><span id="title"></span></h1>
 <select id="ver" aria-label="Version"></select>
 <button id="move-page" hidden>Move…</button>
 <button id="changes">Show changes</button><button id="restore" hidden>Make this version current</button>
@@ -672,7 +668,7 @@ export function reviewPage(slug) {
 <input id="tok" type="password" autocomplete="off"> <p><button id="save">Save</button></p></details>
 <form id="new"><textarea id="body" placeholder="Comment on this version"></textarea>
 <p><button>Post</button> <span id="err" class="err"></span></p></form>
-<div id="list"></div></aside></div>`, { scripts: ['review.js'], bodyAttrs: `data-slug="${esc(slug)}"`, frame: false });
+<div id="list"></div></aside></div>`, { scripts: ['review.js'], bodyAttrs: `data-slug="${esc(slug)}"`, frame: false, search: true });
 }
 
 /** Side-by-side changes. Served sandboxed (it shows page content), so styles are inline. */
@@ -712,6 +708,63 @@ td.del{background:var(--del);color:var(--deltx)}td.ins{background:var(--ins);col
 .gap td{text-align:center;color:var(--mute);padding:.4rem}
 .back{display:block;padding:.6rem .75rem;border-bottom:1px solid var(--line);color:inherit;font-size:13px}.same{padding:1.5rem;color:var(--mute)}
 </style></head><body>${back ? `<a class="back" href="${esc(back)}" target="_top">← History</a>` : ''}${body}</body></html>`;
+}
+
+/**
+ * About HTML Server, as Markdown: why HTML (Thariq Shihipar's essay), why a server for it,
+ * and the effective-html skills the gallery's examples were made with, listed from SKILLS
+ * so the table can't drift. Served at /about (and /about.md), linked from the top bar.
+ */
+export function aboutMarkdown() {
+  const ESSAY = 'https://claude.dev/blog/using-claude-code-the-unreasonable-effectiveness-of-html/';
+  const skills = SKILLS.map((s) => `| [${s.name}](${SKILLS_REPO}/tree/main/skills/${s.name}) | ${s.use} | ${
+    s.examples.map(([f, label]) => `[${label}](/gallery/${f})`).join(' · ')} |`).join('\n');
+  return `HTML Server hosts the pages you and your AI agents make (HTML pages, Markdown notes and
+Jupyter notebooks), gives each one an address, and keeps every version. It's open source,
+MIT-licensed: [${REPO_URL.replace('https://', '')}](${REPO_URL}).
+
+## Why HTML
+
+In [The unreasonable effectiveness of HTML](${ESSAY}) (claude.dev, May 2026), Thariq Shihipar
+suggests one change of habit: when you ask Claude Code for a plan, a spec, a review or a
+report, ask for an HTML file instead of Markdown. His reasons, briefly:
+
+- **Long Markdown goes unread.** A plan hundreds of lines long gets skimmed at best; a page
+  with sections, tabs and a diagram gets read.
+- **HTML carries more:** tables, figures, real diagrams, options side by side, code and
+  controls, where Markdown falls back on ASCII boxes.
+- **Hand-editing matters less now.** Markdown's strength was being easy to edit by hand,
+  which counts for less when the agent drafts and revises.
+- **A page can answer back.** Sliders, toggles and copy buttons let the reader adjust a
+  choice and hand it straight back to the agent.
+- **It's worth the tokens.** HTML costs more to generate, and he finds the gain in quality,
+  and in how much gets read, worth it.
+
+The gallery has [a one-page summary](/gallery/featured-unreasonable-effectiveness-of-html.html),
+with an example of each kind of page the essay describes. Read the essay itself for his.
+
+## Why a server
+
+An HTML file on your laptop is easy to make and hard to share: it has no address and no
+history, and nobody else can find it. HTML Server gives each page:
+
+- **An address** to send, public or private (a private page has a share link).
+- **Every version,** with diffs, restore, and comments on each, so a page can be reviewed
+  the way code is.
+- **Search, links and a graph** across everything: backlinks, hover previews and each
+  page's local graph, so pages find each other.
+- **Many ways in:** **Upload** in the browser, the \`html-server\` command line, Claude and
+  other AI apps over MCP, and the HTTP API. See [Docs](/docs).
+
+## Making good pages: effective-html
+
+[effective-html](${SKILLS_REPO}) (MIT) is a set of agent skills for pages like these. Each
+example in the [Gallery](/gallery) made with one says so at the top, linked to its skill.
+
+| Skill | What it makes | Examples |
+| --- | --- | --- |
+${skills}
+`;
 }
 
 /**
@@ -835,11 +888,11 @@ ${rows}
  * A Markdown document the server itself publishes (the API docs), in the site's note
  * layout: the sidebar, the document, its contents on the right, and a copy-source button.
  */
-export function markdownPage({ title, md, active, sourceUrl }) {
+export function markdownPage({ title, md, active, sourceUrl, explorer }) {
   const html = renderMarkdown(md, { title });
   const toc = [...html.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h\1>/g)]
     .map(([, d, id, inner]) => `<li class="d${d}"><a href="#${esc(id)}">${inner.replace(/<[^>]+>/g, '')}</a></li>`);
-  return shell(`${title} · HTML Server`, `${siteNav(active)}<main class="center note doc">
+  return shell(`${title} · HTML Server`, `${siteNav(active, { explorer })}<main class="center note doc">
 <h1 class="article-title">${esc(title)}</h1>
 <p class="content-meta">HTML Server v${esc(VERSION)} · <a href="${esc(sourceUrl)}">Markdown</a></p>
 <p class="page-actions">${copyButton()}</p>

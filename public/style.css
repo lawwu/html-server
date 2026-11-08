@@ -33,6 +33,7 @@
   --accent: #7b97aa; --accent-soft: rgba(143, 159, 169, .15); --mark: #b3aa0288; color-scheme: dark;
     --tok-keyword: #ff7b72; --tok-string: #a5d6ff; --tok-number: #79c0ff; --tok-comment: #8b949e; --tok-builtin: #d2a8ff; --tok-decorator: #ffa657; }
 * { box-sizing: border-box; }
+html { scrollbar-gutter: stable; } /* a page short enough to have no scrollbar sits where a long one does */
 [hidden] { display: none !important; } /* hidden always wins over a component's own display */
 body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 var(--body-font); }
 h1, h2, h3, h4 { font-family: var(--head-font); color: var(--fg); }
@@ -49,41 +50,49 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 .wrap { max-width: 68rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
 
 /* gallery */
-/* Quartz's frame, on every page the server draws itself: the left sidebar, the page,
-   an optional right sidebar (notes), the footer under the page. Breakpoints are Quartz's:
-   three columns from 1200px, two from 800px, one below. */
-.page { display: grid; grid-template-columns: var(--left, var(--side)) minmax(0, 1fr); column-gap: 5px; min-height: 100vh; }
+/* Quartz's frame, on every page the server draws itself, under a bar across the top: the
+   left sidebar (the explorer and skills), the page, an optional right sidebar (notes), the
+   footer under the page. Breakpoints are Quartz's: three columns from 1200px, two from
+   800px, one below. */
+.page { display: grid; grid-template-columns: var(--left, var(--side)) minmax(0, 1fr); grid-template-rows: auto;
+  column-gap: 5px; min-height: 100vh; align-content: start; }
 .page:has(> .sidebar.right) { grid-template-columns: var(--left, var(--side)) minmax(0, 1fr) var(--side); }
-.page > .sidebar.left { grid-column: 1; grid-row: 1 / span 3; }
-.page > main { grid-column: 2; grid-row: 1; min-width: 0; }
-.page > .sidebar.right { grid-column: 3; grid-row: 1 / span 3; }
-.page > .site-foot { grid-column: 2; grid-row: 3; }
+.page > .topbar { grid-column: 1 / -1; grid-row: 1; }
+.page > .sidebar.left { grid-column: 1; grid-row: 2 / span 3; }
+.page > main { grid-column: 2; grid-row: 2; min-width: 0; }
+.page > .sidebar.right { grid-column: 3; grid-row: 2 / span 3; }
+.page > .site-foot { grid-column: 2; grid-row: 4; }
 .sidebar { position: sticky; top: 0; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column;
-  gap: 1.2rem; padding: 6rem 2rem 2rem; overflow-y: auto; scrollbar-width: thin; }
-.page > .wrap { max-width: none; margin: 0; padding: 6rem 2.5rem 3rem 1rem; }
-.side-top { display: flex; align-items: center; gap: .4rem; }
-.page-title { margin: 0; font: 700 1.6rem/1.2 var(--head-font); }
-.page-title a { color: var(--fg); }
+  gap: 1.2rem; padding: 1.75rem 2rem 2rem; overflow-y: auto; scrollbar-width: thin; }
+/* Sections keep their full height and the sidebar scrolls: shrunk to fit, a long explorer drew over Skills. */
+.sidebar > * { flex-shrink: 0; }
+.page > .wrap { max-width: none; margin: 0; padding: 1.75rem 2.5rem 3rem 1rem; }
+/* The top bar: the site's name and version, its sections, then search, light/dark and who's signed in. */
+.topbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem; padding: .65rem 1.5rem;
+  border-bottom: 1px solid var(--line); background: var(--bg); }
+.brand { font: 700 1.3rem/1.2 var(--head-font); color: var(--fg); white-space: nowrap; }
+.brand:hover { color: var(--fg); }
+.topbar .gh { margin-left: -.6rem; }
+.top-tools { display: flex; align-items: center; gap: .6rem; margin-left: auto; }
+.top-tools .side-search { width: 15rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .icon-btn { display: grid; place-items: center; width: 2rem; height: 2rem; padding: 0; border: 0; background: none; color: var(--text); }
 .icon-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .icon-btn .moon { display: none; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .icon-btn .sun { display: none; } :root:not([data-theme="light"]) .icon-btn .moon { display: block; } }
 :root[data-theme="dark"] .icon-btn .sun { display: none; } :root[data-theme="dark"] .icon-btn .moon { display: block; }
-/* Hiding the sidebar (its choice kept like light/dark): the page takes its column, leaving room
-   for the button, which stays in the same place either way. On a phone the sidebar is above the page, so it
-   always shows. */
-.sidebar-toggle { position: fixed; top: 1.25rem; left: 1.25rem; z-index: 5; border-radius: 7px; background: var(--bg); color: var(--mute); }
+/* Hiding the sidebar (its choice kept like light/dark): the page takes its column. The button is the
+   top bar's first, so it stays in the same place either way. On a phone the sidebar is above the page,
+   so it always shows. */
+.sidebar-toggle { margin: 0 -.5rem 0 -.6rem; border-radius: 7px; color: var(--mute); }
+.toggle-slot { visibility: hidden; }
 .sidebar-toggle:hover, .sidebar-toggle:focus-visible { color: var(--fg); background: var(--accent-soft); }
 @media (min-width: 801px) {
   :root[data-sidebar="hidden"] { --left: 0px; }
-  :root[data-sidebar="hidden"] .page { padding-left: 3.5rem; }
+  :root[data-sidebar="hidden"] .page > main, :root[data-sidebar="hidden"] .page > .site-foot { padding-left: 1.5rem; } /* in line with the top bar */
   :root[data-sidebar="hidden"] .page > .sidebar.left { display: none; }
 }
 @media (max-width: 800px) { .sidebar-toggle { display: none; } }
-.side-row { display: flex; align-items: center; gap: .5rem; }
-.side-row .side-search, .side-row .grow { flex: 1; }
-.page-title { white-space: nowrap; }
-.side-top .gh { flex: none; margin-left: auto; }
 .gh { display: inline-flex; align-items: center; gap: .3rem; color: var(--mute); font: 400 12px/1 var(--body-font);
   padding: .3rem .5rem; border: 1px solid var(--line); border-radius: 999px; }
 .gh svg { width: 14px; height: 14px; fill: currentColor; }
@@ -94,15 +103,15 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
 .side-search input { width: 100%; padding: .5rem .8rem .5rem 2.2rem; border-radius: 7px; background: var(--accent-soft);
   border: 1px solid transparent; font-family: var(--body-font); }
 .side-search input:focus { outline: none; border-color: var(--line); background: var(--card); }
-.side-nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .15rem .9rem; }
-.side-nav a { color: var(--text); font-weight: 400; font-size: .95rem; }
-.side-nav a:hover { color: var(--accent-hover); }
-.side-nav a.on { color: var(--accent); font-weight: 600; }
-.session { margin: 0; font-size: 13px; color: var(--mute); }
+.site-nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .15rem 1.1rem; }
+.site-nav a { color: var(--text); font-weight: 400; font-size: .95rem; }
+.site-nav a:hover { color: var(--accent-hover); }
+/* The current section: colour and an underline, not bold, which would widen it and move the links after it. */
+.site-nav a.on { color: var(--accent); text-decoration: underline 2px; text-underline-offset: .45em; }
+.session { font-size: 13px; color: var(--mute); white-space: nowrap; }
 .link-btn { padding: 0; border: 0; border-radius: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; }
 .link-btn:hover { color: var(--accent-hover); }
 /* explorer */
-.explorer { min-height: 0; }
 .explorer > summary, .toc > summary { display: flex; align-items: center; gap: .3rem; cursor: pointer; list-style: none;
   font: 600 1rem/1.4 var(--head-font); color: var(--fg); }
 .explorer summary::-webkit-details-marker, .toc summary::-webkit-details-marker { display: none; }
@@ -119,21 +128,20 @@ details[open] > summary > .chev { rotate: 90deg; }
 .tree > li:not(.folder) { padding-left: 1.15rem; }
 .tree .folder > details > summary > span, .tree .folder > details > summary > a { font-weight: 600; color: var(--fg); opacity: 1; }
 .tree .folder > details > summary .chev { margin-left: 0; opacity: .5; }
-.skills .tree .ext { font-size: .85rem; opacity: .65; }
-.skills-from { margin: .5rem 0 0; font-size: .8rem; color: var(--mute); }
-.skills-from a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 @media (max-width: 1200px) {
   .page:has(> .sidebar.right) { grid-template-columns: var(--left, var(--side)) minmax(0, 1fr); }
-  .page > .sidebar.right { grid-column: 2; grid-row: 2; position: static; height: auto; padding: 0 2.5rem 1rem 1rem;
+  .page > .sidebar.right { grid-column: 2; grid-row: 3; position: static; height: auto; padding: 0 2.5rem 1rem 1rem;
     flex-direction: row; flex-wrap: wrap; overflow: visible; }
   .page > .sidebar.right > * { flex: 1 1 16rem; }
   .page > .sidebar.right > .toc { display: none; }
 }
 @media (max-width: 800px) {
   .page, .page:has(> .sidebar.right) { grid-template-columns: minmax(0, 1fr); padding-inline: max(1rem, env(safe-area-inset-left, 0px)) max(1rem, env(safe-area-inset-right, 0px)); }
-  .page > .sidebar.left, .page > main, .page > .sidebar.right, .page > .site-foot { grid-column: 1; grid-row: auto; }
-  .sidebar.left { position: static; height: auto; padding: calc(1.2rem + env(safe-area-inset-top, 0px)) 0 .5rem; gap: .8rem; overflow: visible; }
-  .page-title { font-size: 1.4rem; }
+  .page > .topbar, .page > .sidebar.left, .page > main, .page > .sidebar.right, .page > .site-foot { grid-column: 1; grid-row: auto; }
+  .topbar { padding: calc(.8rem + env(safe-area-inset-top, 0px)) 0 .7rem; gap: .5rem .9rem; }
+  .top-tools { flex-basis: 100%; }
+  .top-tools .side-search { flex: 1; width: auto; }
+  .sidebar.left { position: static; height: auto; padding: .9rem 0 .5rem; gap: .8rem; overflow: visible; }
   .page > .wrap { padding: .5rem 0 2rem; }
   .page > .sidebar.right { padding: 0 0 1rem; }
   .site-foot { padding-inline: 0; }

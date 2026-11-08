@@ -88,7 +88,7 @@ a folder's own page it starts there), add a version note, and tick **Private** i
 should be. A file you already have becomes a new version. Each name comes from its file,
 with spaces as dashes (`Trip Plan.html` becomes `Trip-Plan.html`), and can be changed before
 uploading. The first time, paste your token; the browser keeps it for this site, as it does
-for comments, until you press **Sign out** in the sidebar. Nothing to install, so it suits a server running in [Docker](#docker) or on
+for comments, until you press **Sign out** in the top bar. Nothing to install, so it suits a server running in [Docker](#docker) or on
 [Cloudflare](#deploy-to-cloudflare). A whole folder, kept in step as it changes, is `sync`'s
 job (below).
 
@@ -219,7 +219,7 @@ paths in `publish_page`, folder filters in search/list, and the `move_pages` too
 Any single-file HTML page: reports, explainers, dashboards, small tools. A page's
 JavaScript runs, in a sandbox that keeps it away from the API and your sign-in.
 
-**In a browser tab** a page sits in the site's frame: the sidebar, a title bar with its
+**In a browser tab** a page sits in the site's frame: the top bar and sidebar, a title bar with its
 tags, history, comments, **Copy HTML** and "full page ↗", then the page itself in its own
 design, then its local graph and backlinks. The frame grows to the page's full height, so
 the whole thing scrolls as one page: natively with [responsive
@@ -348,18 +348,23 @@ The pages the server draws borrow Quartz's default theme (MIT): its colours, its
 typefaces (Schibsted Grotesk, Source Sans 3, IBM Plex Mono, served from this server under
 the SIL Open Font License, licences in `public/fonts`) and its three-column layout.
 
-- **Left sidebar** on every page: the title, the running version (linking to its
-  release), search, a light/dark switch, the site's sections (Pages, Random, Graph, Stats,
-  Gallery, Docs), an **explorer** of folders and pages, and **Skills**. The button at its
-  top left hides it and brings it back, and the choice is kept like light/dark. An HTML page
-  in the frame takes the whole width beside it (all of it when it's hidden). On a phone it collapses above
-  the page.
-- **Skills:** the eight skills of [effective-html](https://github.com/plannotator/effective-html)
-  (agent skills for HTML artifacts), each with two examples in the gallery, one on data
-  or machine learning and one on Claude Code, and a link to the skill itself.
-- **Random:** opens a random page you can see, never the one you're on (unless it's the
-  only one). `/random?folder=research` or `/random?category=trips` picks one in a folder
-  or with a tag.
+- **Top bar** on every page: the title, the running version (linking to its release), the
+  site's sections (Pages, Graph, Stats, Gallery, Docs, About), search, a light/dark switch,
+  and who you're signed in as, with **Sign out**. It's on the review page too.
+- **Left sidebar** under it on every page: an **explorer** of your folders and pages. Every
+  page has the same frame, so nothing shifts as you move between them. The button at the
+  top bar's left hides it and
+  brings it back, and the choice is kept like light/dark; the top bar stays either way. An
+  HTML page in the frame takes the whole width beside it (all of it when it's hidden). On a
+  phone it collapses above the page.
+- **About** (`/about`): why HTML, from Thariq Shihipar's essay [The unreasonable
+  effectiveness of HTML](https://claude.dev/blog/using-claude-code-the-unreasonable-effectiveness-of-html/);
+  why a server for it; and the eight skills of [effective-html](https://github.com/plannotator/effective-html)
+  (agent skills for HTML artifacts), each with its examples in the gallery, one on data or
+  machine learning and one on Claude Code. Each of those examples names its skill at the top.
+- **A random page:** `/random` opens a random page you can see (there's no link to it;
+  bookmark it). `/random?folder=research` or `/random?category=trips` picks one in a
+  folder or with a tag, and `?not=NAME` skips a page.
 - **Search from anywhere:** ⌘K, Ctrl+K or `/` opens a search box with live results;
   arrows move, Enter opens. Inside an HTML page in the frame, ⌘K and Ctrl+K do too. On
   the home page the same keys go to its own search box, which filters the cards instead,
@@ -434,7 +439,7 @@ counted.
 folder, read-only, so every install has them and they never mix with your own. In a browser
 tab an example sits in the site's frame, as your pages do (`?raw=1` for the example alone).
 Sixteen of them show the skills of [effective-html](https://github.com/plannotator/effective-html),
-two per skill: filter by **Effective HTML**, or open them from the sidebar's Skills. To make
+two per skill: filter by **Effective HTML**, or open them from the table on **About**. To make
 one your own, copy it and `html-server put` it.
 
 **Docs** (`/docs`, also `/api`): the command line, MCP and the HTTP API on one page, built
@@ -504,8 +509,8 @@ stores only its hash.
 - **In a browser,** reading needs no sign-in. To upload, comment or change pages, paste the
   token once: into **Upload** or **Select** on the home page, or **Sign in to comment** on
   a review page. It's kept in that browser's storage for this site only, out of reach of
-  the sandboxed pages. While it's there the sidebar says who you're signed in as, with
-  **Sign out** to forget it (on a review page, Sign out is next to your name). The token
+  the sandboxed pages. While it's there the top bar says who you're signed in as, with
+  **Sign out** to forget it. The token
   still works everywhere else; to stop it working, replace it (`POST /api/me/token`).
 
 **A new user:** an admin runs `html-server create-user bob` (on the server) or
@@ -857,7 +862,7 @@ the old capability.
   read through one module, so the same code serves from Node or from a Cloudflare Durable
   Object.
 - **Reserved names:** `api`, `v`, `review`, `pages`, `history`, `gallery`, `graph`, `stats`,
-  `random`, `assets`, `docs`, `healthz`, `favicon.ico` and `robots.txt` can't be page names, because the server
+  `random`, `assets`, `docs`, `about`, `healthz`, `favicon.ico` and `robots.txt` can't be page names, because the server
   uses those paths itself (browsers ask for `/favicon.ico` and crawlers for `/robots.txt`;
   both get a plain 404 straight away).
 
@@ -959,7 +964,7 @@ with a throwaway database holding `README.md` and `CHANGELOG.md` as notes, and s
 it answers: the README is a note, with its explorer, local graph, contents and backlinks,
 and the Docs page is built from the code as on every server. Links are made relative, so
 the site works under any path. What needs a running server is left out: ⌘K search, page
-versions, history and comments, the Pages, Random, Graph and Stats sections, and the gallery's
+versions, history and comments, the Pages, Graph and Stats sections, and the gallery's
 search, filters and layouts. Hover previews, the local graph, **Copy markdown** and
 light/dark work as on a server, since what they need is in the page. Then every link is
 checked for static HTML `href`/`src`/`action` attributes, CSS URLs and generated graph/preview
@@ -1016,7 +1021,7 @@ Not part of the interface, and free to change in any release:
 - the code under `src/`, which is internal (the package publishes only the
   `html-server` command; nothing is exported to import).
 
-Before 1.0: so far, each new site route (most recently `random`, in 0.11.0) has taken a
+Before 1.0: so far, each new site route (most recently `about`, after 0.12.0) has taken a
 name that pages and folders could otherwise use. That has to stop before the reserved
 names can be promised, either by moving new routes under a prefix the server already owns
 or by settling the full list.

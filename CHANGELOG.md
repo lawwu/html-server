@@ -17,9 +17,23 @@ couldn't be migrated would be a major version.
   bring over a folder. On a phone, the home page's controls now wrap instead of running off
   the edge.
 - **Sign out in the browser.** When this browser has your token saved (for uploads,
-  comments, Select or Move), the sidebar says who you're signed in as, with **Sign out** to
-  forget it; on a review page it's next to your name. Sandboxed note pages, which can't read
-  the token, don't show it.
+  comments, Select or Move), the top bar says who you're signed in as, with **Sign out** to
+  forget it. Sandboxed note pages, which can't read the token, don't show it.
+- **A bar across the top of every page,** with the site's name and version, its sections
+  (Pages, Graph, Stats, Gallery, Docs, About), search, the light/dark switch and who's
+  signed in; the current section is underlined. The left sidebar is your pages' explorer,
+  on every page: the same frame everywhere, so moving between pages shifts nothing. Hiding
+  the sidebar no longer hides the navigation, and the review page gets the same links as
+  the rest of the site. The Random link is gone; `/random` still opens a random page.
+- **About** (`/about`, in the top bar): why HTML, from Thariq Shihipar's essay "The
+  unreasonable effectiveness of HTML", why a server for it, and effective-html's eight
+  skills with the gallery's examples of each. It replaces the sidebar's Skills section;
+  each of those examples still names its skill, linked, at the top. `about` is now a
+  reserved page name: move a page or folder called `about` before updating.
+- **A long explorer no longer runs over the next section** in the sidebar. With more pages than fit on
+  screen, the explorer was squeezed to the window's height and its list drew on top of the
+  next section; now the sidebar scrolls instead. The same goes for the contents and
+  backlinks in a note's right sidebar.
 - **A Docker image for each release,** `ghcr.io/lawwu/html-server`: Debian 13 (trixie) and
   Node 24, for amd64 and arm64, with the PostgreSQL driver built in and the data in a
   `/data` volume. Each one is run on both architectures, with SQLite and with PostgreSQL,

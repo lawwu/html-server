@@ -187,16 +187,18 @@ test('upload: choose files, sign in, publish, fix a refused name, and drop more'
   assert.equal(await dialog.locator('.upload-list input').inputValue(), 'dropped.html');
 });
 
-test('sign out: the sidebar names who is signed in and forgets the token; notes never show it', async () => {
+test('sign out: the top bar names who is signed in and forgets the token; notes never show it', async () => {
+  const signedIn = (name) => page.waitForFunction((n) => document.querySelector('.session:not([hidden])')?.textContent.startsWith(`Signed in as ${n} ·`), name);
   const me = [];
   page.on('request', (r) => { if (r.url().endsWith('/api/me')) me.push(r.url()); });
   await page.goto(base + '/');
   assert.equal(await page.locator('.session').isHidden(), true); // nobody signed in
   await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
   await page.goto(base + '/');
-  await page.locator('.session').getByText('Signed in as browser-owner').waitFor();
+  await signedIn('browser-owner'); // "Signed in as" is for screen readers; the bar shows the name
+  assert.equal(await page.locator('.session [data-session-who]').textContent(), 'browser-owner');
   await page.goto(base + '/stats');
-  await page.locator('.session').getByText('Signed in as browser-owner').waitFor();
+  await signedIn('browser-owner');
   assert.equal(me.length, 1); // the name is asked once per token, not on every page
   const axe = await new AxeBuilder({ page }).include('.session').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   assert.deepEqual(axe.violations.map((v) => v.id), []);
@@ -209,25 +211,73 @@ test('sign out: the sidebar names who is signed in and forgets the token; notes 
   assert.deepEqual(await page.evaluate(() => [localStorage.getItem('artifact_token'), localStorage.getItem('artifact_user')]), [null, null]);
   assert.equal(await page.locator('.session').isHidden(), true);
 
-  // The review page has no sidebar: Sign out sits beside the name.
+  // The review page has the top bar too.
   await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
   await page.goto(base + '/review/alpha.md');
   await page.locator('#who').getByText('Signed in as browser-owner').waitFor();
-  await page.locator('#who').getByRole('button', { name: 'Sign out' }).click();
+  await signedIn('browser-owner');
+  await page.locator('.session').getByRole('button', { name: 'Sign out' }).click();
   await page.locator('#who').getByText('Reading as a guest.').waitFor();
   assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), null);
 
   // A token the server no longer takes still shows the line, so it can be signed out.
   await page.evaluate(() => localStorage.setItem('artifact_token', 'ak_revoked'));
   await page.goto(base + '/');
-  await page.locator('.session').getByText('a token this server no longer takes').waitFor();
+  await page.locator('.session [data-session-who]').getByText('Token not accepted').waitFor();
+});
+
+test('the top bar: the same sections on every page, and still there with the sidebar hidden', async () => {
+  const sections = () => page.getByRole('navigation', { name: 'Site' }).getByRole('link').allTextContents();
+  const want = ['Pages', 'Graph', 'Stats', 'Gallery', 'Docs', 'About'];
+  for (const path of ['/', '/stats', '/docs', '/pages/alpha.md', '/pages/links.html', '/review/alpha.md']) {
+    await page.goto(base + path);
+    assert.deepEqual(await sections(), want, path);
+  }
+  await page.goto(base + '/');
+  await page.getByRole('button', { name: 'Hide the sidebar' }).click();
+  assert.equal(await page.locator('#left-sidebar').isHidden(), true);
+  assert.deepEqual(await sections(), want);
+  await page.goto(base + '/pages/alpha.md');
+  assert.equal(await page.locator('#left-sidebar').isHidden(), true); // the choice is kept
+  await page.getByRole('button', { name: 'Show the sidebar' }).click();
+  assert.equal(await page.locator('#left-sidebar').isVisible(), true);
+});
+
+test('moving between pages shifts nothing: the bar, its links and the page start in the same place', async () => {
+  const where = () => page.evaluate(() => {
+    const box = (s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r && [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; };
+    return { brand: box('.brand'), nav: box('.site-nav'), bar: box('.topbar'), main: box('.page > main')?.[0] };
+  });
+  await page.goto(base + '/');
+  const home = await where();
+  for (const path of ['/pages/alpha.md', '/pages/links.html', '/gallery', '/gallery/ab-test-readout.html', '/stats', '/graph', '/docs', '/about', '/history/alpha.md']) {
+    await page.goto(base + path);
+    assert.deepEqual(await where(), home, path);
+  }
+  await page.goto(base + '/review/alpha.md'); // no sidebar, and a layout of its own; the bar is the same
+  const review = await where();
+  assert.deepEqual([review.brand, review.nav, review.bar], [home.brand, home.nav, home.bar]);
+});
+
+test('a sidebar longer than the window scrolls; its sections never overlap', async () => {
+  await page.setViewportSize({ width: 1280, height: 200 }); // shorter than the explorer
+  for (const path of ['/', '/pages/alpha.md']) {
+    await page.goto(base + path);
+    const boxes = await page.locator('.sidebar > *:visible').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return [r.top, r.bottom, e.scrollHeight <= Math.ceil(r.height)]; }));
+    boxes.forEach(([, bottom, fits], i) => {
+      assert.ok(fits, `${path}: section ${i} is cut short`);
+      if (boxes[i + 1] && boxes[i + 1][0] < boxes[i][0] + 1) return; // the right sidebar starts its own column
+      if (boxes[i + 1]) assert.ok(bottom <= boxes[i + 1][0], `${path}: section ${i} runs into the next`);
+    });
+    assert.equal(await page.locator('.sidebar.left').evaluate((s) => s.scrollHeight > s.clientHeight), true, path);
+  }
 });
 
 for (const colorScheme of ['light', 'dark']) {
   test(`375px ${colorScheme}: no horizontal overflow, contrast or ARIA regressions`, async () => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.emulateMedia({ colorScheme });
-    for (const path of ['/', '/docs', '/stats', '/pages/alpha.md', '/review/alpha.md']) {
+    for (const path of ['/', '/docs', '/about', '/stats', '/pages/alpha.md', '/review/alpha.md']) {
       await page.goto(base + path);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, path);
       const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();

@@ -24,15 +24,11 @@ async function api(path, opts = {}) {
 
 async function whoami() {
   if (!token) { $('who').textContent = 'Reading as a guest.'; return; }
-  // The page's shell handles [data-sign-out]: it forgets the saved token and reloads.
-  const out = Object.assign(document.createElement('button'), { type: 'button', className: 'link-btn', textContent: 'Sign out' });
-  out.dataset.signOut = '';
   try {
     const me = await api('/api/me');
-    $('who').textContent = `Signed in as ${me.name}`;
+    $('who').textContent = `Signed in as ${me.name}`; // Sign out is in the top bar
     $('signin').hidden = true;
   } catch { $('who').textContent = 'Saved token was rejected.'; }
-  $('who').append(' · ', out);
 }
 
 // Swap in a new iframe rather than changing src: re-pointing a frame adds
