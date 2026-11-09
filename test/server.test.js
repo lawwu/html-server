@@ -1891,3 +1891,73 @@ test('another database connection invalidates cached visibility, titles, and voc
     assert.deepEqual(store.list(null, { q: 'axolotl' }).map((p) => p.slug), ['new.md']);
   } finally { writer.close(); }
 });
+
+test('claim links: the token is shown once, in the browser, never to whatever asked for the link', async () => {
+  const bob = store.createUser('bob');
+  assert.equal((await req('POST', '/api/users/octo-cat/claim'))[0], 401);
+  assert.equal((await req('POST', '/api/users/octo-cat/claim', { token: bob }))[0], 403); // admins only
+  const [status, link] = await req('POST', '/api/users/Octo-Cat/claim', { token: admin }); // a GitHub login, any case
+  assert.equal(status, 201);
+  assert.deepEqual(Object.keys(link).sort(), ['claim_path', 'claim_url', 'created', 'expires_at', 'name']);
+  assert.equal(link.name, 'octo-cat');
+  assert.equal(link.created, true);
+  assert.match(link.claim_path, /^\/api\/claim\/[\w-]{43}$/);
+  assert.equal(link.claim_url, base + link.claim_path);
+  assert.doesNotMatch(JSON.stringify(link), /ak_/); // nothing in the response is a token
+  assert.ok(Math.abs(link.expires_at - (Date.now() / 1000 + 15 * 60)) < 5);
+  assert.deepEqual(store.listUsers().map((u) => u.name), ['admin', 'bob', 'octo-cat']); // made, with a token nobody knows yet
+
+  // The page shows a button, not the token, so a link preview can't use it up; opening it twice is fine.
+  for (let i = 0; i < 2; i++) {
+    const [s, page, headers] = await req('GET', link.claim_path);
+    assert.equal(s, 200);
+    assert.match(page, /makes a new token for <strong>octo-cat<\/strong>[^]*<form method="post"><button type="submit" class="primary">Show my token<\/button><\/form>/);
+    assert.doesNotMatch(page, /ak_/);
+    assert.deepEqual([headers.get('cache-control'), headers.get('referrer-policy'), headers.get('x-robots-tag')], ['no-store', 'no-referrer', 'noindex']);
+  }
+  // The button: the token, once.
+  const lines = [];
+  const log = console.error;
+  console.error = (...a) => lines.push(a.join(' '));
+  let shown;
+  try { shown = await req('POST', link.claim_path); } finally { console.error = log; }
+  assert.equal(shown[0], 200);
+  assert.equal(shown[2].get('cache-control'), 'no-store');
+  const token = shown[1].match(/id="claim-token" readonly value="(ak_[\w-]+)"/)[1];
+  assert.match(shown[1], /<code>html-server login<\/code>, give it <code>http:\/\/127\.0\.0\.1:\d+<\/code>/);
+  assert.deepEqual(await (await fetch(`${base}/api/me`, { headers: { Authorization: `Bearer ${token}` } })).json(), { name: 'octo-cat', is_admin: false });
+  assert.ok(lines.some((l) => l === 'POST /api/claim/…'), lines.join('\n')); // the code stays out of the server's log
+  assert.ok(!lines.some((l) => l.includes(link.claim_path.split('/').pop())));
+  for (const method of ['POST', 'GET']) { // used: gone
+    const [s, page] = await req(method, link.claim_path);
+    assert.equal(s, 410, method);
+    assert.match(page, /This link has been used or has expired/);
+  }
+
+  // Running the workflow again: the same user, a new link; the old token works until the link is used.
+  const [, again] = await req('POST', '/api/users/octo-cat/claim', { token: admin });
+  assert.equal(again.created, false);
+  const [, third] = await req('POST', '/api/users/octo-cat/claim', { token: admin });
+  assert.equal((await req('GET', again.claim_path))[0], 410); // a new link replaces the unused one
+  assert.equal((await req('GET', '/api/me', { token }))[0], 200);
+  const next = (await req('POST', third.claim_path))[1].match(/value="(ak_[\w-]+)"/)[1];
+  assert.equal((await req('GET', '/api/me', { token }))[0], 401); // replaced
+  assert.equal((await req('GET', '/api/me', { token: next }))[0], 200);
+
+  // Expired, unknown, behind a TLS proxy, and a name this server can't take.
+  const old = store.claimLink('octo-cat', { minutes: -1 });
+  assert.equal((await req('GET', `/api/claim/${old.code}`))[0], 410);
+  assert.equal((await req('POST', `/api/claim/${old.code}`))[0], 410);
+  assert.equal((await req('GET', '/api/claim/nope'))[0], 410);
+  const r = await fetch(`${base}/api/users/someone/claim`, { method: 'POST', headers: { Authorization: `Bearer ${admin}`, 'X-Forwarded-Proto': 'https' } });
+  assert.match((await r.json()).claim_url, /^https:\/\/127\.0\.0\.1:\d+\/api\/claim\//);
+  assert.equal((await req('POST', '/api/users/not%20a%20name/claim', { token: admin }))[0], 400);
+  store.setUsernames('email');
+  assert.equal((await req('POST', '/api/users/octo-cat/claim', { token: admin }))[0], 400); // email usernames: not a GitHub login
+  store.setUsernames('name');
+
+  // Deleting the user takes their links with them.
+  const gone = store.claimLink('octo-cat');
+  assert.equal((await req('DELETE', '/api/users/octo-cat', { token: admin }))[0], 200);
+  assert.equal(store.claimFor(gone.code), null);
+});

@@ -57,6 +57,8 @@ Use a running server:
   views NAME                            page views report
   rm NAME [--purge]                     trash; --purge deletes for good (trash first)
   whoami
+  claim-link NAME                       (admin) a one-time link that shows NAME a new token in their browser;
+                                        makes the user if needed. For CI: README, "Tokens from a GitHub workflow"
   --version                             print the version
 
 Data lives in ${homeDir} (HTML_SERVER_HOME moves it), or in PostgreSQL when

@@ -1,6 +1,6 @@
 // Server-rendered pages: your pages at /, the example gallery at /gallery, history,
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
-import { MAX_BODY_BYTES, POPULAR_CHOICES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
+import { CLAIM_LINK_MINUTES, MAX_BODY_BYTES, POPULAR_CHOICES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
 import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, heroTile, sparkline, stackedColumnChart } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
@@ -708,6 +708,50 @@ td.del{background:var(--del);color:var(--deltx)}td.ins{background:var(--ins);col
 .gap td{text-align:center;color:var(--mute);padding:.4rem}
 .back{display:block;padding:.6rem .75rem;border-bottom:1px solid var(--line);color:inherit;font-size:13px}.same{padding:1.5rem;color:var(--mute)}
 </style></head><body>${back ? `<a class="back" href="${esc(back)}" target="_top">← History</a>` : ''}${body}</body></html>`;
+}
+
+/**
+ * A claim link's page (GET /api/claim/CODE): whose token it shows, and a button that shows it.
+ * A button, not the page itself, so a link preview or a mail scanner opening the address
+ * can't use it up. `claim` is null once the link is used or expired.
+ */
+export function claimPage(claim) {
+  const mins = claim ? Math.max(1, Math.round((claim.expires_at - Date.now() / 1000) / 60)) : 0;
+  const body = claim
+    ? `<h1>Your HTML Server token</h1>
+<p>This link makes a new token for <strong>${esc(claim.name)}</strong> and shows it once. It works one time, for the next
+${plural(mins, 'minute')}. If you already have a token, the new one replaces it.</p>
+<form method="post"><button type="submit" class="primary">Show my token</button></form>`
+    : `<h1>This link has been used or has expired</h1>
+<p>A claim link shows its token once and works for ${CLAIM_LINK_MINUTES} minutes. Run the workflow again, or ask an admin, for a new one.</p>
+<p>If you didn't open it yourself, someone else may have. Opening a new link replaces the token they saw.</p>`;
+  return shell('Your token · HTML Server', `${topBar(null, { sidebar: false })}<main class="wrap claim">${body}</main>`, { frame: false });
+}
+
+/** The token, shown this once (POST /api/claim/CODE), with how to use it. */
+export function claimedPage({ name, token, server }) {
+  return shell('Your token · HTML Server', `${topBar(null, { sidebar: false })}<main class="wrap claim">
+<h1>Your token, ${esc(name)}</h1>
+<p><strong>Copy it now:</strong> this page won't show it again, and reloading it won't either. Any token you had before no longer works.</p>
+<p class="claim-token"><input id="claim-token" readonly value="${esc(token)}" aria-label="Your token" spellcheck="false">
+<button type="button" id="claim-copy">Copy</button></p>
+<h2>Use it</h2>
+<ul>
+<li><strong>In this browser</strong>, for Upload, comments and the rest: <button type="button" id="claim-here">Sign in here</button> <span id="claim-done" class="meta" role="status"></span></li>
+<li><strong>The command line:</strong> run <code>html-server login</code>, give it <code>${esc(server)}</code>, and paste the token. MCP uses the same login.</li>
+<li><strong>Scripts:</strong> keep it in a secret store and send it as <code>Authorization: Bearer &lt;token&gt;</code>.</li>
+</ul>
+<script>(() => {
+  const box = document.getElementById('claim-token'), done = document.getElementById('claim-done');
+  document.getElementById('claim-copy').onclick = async (e) => {
+    box.select();
+    try { await navigator.clipboard.writeText(box.value); e.target.textContent = 'Copied'; } catch { document.execCommand('copy'); }
+  };
+  document.getElementById('claim-here').onclick = () => {
+    try { localStorage.setItem('artifact_token', box.value); localStorage.removeItem('artifact_user'); done.textContent = 'Signed in.'; }
+    catch { done.textContent = "This browser won't keep it; copy it instead."; }
+  };
+})();</script></main>`, { frame: false });
 }
 
 /**

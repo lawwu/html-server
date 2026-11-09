@@ -621,6 +621,13 @@ const clientCommands = {
     const a = await api('DELETE', `/api/artifacts/${enc(name)}${opts.purge ? '?purge=1' : ''}`, { auth: 'required' });
     console.log(`${a.slug} → ${a.state}`);
   },
+  async 'claim-link'([name]) {
+    if (!name) fail('usage: claim-link NAME');
+    const c = await api('POST', `/api/users/${encodeURIComponent(name)}/claim`, { auth: 'required' });
+    if (c.created) console.error(`made user '${c.name}'`);
+    console.log(`${SERVER}${c.claim_path}`);
+    console.error(`works once, until ${new Date(c.expires_at * 1000).toLocaleTimeString()}; it shows ${c.name} a new token, which replaces any old one`);
+  },
   async whoami() {
     const me = await api('GET', '/api/me', { auth: 'required' });
     console.log(`${me.name}${me.is_admin ? ' (admin)' : ''} on ${SERVER}`);

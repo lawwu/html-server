@@ -7,7 +7,7 @@
 // still go through tx() so a failure leaves nothing half-done.
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS,
+  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLAIM_LINK_MINUTES, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS,
   PAGE_EXT_RE, POPULAR_WEEKS, SEARCH_SORT, SLUG_HINT, SLUG_RE, SORTS, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
@@ -227,6 +227,11 @@ CREATE TABLE IF NOT EXISTS asset_grants (
 );
 CREATE INDEX IF NOT EXISTS asset_grants_by_name ON asset_grants (name);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS token_claims (
+    code_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at REAL NOT NULL
+);
 `;
 // The search index has its own version: when its columns change, it is rebuilt
 // from each page's latest version on startup (see ensureSearchIndex).
@@ -670,6 +675,46 @@ export class Store {
     const { changes } = this.run('UPDATE users SET token_hash = ? WHERE name = ?', hashToken(token), name);
     if (!changes) throw new ApiError(404, 'no such user');
     return token;
+  }
+
+  /**
+   * A one-time link that shows `name` a new token (claimToken), making the user first if
+   * there is none: what a GitHub workflow asks for, so the token never appears in its log.
+   * A new user gets a token nobody knows until then. Only the code's hash is kept; a new
+   * link replaces the user's unused one. Returns { name, code, expires_at, created }.
+   */
+  claimLink(name, { minutes = CLAIM_LINK_MINUTES } = {}) {
+    name = this.normalizeUsername(name);
+    const code = randomBytes(32).toString('base64url');
+    const t = now();
+    let created = false;
+    this.tx(() => {
+      let u = this.one('SELECT id FROM users WHERE name = ?', name);
+      if (!u) {
+        this.createUser(name);
+        u = this.one('SELECT id FROM users WHERE name = ?', name);
+        created = true;
+      }
+      this.run('DELETE FROM token_claims WHERE user_id = ? OR expires_at <= ?', u.id, t);
+      this.run('INSERT INTO token_claims (code_hash, user_id, expires_at) VALUES (?,?,?)', hashToken(code), u.id, t + minutes * 60);
+    });
+    return { name, code, expires_at: t + minutes * 60, created };
+  }
+
+  /** Whose token a claim link shows, and until when; null once it's used or expired. */
+  claimFor(code) {
+    return this.one('SELECT u.name, c.expires_at FROM token_claims c JOIN users u ON u.id = c.user_id WHERE c.code_hash = ? AND c.expires_at > ?',
+      hashToken(String(code)), now()) ?? null;
+  }
+
+  /** Use a claim link, once: the user's new token, which replaces their old one. 410 if it's used or expired. */
+  claimToken(code) {
+    return this.tx(() => {
+      const c = this.one('SELECT c.user_id, c.expires_at, u.name FROM token_claims c JOIN users u ON u.id = c.user_id WHERE c.code_hash = ?', hashToken(String(code)));
+      if (!c || c.expires_at <= now()) throw new ApiError(410, 'this link has been used or has expired');
+      this.run('DELETE FROM token_claims WHERE code_hash = ?', hashToken(String(code)));
+      return { name: c.name, token: this.resetToken(c.name) };
+    });
   }
 
   userForToken(token) { return this.one('SELECT * FROM users WHERE token_hash = ?', hashToken(token)); }

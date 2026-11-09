@@ -532,3 +532,9 @@ details[open] > summary > .chev { rotate: 90deg; }
 }
 :root[data-theme="dark"] .move-error, :root[data-theme="dark"] .upload-out.err, :root[data-theme="dark"] .upload-list .skip .meta,
 :root[data-theme="dark"] .upload-status.err { color: #ff8a7a; }
+/* A claim link's pages (/api/claim/…): the token shown once, in a box to copy from. */
+.claim { max-width: 44rem; padding: 2rem 1.5rem 3rem; }
+.claim .claim-token { display: flex; gap: .5rem; }
+.claim .claim-token input { flex: 1; min-width: 0; font: 14px var(--code-font); padding: .55rem .7rem; }
+.claim button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); padding: .5rem 1rem; }
+.claim li { margin: .4rem 0; }

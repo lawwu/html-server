@@ -7,7 +7,7 @@ import {
   CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, aboutMarkdown, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
+import { VIEWS, aboutMarkdown, claimPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
 import { renderMarkdown, safeDecode } from './markdown.js';
 import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
@@ -121,6 +121,10 @@ export const ROUTES = [
   ['POST', '/api/users/(?<name>[^/]+)/token', 'resetToken', 'admin',
     'Issue a new token for a user who lost theirs. Their pages are untouched; the old token stops working'],
   ['DELETE', '/api/users/(?<name>[^/]+)', 'deleteUser', 'admin', 'Delete a user and all of their pages'],
+  ['POST', '/api/users/(?<name>[^/]+)/claim', 'claimLink', 'admin',
+    'A one-time link that shows the user a new token in their browser, making the user if there is none. Returns `claim_path`, `claim_url` and `expires_at`, never the token, so it can run in a CI log (README: Users and admins). A new link replaces an unused one; the old token works until the link is used'],
+  ['GET', '/api/claim/(?<code>[\\w-]+)', 'claimPage', 'anyone with the link', 'The claim link: whose token it shows, and a button that shows it'],
+  ['POST', '/api/claim/(?<code>[\\w-]+)', 'claim', 'anyone with the link', 'Show the token, once: it replaces the user\'s old one, and the link stops working'],
 ].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`, 'u'), label: routeLabel(path) }))
   .sort((a, b) => routePriority(a) - routePriority(b));
 
@@ -134,6 +138,7 @@ function routePriority(r) {
   return 0;
 }
 
+const CLAIM_HEADERS = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
 const TOC_SCRIPT = fileText('public/toc.js');
 const VERSION_BADGE_SCRIPT = fileText('public/version-badge.js');
 const EMBED_SIZE_SCRIPT = fileText('public/embed-size.js').replace(/^(\/\/.*\n)+/, ''); // without its header comment
@@ -415,7 +420,11 @@ class Ctx {
   }
 
   /** This server as the client reached it, for examples in the docs. */
-  origin() { return `http://${this.req.headers.host || 'localhost'}`; }
+  /** This server as the client reached it: behind a proxy that terminates TLS, the scheme it says it used. */
+  origin() {
+    const proto = String(this.req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    return `${proto === 'https' ? 'https' : 'http'}://${this.req.headers.host || 'localhost'}`;
+  }
 
   int(name) {
     const v = this.query.get(name);
@@ -661,6 +670,25 @@ const handlers = {
     c.user({ admin: true });
     c.json(200, { name, token: c.store.resetToken(name), note: 'shown once; the old token no longer works' });
   },
+  claimLink(c, { name }) {
+    c.user({ admin: true });
+    const { name: user, code, expires_at, created } = c.store.claimLink(name);
+    const path = `/api/claim/${code}`;
+    c.json(201, { name: user, created, claim_path: path, claim_url: c.origin() + path, expires_at });
+  },
+  // The link's pages: never cached, and sent nowhere as a Referer, since the code is in the address.
+  claimPage(c, { code }) {
+    const claim = c.store.claimFor(code);
+    c.send(claim ? 200 : 410, 'text/html; charset=utf-8', claimPage(claim), CLAIM_HEADERS);
+  },
+  claim(c, { code }) {
+    let shown;
+    try { shown = c.store.claimToken(code); } catch (e) {
+      if (e.status !== 410) throw e;
+      return c.send(410, 'text/html; charset=utf-8', claimPage(null), CLAIM_HEADERS);
+    }
+    c.send(200, 'text/html; charset=utf-8', claimedPage({ ...shown, server: c.origin() }), CLAIM_HEADERS);
+  },
   deleteUser(c, { name }) {
     if (name.toLowerCase() === c.user({ admin: true }).name) throw new ApiError(400, 'refusing to delete yourself');
     c.store.deleteUser(name);
@@ -760,7 +788,8 @@ export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) 
       if (!res.headersSent) c.json(e.status || 500, { error: e.status ? e.message : 'internal error' });
     } finally {
       // Health checks come every few seconds: neither logged nor counted as API use.
-      if (c.route?.handler !== 'health') console.error(`${req.method} ${url.pathname}`); // never log tokens or query strings
+      // Never log tokens or query strings, nor a claim link's code (it's as good as a token until used).
+      if (c.route?.handler !== 'health') console.error(`${req.method} ${c.route?.handler?.startsWith('claim') && c.route.handler !== 'claimLink' ? '/api/claim/…' : url.pathname}`);
       if (url.pathname.startsWith('/api/') && !['docsSource', 'health'].includes(c.route?.handler)) recordApiCall(store, req, c);
     }
   }
