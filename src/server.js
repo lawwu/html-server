@@ -115,13 +115,13 @@ export const ROUTES = [
   ['GET', '/api/me', 'me', 'token', 'Who the token belongs to'],
   ['GET', '/api/users', 'listUsers', 'admin', 'List users'],
   ['POST', '/api/users', 'createUser', 'admin',
-    'Create a user: body `{"name": "bob"}`, add `"admin": true` for an admin. Returns the token once'],
+    'Create a user: body `{"name": "bob"}`, add `"admin": true` for an admin, or `"claims_only": true` for a token that can only make claim links (for CI). Returns the token once'],
   ['POST', '/api/me/token', 'rotateOwnToken', 'token',
     'Replace your own token, e.g. if it leaked. Returns the new one once; the old one stops working'],
   ['POST', '/api/users/(?<name>[^/]+)/token', 'resetToken', 'admin',
     'Issue a new token for a user who lost theirs. Their pages are untouched; the old token stops working'],
   ['DELETE', '/api/users/(?<name>[^/]+)', 'deleteUser', 'admin', 'Delete a user and all of their pages'],
-  ['POST', '/api/users/(?<name>[^/]+)/claim', 'claimLink', 'admin',
+  ['POST', '/api/users/(?<name>[^/]+)/claim', 'claimLink', 'admin, or a claims-only token',
     'A one-time link that shows the user a new token in their browser, making the user if there is none. Returns `claim_path`, `claim_url` and `expires_at`, never the token, so it can run in a CI log (README: Users and admins). A new link replaces an unused one; the old token works until the link is used'],
   ['GET', '/api/claim/(?<code>[\\w-]+)', 'claimPage', 'anyone with the link', 'The claim link: whose token it shows, and a button that shows it'],
   ['POST', '/api/claim/(?<code>[\\w-]+)', 'claim', 'anyone with the link', 'Show the token, once: it replaces the user\'s old one, and the link stops working'],
@@ -451,11 +451,13 @@ class Ctx {
     return data;
   }
 
-  user({ admin = false } = {}) {
+  /** The token's user. A claims-only token works only where `claims` says it may (making claim links, /api/me). */
+  user({ admin = false, claims = false } = {}) {
     const auth = this.req.headers.authorization || '';
     if (!auth.startsWith('Bearer ')) throw new ApiError(401, 'missing bearer token');
     const u = this.store.userForToken(auth.slice(7).trim());
     if (!u) throw new ApiError(401, 'bad token');
+    if (u.claims_only && !claims) throw new ApiError(403, 'this token can only make claim links');
     if (admin && !u.is_admin) throw new ApiError(403, 'admin only');
     return u;
   }
@@ -653,17 +655,20 @@ const handlers = {
   comments(c, { slug }) { c.json(200, c.store.comments(slug, c.viewerId(), c.int('version'))); },
 
   // --- users ---
-  me(c) { const u = c.user(); c.json(200, { name: u.name, is_admin: !!u.is_admin }); },
+  me(c) {
+    const u = c.user({ claims: true });
+    c.json(200, { name: u.name, is_admin: !!u.is_admin, ...(u.claims_only ? { claims_only: true } : {}) });
+  },
   listUsers(c) { c.user({ admin: true }); c.json(200, c.store.listUsers()); },
   async createUser(c) {
     c.user({ admin: true });
     const data = await c.jsonBody();
     const name = c.store.normalizeUsername(data.name);
-    const token = c.store.createUser(name, !!data.admin);
+    const token = c.store.createUser(name, !!data.admin, { claimsOnly: !!data.claims_only });
     c.json(201, { name, token, note: 'shown once; store it' });
   },
   rotateOwnToken(c) {
-    const u = c.user();
+    const u = c.user({ claims: true }); // a claims-only token can replace itself, e.g. if CI's secret leaked
     c.json(200, { name: u.name, token: c.store.resetToken(u.name), note: 'shown once; the old token no longer works' });
   },
   resetToken(c, { name }) {
@@ -671,8 +676,9 @@ const handlers = {
     c.json(200, { name, token: c.store.resetToken(name), note: 'shown once; the old token no longer works' });
   },
   claimLink(c, { name }) {
-    c.user({ admin: true });
-    const { name: user, code, expires_at, created } = c.store.claimLink(name);
+    const u = c.user({ claims: true });
+    if (!u.is_admin && !u.claims_only) throw new ApiError(403, 'admin or claims-only token only');
+    const { name: user, code, expires_at, created } = c.store.claimLink(name, { limited: !u.is_admin });
     const path = `/api/claim/${code}`;
     c.json(201, { name: user, created, claim_path: path, claim_url: c.origin() + path, expires_at });
   },

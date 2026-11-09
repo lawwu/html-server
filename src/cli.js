@@ -131,8 +131,8 @@ const serverCommands = {
       console.error(`html-server ${VERSION} on http://${opts.host}:${opts.port}  (db: ${where})`));
   },
   async 'create-user'([name], opts) {
-    if (!name) fail('usage: create-user NAME [--admin] [--save]');
-    const token = await withStore(opts, (store) => store.createUser(name, opts.admin));
+    if (!name) fail('usage: create-user NAME [--admin | --claims-only] [--save]');
+    const token = await withStore(opts, (store) => store.createUser(name, opts.admin, { claimsOnly: opts['claims-only'] }));
     console.log(token);
     if (opts.save) saveForCli(token, opts);
   },
@@ -713,6 +713,7 @@ export async function main(argv) {
       sort: { type: 'string' },
       port: { type: 'string', default: String(DEFAULT_PORT) },
       admin: { type: 'boolean', default: false },
+      'claims-only': { type: 'boolean', default: false },
       save: { type: 'boolean', default: false },
       private: { type: 'boolean', default: false },
       purge: { type: 'boolean', default: false },

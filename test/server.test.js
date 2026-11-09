@@ -1961,3 +1961,47 @@ test('claim links: the token is shown once, in the browser, never to whatever as
   assert.equal((await req('DELETE', '/api/users/octo-cat', { token: admin }))[0], 200);
   assert.equal(store.claimFor(gone.code), null);
 });
+
+test('claims-only users: a token that can make claim links and nothing else', async () => {
+  // Made by an admin (API) or from the server's shell (create-user --claims-only).
+  assert.equal((await req('POST', '/api/users', { token: admin, body: '{"name":"x","admin":true,"claims_only":true}' }))[0], 400);
+  const [made, ci] = await req('POST', '/api/users', { token: admin, body: '{"name":"ci-bot","claims_only":true}' });
+  assert.equal(made, 201);
+  const bot = ci.token;
+  assert.deepEqual((await req('GET', '/api/users', { token: admin }))[1].find((u) => u.name === 'ci-bot'),
+    { name: 'ci-bot', is_admin: false, claims_only: true, created_at: store.listUsers().find((u) => u.name === 'ci-bot').created_at });
+  assert.deepEqual((await req('GET', '/api/me', { token: bot }))[1], { name: 'ci-bot', is_admin: false, claims_only: true });
+
+  // What it's for: claim links for new and ordinary users.
+  const [s, link] = await req('POST', '/api/users/octo-cat/claim', { token: bot });
+  assert.equal(s, 201);
+  assert.equal(link.created, true);
+  assert.equal((await req('POST', link.claim_path))[0], 200);
+  store.createUser('dana');
+  assert.equal((await req('POST', '/api/users/dana/claim', { token: bot }))[0], 201);
+  // Not for admins or accounts like itself: whoever holds the link gets the account.
+  for (const name of ['admin', 'ci-bot']) {
+    const [st, err] = await req('POST', `/api/users/${name}/claim`, { token: bot });
+    assert.equal(st, 403, name);
+    assert.match(err.error, /a claims-only token can't make links/);
+  }
+  assert.equal((await req('POST', '/api/users/admin/claim', { token: admin }))[0], 201); // an admin still can
+
+  // Nothing else: no uploads, no reading as itself, no user management, no other tokens.
+  for (const [method, path, body] of [
+    ['PUT', '/api/artifacts/note.html', '<p>x</p>'], ['GET', '/api/artifacts'], ['GET', '/'], ['GET', '/api/search?q=x'],
+    ['POST', '/api/users', '{"name":"eve"}'], ['GET', '/api/users'], ['POST', '/api/users/dana/token'], ['DELETE', '/api/users/dana'],
+    ['POST', '/api/tags', '{"pages":[],"add":["x"]}'], ['GET', '/api/assets'],
+  ]) {
+    const [st, err] = await req(method, path, { token: bot, body });
+    assert.equal(st, 403, `${method} ${path}`);
+    if (typeof err === 'object') assert.match(err.error, /only make claim links|admin only/, `${method} ${path}`);
+  }
+  // It can replace its own token, e.g. if the CI secret leaked; an admin can too.
+  const [, rotated] = await req('POST', '/api/me/token', { token: bot });
+  assert.equal((await req('GET', '/api/me', { token: bot }))[0], 401);
+  assert.equal((await req('POST', '/api/users/someone/claim', { token: rotated.token }))[0], 201);
+  // An ordinary user can't make links.
+  const plain = store.createUser('plain');
+  assert.equal((await req('POST', '/api/users/someone/claim', { token: plain }))[0], 403);
+});

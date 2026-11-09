@@ -16,6 +16,11 @@ couldn't be migrated would be a major version.
   Referer, and the server's log leaves the code out. The README has a workflow to copy that
   takes the username from the GitHub login running it; `html-server claim-link NAME` makes
   a link by hand. Links are kept in a new `token_claims` table, made on startup.
+- **Claims-only users,** for that workflow's secret: `create-user NAME --claims-only` (or
+  `"claims_only": true` on `POST /api/users`) makes a token that can only make claim links
+  and replace itself. It can't publish, read, or manage users, and it can't make links for
+  admins or other claims-only users. Admins' tokens can still make links. `GET /api/users`
+  shows `claims_only`; a new `users.claims_only` column is added on startup.
 ## 0.13.0 (2026-11-07)
 
 - **Upload from the browser.** The home page has an **Upload** button, and files dropped
