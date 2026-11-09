@@ -233,6 +233,9 @@ const SETUP = [
    $f$`,
 ];
 
+// The advisory lock SETUP runs under: any number, the same for every html-server ("html" in ASCII).
+const SETUP_LOCK = 0x68746d6c;
+
 /** Native clients being closed, kept from the garbage collector until libuv is done with them (see close). */
 const CLOSING = new Set();
 
@@ -254,9 +257,17 @@ export class PostgresDatabase {
       client.connectSync(connectionString(url));
       // Notices ("already exists, skipping") are for people at a psql prompt, not a server's log.
       db.raw(`SET client_min_messages = warning; SET statement_timeout = '${STATEMENT_TIMEOUT}'; SET lock_timeout = '${LOCK_TIMEOUT}'`);
-      db.raw(SETUP[0]);
-      // Made once, never replaced: the search index is generated with it (a new fold needs a new name).
-      if (!db.raw("SELECT to_regprocedure('html_server_fold(text)') IS NOT NULL AS x")[0].x) db.raw(SETUP[1]);
+      // One connection at a time: two starting together (two servers, or test files in
+      // parallel) would both find the function missing and both create it, and the second
+      // fails on a duplicate. The lock is the database's, held only for these two statements.
+      db.raw(`SELECT pg_advisory_lock(${SETUP_LOCK})`);
+      try {
+        db.raw(SETUP[0]);
+        // Made once, never replaced: the search index is generated with it (a new fold needs a new name).
+        if (!db.raw("SELECT to_regprocedure('html_server_fold(text)') IS NOT NULL AS x")[0].x) db.raw(SETUP[1]);
+      } finally {
+        db.raw(`SELECT pg_advisory_unlock(${SETUP_LOCK})`);
+      }
     } catch (e) {
       db.close().catch(() => {});
       throw cleanError(e, client);
