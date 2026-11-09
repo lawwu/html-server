@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.14.0 (2026-11-09)
+
 - **Tokens from a GitHub workflow, never in its log.** `POST /api/users/NAME/claim` (admin)
   makes the user if needed and returns a one-time **claim link**, not a token. Opening it
   and pressing **Show my token** makes the token and shows it once, with **Sign in here**
