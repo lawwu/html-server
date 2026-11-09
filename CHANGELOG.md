@@ -17,6 +17,9 @@ couldn't be migrated would be a major version.
   so each GitHub account has one account here however its login or email changes. On a
   server with email usernames, the username is the person's verified GitHub email, and the
   account is renamed if that changes. The README has the app's setup.
+- **PostgreSQL: servers starting together no longer collide.** Getting the database ready
+  checked for a function and then made it, so two connections starting at the same moment
+  could both make it, and one failed. That setup now holds a database lock.
 - **`config email-domains company.com`:** where email usernames may be, for every way a user
   is made. `config email-domains any` lifts it.
 ## 0.14.0 (2026-11-09)
