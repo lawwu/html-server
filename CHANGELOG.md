@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.17.0 (2026-11-09)
+
 - **Install the command line from your own server:** `npm install -g https://YOUR-SERVER/api/cli/html-server.tgz`
   installs the version that server runs, so nobody needs access to GitHub. The server packs
   itself (the files `npm pack` would ship, without the optional PostgreSQL driver) the first
@@ -15,6 +17,7 @@ couldn't be migrated would be a major version.
   sign-on. The **Account** page, a claim link's token page and `/docs` show the command with
   the server's address, and `html-server login` says when the command line and the server
   are different versions. Not on Cloudflare, where `/api/cli` gives the GitHub command.
+
 ## 0.16.0 (2026-11-09)
 
 - **Claim links with GitHub sign-in take Enterprise Managed Users' logins,** which have an
