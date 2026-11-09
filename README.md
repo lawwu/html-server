@@ -731,11 +731,11 @@ connects to the server, so it can stay private.
 
 Each release is also an image, **`ghcr.io/lawwu/html-server`**, on Debian 13 (trixie) and
 Node 24, for amd64 and arm64, with the PostgreSQL driver built in. Its tags are the
-version (`0.15.0`), the minor line (`0.15`) and `latest`, the newest release.
+version (`0.16.0`), the minor line (`0.16`) and `latest`, the newest release.
 
 ```bash
 docker run -d --name html-server --restart unless-stopped \
-  -p 127.0.0.1:8765:8765 -v html-server:/data ghcr.io/lawwu/html-server:0.15.0
+  -p 127.0.0.1:8765:8765 -v html-server:/data ghcr.io/lawwu/html-server:0.16.0
 ```
 
 - **Data** lives in the `/data` volume: the database, backups, and the login of the CLI
@@ -754,7 +754,7 @@ docker run -d --name html-server --restart unless-stopped \
 - **Other commands** run in the container: `docker exec html-server html-server backup --keep 14`
   writes to `/data/backups`. Arguments after the image name replace the default
   `serve --host 0.0.0.0`, so to change how it serves, give the whole command:
-  `… ghcr.io/lawwu/html-server:0.15.0 serve --host 0.0.0.0 --sandbox-allow allow-downloads`.
+  `… ghcr.io/lawwu/html-server:0.16.0 serve --host 0.0.0.0 --sandbox-allow allow-downloads`.
 - **[PostgreSQL](#postgresql):** add `-e DATABASE_URL=…`, or `--env-file` to keep the
   password out of your shell history. The data is then in PostgreSQL, not in `/data`.
 - **Time zone.** Stats count days in the container's time zone, UTC unless you add
@@ -1218,7 +1218,7 @@ Not part of the interface, and free to change in any release:
 - the code under `src/`, which is internal (the package publishes only the
   `html-server` command; nothing is exported to import).
 
-Before 1.0: so far, each new site route (most recently `about`, in 0.13.0) has taken a
+Before 1.0: so far, each new site route (most recently `account`, in 0.16.0) has taken a
 name that pages and folders could otherwise use. That has to stop before the reserved
 names can be promised, either by moving new routes under a prefix the server already owns
 or by settling the full list.

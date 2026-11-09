@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.16.0 (2026-11-09)
+
 - **Claim links with GitHub sign-in take Enterprise Managed Users' logins,** which have an
   underscore before the enterprise's shortcode (`jdoe_acme`); a link for one was refused.
   The 39-character limit on logins is now enforced, as the error said it was.
