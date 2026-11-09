@@ -57,8 +57,10 @@ export function setGitHubSignIn(env = {}) {
   } : null;
 }
 export const githubSignIn = () => GITHUB;
-// A GitHub login: letters, digits and single hyphens, up to 39 (GitHub's own rule).
-export const GITHUB_LOGIN_RE = /^[a-z0-9](?:-?[a-z0-9]){0,38}$/i;
+// A GitHub login, up to 39 characters: letters and digits, with single hyphens between them;
+// Enterprise Managed Users' logins also have an underscore before the enterprise's shortcode
+// (`jdoe_acme`), so single underscores too.
+export const GITHUB_LOGIN_RE = /^(?=.{1,39}$)[a-z0-9](?:[-_]?[a-z0-9])*$/i;
 // Who may upload new versions of a page, per deployment (`config editing open`):
 // "owner" — only the person who created it (the default, so upgrading never opens
 // an existing server); "open" — any signed-in user, for public, active pages.
