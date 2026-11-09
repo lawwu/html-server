@@ -7,7 +7,7 @@
 // still go through tx() so a failure leaves nothing half-done.
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLAIM_LINK_MINUTES, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS,
+  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLAIM_LINK_MINUTES, CLIENT_KINDS, GITHUB_LOGIN_RE, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS,
   PAGE_EXT_RE, POPULAR_WEEKS, SEARCH_SORT, SLUG_HINT, SLUG_RE, SORTS, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
@@ -75,6 +75,8 @@ export function pageMeta(slug, text, { path = slug } = {}) {
 }
 
 // Same schema as the Python version, so an existing artifacts.db keeps working.
+// github_claims: claim links for a GitHub account (with GitHub sign-in on). The user is found
+// or made only once someone signs in to GitHub as `login`; `state_hash` is the sign-in under way.
 const SCHEMA = `
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
@@ -227,6 +229,13 @@ CREATE TABLE IF NOT EXISTS asset_grants (
 );
 CREATE INDEX IF NOT EXISTS asset_grants_by_name ON asset_grants (name);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS github_claims (
+    code_hash TEXT PRIMARY KEY,
+    login TEXT NOT NULL,
+    limited INTEGER NOT NULL DEFAULT 0,
+    state_hash TEXT,
+    expires_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS token_claims (
     code_hash TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -248,6 +257,9 @@ const ADDED_COLUMNS = {
     // A token that can only make claim links (POST /api/users/NAME/claim), for a CI workflow:
     // less than an admin's, and it can't reach admins or other such users (0.14.0).
     ['claims_only', 'INTEGER NOT NULL DEFAULT 0'],
+    // The GitHub account a user signed in with to claim a token (its numeric id, which
+    // never changes): one account per GitHub account, however its login or email changes.
+    ['github_id', 'INTEGER'],
   ],
   artifacts: [
     ['description', "TEXT NOT NULL DEFAULT ''"], // from <meta name="description">, for the gallery
@@ -273,6 +285,7 @@ const ADDED_COLUMNS = {
 };
 // Indexes on columns that ADDED_COLUMNS may have just added.
 const ADDED_INDEXES = [
+  'CREATE UNIQUE INDEX IF NOT EXISTS users_by_github_id ON users (github_id)',
   'CREATE INDEX IF NOT EXISTS artifacts_by_name_key ON artifacts (name_key)',
   // Backlink names are compared as the database compares names (see linkersOf).
   'CREATE INDEX IF NOT EXISTS link_names_by_name_nocase ON link_names (name COLLATE NOCASE)',
@@ -632,6 +645,14 @@ export class Store {
     this.setSetting('usernames', mode);
   }
 
+  /** Where email usernames may be (`config email-domains`): empty, anywhere. */
+  get emailDomains() { return this.setting('email_domains', '').split(',').filter(Boolean); }
+  setEmailDomains(list) {
+    const domains = [...new Set(String(list ?? '').split(',').map((d) => d.trim().toLowerCase().replace(/^@/, '')).filter(Boolean))];
+    for (const d of domains) if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d)) throw new ApiError(400, `'${d}' isn't a domain, like company.com`);
+    this.setSetting('email_domains', domains.join(','));
+  }
+
   get editing() { return this.setting('editing', DEFAULT_EDITING); }
   setEditing(mode) {
     if (!EDITING_MODES.includes(mode)) throw new ApiError(400, `editing must be one of ${EDITING_MODES.join(', ')}`);
@@ -657,16 +678,18 @@ export class Store {
     const n = String(name ?? '').trim().toLowerCase();
     const rule = USERNAME_RULES[this.usernames];
     if (!rule.re.test(n)) throw new ApiError(400, `username must be ${rule.hint}`);
+    const domains = this.usernames === 'email' ? this.emailDomains : [];
+    if (domains.length && !domains.includes(n.split('@').pop())) throw new ApiError(400, `email addresses here must be at ${domains.join(' or ')}`);
     return n;
   }
 
   /** Returns the new user's token: a fresh one, or `token` when the deployment supplies it (its first admin). */
-  createUser(name, isAdmin = false, { token = 'ak_' + randomBytes(32).toString('base64url'), claimsOnly = false } = {}) {
+  createUser(name, isAdmin = false, { token = 'ak_' + randomBytes(32).toString('base64url'), claimsOnly = false, githubId = null } = {}) {
     name = this.normalizeUsername(name);
     if (isAdmin && claimsOnly) throw new ApiError(400, 'a user is an admin or claims-only, not both');
     try {
-      this.run('INSERT INTO users (name, token_hash, is_admin, claims_only, created_at) VALUES (?,?,?,?,?)',
-        name, hashToken(token), isAdmin ? 1 : 0, claimsOnly ? 1 : 0, now());
+      this.run('INSERT INTO users (name, token_hash, is_admin, claims_only, github_id, created_at) VALUES (?,?,?,?,?,?)',
+        name, hashToken(token), isAdmin ? 1 : 0, claimsOnly ? 1 : 0, githubId, now());
     } catch (e) {
       if (/UNIQUE/.test(e.message) || e.sqlState === '23505') throw new ApiError(409, `user '${name}' already exists`);
       throw e;
@@ -691,7 +714,8 @@ export class Store {
    * `limited` (a claims-only caller): refused for admins and other claims-only users, since
    * whoever holds the link gets the account.
    */
-  claimLink(name, { minutes = CLAIM_LINK_MINUTES, limited = false } = {}) {
+  claimLink(name, { minutes = CLAIM_LINK_MINUTES, limited = false, github = false } = {}) {
+    if (github) return this.githubClaimLink(name, { minutes, limited });
     name = this.normalizeUsername(name);
     const code = randomBytes(32).toString('base64url');
     const t = now();
@@ -710,10 +734,97 @@ export class Store {
     return { name, code, expires_at: t + minutes * 60, created };
   }
 
-  /** Whose token a claim link shows, and until when; null once it's used or expired. */
+  /**
+   * With GitHub sign-in: a link for the GitHub account `login`. No user is made yet: who
+   * the account belongs to is settled when someone signs in to GitHub as it (finishGitHubClaim).
+   * A new link replaces that login's unused one. Returns { github_login, code, expires_at }.
+   */
+  githubClaimLink(login, { minutes = CLAIM_LINK_MINUTES, limited = false } = {}) {
+    login = String(login ?? '').trim();
+    if (!GITHUB_LOGIN_RE.test(login)) throw new ApiError(400, 'a GitHub login is letters, digits and single hyphens (up to 39)');
+    login = login.toLowerCase();
+    const code = randomBytes(32).toString('base64url');
+    const t = now();
+    this.tx(() => {
+      this.run('DELETE FROM github_claims WHERE login = ? OR expires_at <= ?', login, t);
+      this.run('INSERT INTO github_claims (code_hash, login, limited, expires_at) VALUES (?,?,?,?)', hashToken(code), login, limited ? 1 : 0, t + minutes * 60);
+    });
+    return { github_login: login, code, expires_at: t + minutes * 60 };
+  }
+
+  /** Whose token a claim link shows ({ name } or, with GitHub sign-in, { github_login }), and until when; null once it's used or expired. */
   claimFor(code) {
-    return this.one('SELECT u.name, c.expires_at FROM token_claims c JOIN users u ON u.id = c.user_id WHERE c.code_hash = ? AND c.expires_at > ?',
-      hashToken(String(code)), now()) ?? null;
+    const h = hashToken(String(code)), t = now();
+    return this.one('SELECT u.name, c.expires_at FROM token_claims c JOIN users u ON u.id = c.user_id WHERE c.code_hash = ? AND c.expires_at > ?', h, t)
+      ?? this.one('SELECT login AS github_login, expires_at FROM github_claims WHERE code_hash = ? AND expires_at > ?', h, t) ?? null;
+  }
+
+  /** Begin signing in to GitHub for a GitHub claim link: a fresh `state` for the round trip (the latest start wins). */
+  startGitHubClaim(code) {
+    const h = hashToken(String(code));
+    const row = this.one('SELECT login FROM github_claims WHERE code_hash = ? AND expires_at > ?', h, now());
+    if (!row) throw new ApiError(410, 'this link has been used or has expired');
+    const state = randomBytes(32).toString('base64url');
+    this.run('UPDATE github_claims SET state_hash = ? WHERE code_hash = ?', hashToken(state), h);
+    return { state, login: row.login };
+  }
+
+  /**
+   * Finish it, as `gh` ({ login, id, emails }: what GitHub said about whoever signed in). Only
+   * the link's own GitHub account gets a token; anyone else is refused and the link stays
+   * good. The account is the one tied to that GitHub id; else one of that name (an email,
+   * on a server with email usernames) not yet tied to GitHub, now tied; else a new one. On
+   * an email server, a tied account follows its GitHub email: renamed if it changed.
+   * Returns { name, token, created, renamed_from }.
+   */
+  finishGitHubClaim(state, gh) {
+    return this.tx(() => {
+      const row = this.one('SELECT code_hash, login, limited, expires_at FROM github_claims WHERE state_hash = ?', hashToken(String(state)));
+      if (!row || row.expires_at <= now()) throw new ApiError(410, 'this link has been used or has expired');
+      if (String(gh.login ?? '').toLowerCase() !== row.login) {
+        throw new ApiError(403, `this link is for the GitHub account ${row.login}, and you signed in to GitHub as ${gh.login}`);
+      }
+      const id = Number(gh.id);
+      if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError(502, "GitHub didn't say who you are");
+      const want = this.usernames === 'email' ? this.githubEmail(gh.emails) : this.normalizeUsername(row.login);
+      const cols = 'SELECT id, name, is_admin, claims_only, github_id FROM users';
+      let u = this.one(`${cols} WHERE github_id = ?`, id);
+      let created = false, renamed = null;
+      if (u) {
+        if (this.usernames === 'email' && u.name !== want) {
+          if (this.one('SELECT 1 AS x FROM users WHERE name = ?', want)) throw new ApiError(409, `${want} already belongs to another account here; ask an admin`);
+          this.run('UPDATE users SET name = ? WHERE id = ?', want, u.id);
+          [renamed, u.name] = [u.name, want];
+        }
+      } else {
+        u = this.one(`${cols} WHERE name = ?`, want);
+        if (u?.github_id != null) throw new ApiError(409, `${want} belongs to another GitHub account; ask an admin`);
+        if (u && (u.is_admin || u.claims_only)) throw new ApiError(409, `${want} is an ${u.is_admin ? 'admin' : 'claims-only'} account, which a claim link can't take over`);
+        if (u) this.run('UPDATE users SET github_id = ? WHERE id = ?', id, u.id);
+        else {
+          this.createUser(want, false, { githubId: id });
+          u = this.one(`${cols} WHERE name = ?`, want);
+          created = true;
+        }
+      }
+      if (row.limited && (u.is_admin || u.claims_only)) throw new ApiError(403, `a claims-only token can't make links for '${u.name}'`);
+      this.run('DELETE FROM github_claims WHERE code_hash = ?', row.code_hash);
+      return { name: u.name, token: this.resetToken(u.name), created, renamed_from: renamed };
+    });
+  }
+
+  /**
+   * The email a GitHub account gets here: verified, at an allowed domain (if any are set),
+   * its primary one if that qualifies, else the first alphabetically, so it's the same every time.
+   */
+  githubEmail(emails = []) {
+    const domains = this.emailDomains;
+    const ok = (Array.isArray(emails) ? emails : []).filter((e) => e?.verified && typeof e.email === 'string')
+      .map((e) => ({ email: e.email.trim().toLowerCase(), primary: !!e.primary }))
+      .filter((e) => !domains.length || domains.includes(e.email.split('@').pop()))
+      .sort((a, b) => b.primary - a.primary || (a.email < b.email ? -1 : 1));
+    if (!ok.length) throw new ApiError(403, `your GitHub account has no verified email${domains.length ? ` at ${domains.join(' or ')}` : ''}`);
+    return this.normalizeUsername(ok[0].email);
   }
 
   /** Use a claim link, once: the user's new token, which replaces their old one. 410 if it's used or expired. */
@@ -729,8 +840,8 @@ export class Store {
   userForToken(token) { return this.one('SELECT * FROM users WHERE token_hash = ?', hashToken(token)); }
 
   listUsers() {
-    return this.all('SELECT name, is_admin, claims_only, created_at FROM users ORDER BY name')
-      .map((u) => ({ ...u, is_admin: !!u.is_admin, claims_only: !!u.claims_only }));
+    return this.all('SELECT name, is_admin, claims_only, github_id, created_at FROM users ORDER BY name')
+      .map(({ github_id, ...u }) => ({ ...u, is_admin: !!u.is_admin, claims_only: !!u.claims_only, ...(github_id != null ? { github_id } : {}) }));
   }
 
   deleteUser(name) {

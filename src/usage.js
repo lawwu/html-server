@@ -14,8 +14,9 @@ Run the server (on this machine, straight to the database):
   reset-token NAME [--save]              new token for a user who lost theirs; pages are kept
   backup [PATH] [--keep N]               snapshot the database (safe while serving); default: ${backupDir}
                                         --keep N: then delete all but the newest N backups there
-  config [usernames name|email] [editing owner|open]
-                                        show or change this deployment's settings
+  config [usernames name|email] [editing owner|open] [email-domains DOMAIN,...|any]
+                                        show or change this deployment's settings; email-domains: where
+                                        email usernames may be (any: anywhere)
   import-sqlite PATH [--apply] [--replace-telemetry]
                                         move a SQLite database into the PostgreSQL DATABASE_URL names:
                                         a preview unless --apply; never into a database already in use

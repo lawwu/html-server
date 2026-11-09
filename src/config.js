@@ -42,6 +42,23 @@ export const DEFAULT_USERNAMES = 'name';
 // so the token never passes through whatever asked for the link (a GitHub workflow's log).
 // Short, because the link itself may sit in that log: whoever opens it first gets the token.
 export const CLAIM_LINK_MINUTES = 15;
+
+// GitHub sign-in for claim links: with a GitHub OAuth app's ID and secret set, a claim link
+// is for a GitHub account, and shows its token only to whoever signs in to GitHub as it
+// (README: Tokens from a GitHub workflow). Set from the environment by `serve`, and by the
+// Cloudflare Worker from its own: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and optionally
+// GITHUB_CALLBACK_URL (default: this server's /api/claim/callback, as the browser reached
+// it) and GITHUB_URL / GITHUB_API_URL (GitHub Enterprise Server; also the tests' fake GitHub).
+let GITHUB = null;
+export function setGitHubSignIn(env = {}) {
+  GITHUB = env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? {
+    clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET, callbackUrl: env.GITHUB_CALLBACK_URL || '',
+    web: (env.GITHUB_URL || 'https://github.com').replace(/\/+$/, ''), api: (env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, ''),
+  } : null;
+}
+export const githubSignIn = () => GITHUB;
+// A GitHub login: letters, digits and single hyphens, up to 39 (GitHub's own rule).
+export const GITHUB_LOGIN_RE = /^[a-z0-9](?:-?[a-z0-9]){0,38}$/i;
 // Who may upload new versions of a page, per deployment (`config editing open`):
 // "owner" — only the person who created it (the default, so upgrading never opens
 // an existing server); "open" — any signed-in user, for public, active pages.

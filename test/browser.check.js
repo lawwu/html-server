@@ -296,6 +296,28 @@ test('claim link: a button shows the token once; Sign in here keeps it for this 
   await page.waitForFunction(() => document.querySelector('.session:not([hidden])')?.textContent.startsWith('Signed in as octo-cat'));
 });
 
+test('claim link with GitHub sign-in: Continue with GitHub, and nothing shown before it', async () => {
+  const { setGitHubSignIn } = await import('../src/config.js');
+  setGitHubSignIn({ GITHUB_CLIENT_ID: 'app-id', GITHUB_CLIENT_SECRET: 'shh', GITHUB_URL: 'https://github.invalid' });
+  try {
+    const link = store.claimLink('octo-cat', { github: true });
+    await page.goto(`${base}/api/claim/${link.code}`);
+    await page.getByText('This link is for the GitHub account octo-cat').waitFor();
+    const go = page.getByRole('button', { name: 'Continue with GitHub' });
+    await go.waitFor();
+    assert.equal(await page.locator('#claim-token').count(), 0);
+    const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    assert.deepEqual(result.violations.map((v) => v.id), []);
+    // The button sends the browser to GitHub (here an address that goes nowhere), with the sign-in's cookie.
+    const [request] = await Promise.all([page.waitForRequest((r) => r.url().startsWith('https://github.invalid/login/oauth/authorize')), go.click()]);
+    assert.match(request.url(), /client_id=app-id&redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A\d+%2Fapi%2Fclaim%2Fcallback&scope=user%3Aemail&state=[\w-]{43}&login=octo-cat/);
+    assert.equal((await page.context().cookies(`${base}/api/claim/callback`)).find((c) => c.name === 'html_server_claim')?.httpOnly, true); // scoped to /api/claim
+  } finally {
+    setGitHubSignIn({});
+    errors.length = 0; // the page that fails to load at github.invalid isn't the site's error
+  }
+});
+
 for (const colorScheme of ['light', 'dark']) {
   test(`375px ${colorScheme}: no horizontal overflow, contrast or ARIA regressions`, async () => {
     await page.setViewportSize({ width: 375, height: 812 });

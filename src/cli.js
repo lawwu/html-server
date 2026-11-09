@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { parse as parseYaml } from 'yaml';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
-import { VERSION } from './config.js';
+import { VERSION, githubSignIn, setGitHubSignIn } from './config.js';
 import { encodePath, pageUrl } from './paths.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
@@ -126,6 +126,8 @@ const serverCommands = {
     const store = await openStore(opts);
     const where = await describeStore(opts);
     bootstrap(store, opts);
+    setGitHubSignIn(process.env);
+    if (githubSignIn()) console.error('claim links: GitHub sign-in (GITHUB_CLIENT_ID is set)');
     const { makeServer } = await import('./server.js');
     makeServer(store, { sandboxAllow }).listen(Number(opts.port), opts.host, () =>
       console.error(`html-server ${VERSION} on http://${opts.host}:${opts.port}  (db: ${where})`));
@@ -221,11 +223,13 @@ const serverCommands = {
     });
   },
   async config([key, value], opts) {
-    if (key && !(['usernames', 'editing'].includes(key) && value)) fail('usage: config [usernames name|email] [editing owner|open]');
+    if (key && !(['usernames', 'editing', 'email-domains'].includes(key) && value)) fail('usage: config [usernames name|email] [editing owner|open] [email-domains DOMAIN,...|any]');
     await withStore(opts, (store) => {
       if (key === 'usernames') store.setUsernames(value);
       else if (key === 'editing') store.setEditing(value);
+      else if (key === 'email-domains') store.setEmailDomains(value === 'any' ? '' : value);
       console.log(`usernames: ${store.usernames}`);
+      console.log(`email-domains: ${store.emailDomains.join(', ') || 'any'}${store.usernames === 'email' ? '' : ' (applies with email usernames)'}`);
       console.log(`editing:   ${store.editing}${store.editing === 'open' ? ' (any signed-in user can add versions to public pages)' : ' (only a page\'s owner adds versions)'}`);
     });
   },

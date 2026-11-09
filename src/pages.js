@@ -717,7 +717,13 @@ td.del{background:var(--del);color:var(--deltx)}td.ins{background:var(--ins);col
  */
 export function claimPage(claim) {
   const mins = claim ? Math.max(1, Math.round((claim.expires_at - Date.now() / 1000) / 60)) : 0;
-  const body = claim
+  const body = claim?.github_login
+    ? `<h1>Your HTML Server token</h1>
+<p>This link is for the GitHub account <strong>${esc(claim.github_login)}</strong>. Sign in to GitHub to show it's you,
+and your token is shown once. It works one time, for the next ${plural(mins, 'minute')}. If you already have a token, the new one replaces it.</p>
+<form method="post"><button type="submit" class="primary">Continue with GitHub</button></form>
+<p class="meta">GitHub asks once to let HTML Server read your profile and email addresses. Nothing else is read, and nothing of GitHub's is kept.</p>`
+    : claim
     ? `<h1>Your HTML Server token</h1>
 <p>This link makes a new token for <strong>${esc(claim.name)}</strong> and shows it once. It works one time, for the next
 ${plural(mins, 'minute')}. If you already have a token, the new one replaces it.</p>
@@ -728,10 +734,17 @@ ${plural(mins, 'minute')}. If you already have a token, the new one replaces it.
   return shell('Your token · HTML Server', `${topBar(null, { sidebar: false })}<main class="wrap claim">${body}</main>`, { frame: false });
 }
 
+/** Something stopped a claim (the wrong GitHub account, a sign-in from another browser): what, and what to do. */
+export function claimProblemPage(title, text) {
+  return shell('Your token · HTML Server', `${topBar(null, { sidebar: false })}<main class="wrap claim"><h1>${esc(title)}</h1><p>${esc(text)}</p></main>`, { frame: false });
+}
+
 /** The token, shown this once (POST /api/claim/CODE), with how to use it. */
-export function claimedPage({ name, token, server }) {
+export function claimedPage({ name, token, server, created = false, renamed_from: renamed = null }) {
   return shell('Your token · HTML Server', `${topBar(null, { sidebar: false })}<main class="wrap claim">
 <h1>Your token, ${esc(name)}</h1>
+${renamed ? `<p>Your account was <strong>${esc(renamed)}</strong>; it's now <strong>${esc(name)}</strong>, your email on GitHub. Your pages came with it.</p>` : ''}
+${created ? '<p>Your account is new.</p>' : ''}
 <p><strong>Copy it now:</strong> this page won't show it again, and reloading it won't either. Any token you had before no longer works.</p>
 <p class="claim-token"><input id="claim-token" readonly value="${esc(token)}" aria-label="Your token" spellcheck="false">
 <button type="button" id="claim-copy">Copy</button></p>
