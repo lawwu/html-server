@@ -94,7 +94,8 @@ test('SSO: nothing without signing in; a browser is sent to sign in, and an API 
   assert.equal((await get('/pages/note.md', PAGE)).status, 302);
   const share = store.exact('note.md', store.userForToken(admin).id).share_id;
   assert.equal((await get(`/v/${share}`, PAGE)).status, 302); // share links need a sign-in too
-  for (const path of ['/healthz', '/_static/style.css']) assert.equal((await get(path)).status, 200, path);
+  for (const path of ['/healthz', '/_static/style.css', '/api/cli']) assert.equal((await get(path)).status, 200, path);
+  assert.equal((await get('/api/cli/html-server.tgz')).status, 302); // the command line: npm can't sign in to fetch it
   assert.equal((await get('/api/artifacts', { Authorization: `Bearer ${admin}` })).status, 200); // the CLI, MCP and scripts
 });
 
@@ -120,6 +121,7 @@ test('SSO: the account page makes your one API token; it works for the CLI, and 
   const page = await (await get('/account', { ...PAGE, cookie: session })).text();
   assert.match(page, /<dt>Username<\/dt><dd>ann<\/dd>[^]*stops working if you don't sign in here for 30 days[^]*Make a new token/);
   assert.doesNotMatch(page, /<h2>Users<\/h2>/); // not an admin
+  assert.ok(page.includes(`value="npm install -g ${base}/api/cli/html-server.tgz"`)); // the command line, from this server
   const made = await post('/api/me/token', { ...OWN, Origin: base, cookie: session });
   assert.equal(made.status, 200);
   const { token } = await made.json();

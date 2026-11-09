@@ -4,11 +4,12 @@ import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { fileBytes, fileText } from './files.js';
 import {
-  CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  CLI_FROM_GITHUB, CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
   githubSignIn,
   sso,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
+import { cliPackage } from './package.js';
 import { SESSION_COOKIE, clearLoginCookie, clearSessionCookie, finishLogin, logoutUrl, sessionCookie, startLogin } from './sso.js';
 import { VIEWS, aboutMarkdown, accountPage, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
@@ -54,6 +55,11 @@ export const ROUTES = [
   ['GET', '/api/docs\\.md', 'docsSource', 'anyone', null],
   ['GET', '/_static/(?<file>[\\w.-]+)', 'static', 'anyone', null],
   ['GET', '/_static/fonts/(?<font>[\\w.-]+\\.woff2)', 'font', 'anyone', null],
+  ['GET', '/api/cli/?', 'cliInfo', 'anyone',
+    'How to install this server\'s command line from the server itself: `{version, tarball, install}`. No sign-in needed'],
+  ['GET', '/api/cli/html-server\\.tgz', 'cliLatest', 'anyone',
+    'The `html-server` command line, as the npm package of the version this server runs (a redirect to `html-server-<version>.tgz`): `npm install -g <this URL>`'],
+  ['GET', '/api/cli/html-server-(?<version>[\\w.-]+)\\.tgz', 'cliTarball', 'anyone', null],
   ['GET', '/healthz', 'health', 'anyone',
     'For load balancers and uptime monitors (HEAD works too): `{"status":"ok"}` once the database answers, else a 503. Not counted in the usage stats'],
   // Asked for by browsers and crawlers on every visit: a 404 straight away, never a page lookup.
@@ -147,9 +153,10 @@ function routePriority(r) {
 }
 
 // With SSO on, what can be reached without signing in: signing in itself, health checks,
-// the files the sign-in pages need, and claim links (they carry their own proof).
+// the files the sign-in pages need, claim links (they carry their own proof), and the
+// command line's package (the same MIT code as on GitHub; npm can't sign in to fetch it).
 const OPEN_WITH_SSO = new Set(['oidcLogin', 'oidcCallback', 'oidcLogout', 'health', 'static', 'font', 'notFound',
-  'claimPage', 'claim', 'claimCallback']);
+  'claimPage', 'claim', 'claimCallback', 'cliInfo', 'cliLatest', 'cliTarball']);
 
 /** Not signed in: a browser opening a page is sent to sign in, and comes back here after; anything else gets a 401. */
 function signInFirst(c, path) {
@@ -461,7 +468,7 @@ class Ctx {
   }
 
   /** The docs page's Markdown: CLI, MCP and API (pages.js docsMarkdown). */
-  docs() { return docsMarkdown(this.origin(), ROUTES, { tools: MCP_TOOLS }); }
+  docs() { return docsMarkdown(this.origin(), ROUTES, { tools: MCP_TOOLS, cliHere: !!cliPackage() }); }
   /** The viewer's pages, for the explorer in every page's sidebar. */
   explorer() { return this.store.explorer(this.viewerId()); }
 
@@ -720,6 +727,28 @@ const handlers = {
     }
     c.send(200, 'application/json', `${JSON.stringify({ status: 'ok' })}\n`, { 'Cache-Control': 'no-store' });
   },
+  /** Where to install the command line from: this server, if it can offer its package. */
+  cliInfo(c) {
+    const pkg = cliPackage();
+    if (!pkg) return c.json(200, { version: null, tarball: null, install: CLI_FROM_GITHUB });
+    const tarball = `${c.origin()}/api/cli/html-server.tgz`;
+    c.json(200, { version: pkg.version, tarball, install: `npm install -g ${tarball}` });
+  },
+  /** The package, by a name that always means this server's version. */
+  cliLatest(c) {
+    const pkg = cliPackage();
+    if (!pkg) throw new ApiError(404, `this server can't offer its command line; install it with: ${CLI_FROM_GITHUB}`);
+    c.send(302, 'text/plain; charset=utf-8', '', { Location: `/api/cli/html-server-${pkg.version}.tgz`, 'Cache-Control': 'no-store' });
+  },
+  cliTarball(c, { version }) {
+    const pkg = cliPackage();
+    if (!pkg) throw new ApiError(404, `this server can't offer its command line; install it with: ${CLI_FROM_GITHUB}`);
+    if (version !== pkg.version) throw new ApiError(404, `this server has version ${pkg.version} only: /api/cli/html-server-${pkg.version}.tgz`);
+    const etag = `"${pkg.sha256}"`;
+    const headers = { ETag: etag, 'Cache-Control': 'public, max-age=3600', 'Content-Disposition': `attachment; filename="html-server-${pkg.version}.tgz"` };
+    if (c.req.headers['if-none-match'] === etag) return c.send(304, 'application/gzip', '', headers);
+    c.send(200, 'application/gzip', pkg.data, headers);
+  },
   notFound(c) { c.send(404, 'application/json', `${JSON.stringify({ error: 'not found' })}\n`, { 'Cache-Control': 'public, max-age=86400' }); },
   async putAsset(c, { slug }) { const u = c.user(); c.json(200, c.store.putAsset(u.id, slug, await c.body())); },
   deleteAsset(c, { slug }) { c.store.deleteAsset(c.user().id, slug); c.json(200, { deleted: slug }); },
@@ -804,7 +833,7 @@ const handlers = {
       if (e.status !== 410) throw e;
       return c.send(410, 'text/html; charset=utf-8', claimPage(null), CLAIM_HEADERS);
     }
-    c.send(200, 'text/html; charset=utf-8', claimedPage({ ...shown, server: c.origin() }), CLAIM_HEADERS);
+    c.send(200, 'text/html; charset=utf-8', claimedPage({ ...shown, server: c.origin(), cli: !!cliPackage() }), CLAIM_HEADERS);
   },
   // --- single sign-on ---
   async oidcLogin(c) {
@@ -842,7 +871,7 @@ const handlers = {
     const s = sso();
     if (!s) return c.html(accountPage({ sso: null }));
     const u = c.user();
-    c.html(accountPage({ user: u, sso: s, server: c.origin(), users: u.is_admin ? c.store.listUsers() : null }));
+    c.html(accountPage({ user: u, sso: s, server: c.origin(), cli: !!cliPackage(), users: u.is_admin ? c.store.listUsers() : null }));
   },
 
   /** Back from GitHub: who signed in, checked against the link, then the token, once. */

@@ -552,7 +552,7 @@ test('footer and docs link to the GitHub release that is running; uploaded pages
   }
   const [, docs] = await req('GET', '/api');
   assert.match(docs, new RegExp(`<a href="${release}">HTML Server v`));
-  assert.match(docs, /npm install -g github:lawwu\/html-server#v/);
+  assert.match(docs, /npm install -g http:\/\/[^/\s]+\/api\/cli\/html-server\.tgz/); // from this server, the version it runs
   await put('mine.html', '<p>my page</p>');
   assert.doesNotMatch((await req('GET', '/pages/mine'))[1], /site-foot|github\.com/);
   assert.doesNotMatch((await req('GET', '/gallery/kmeans-step-through.html'))[1], /site-foot/);
