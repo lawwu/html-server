@@ -46,10 +46,16 @@ if(localStorage.getItem('sidebar')==='hidden')r.dataset.sidebar='hidden'}catch{}
 // stays hidden. The name is fetched once per token and kept beside it, so pages don't each
 // call /api/me. Sign out forgets both. The token itself lives with the forms that ask for
 // it (gallery, upload, review).
-const SESSION_LINE = '<span class="session" data-session hidden><span class="sr-only" data-session-as></span><span data-session-who>Signed in</span> · <button type="button" class="link-btn" data-sign-out>Sign out</button></span>';
+const SESSION_LINE = '<span class="session" data-session hidden><span class="sr-only" data-session-as></span><span data-session-who>Signed in</span> · '
+  + '<a href="/account" data-session-account hidden>Account</a><span data-session-account hidden> · </span><button type="button" class="link-btn" data-sign-out>Sign out</button></span>';
 const SESSION_SCRIPT = `document.addEventListener('click',(e)=>{if(!e.target.closest('[data-sign-out]'))return;
-try{localStorage.removeItem('artifact_token');localStorage.removeItem('artifact_user')}catch{}location.reload()});
-document.querySelectorAll('[data-session]').forEach((p)=>{let t='';try{t=localStorage.getItem('artifact_token')||''}catch{return}if(!t)return;
+try{localStorage.removeItem('artifact_token');localStorage.removeItem('artifact_user')}catch{}
+if(document.body.dataset.ssoUser){const f=document.createElement('form');f.method='post';f.action='/api/oidc/logout';document.body.append(f);f.submit();return}
+location.reload()});
+document.querySelectorAll('[data-session]').forEach((p)=>{const sso=document.body.dataset.ssoUser;
+if(sso){p.hidden=false;p.querySelector('[data-session-as]').textContent='Signed in as ';const w=p.querySelector('[data-session-who]');w.textContent=sso;w.title='Signed in as '+sso;
+p.querySelectorAll('[data-session-account]').forEach((a)=>{a.hidden=false});return}
+let t='';try{t=localStorage.getItem('artifact_token')||''}catch{return}if(!t)return;
 const who=p.querySelector('[data-session-who]'),tail=t.slice(-8),show=(n)=>{p.querySelector('[data-session-as]').textContent='Signed in as ';who.textContent=n;who.title='Signed in as '+n};p.hidden=false;
 let saved=null;try{saved=JSON.parse(localStorage.getItem('artifact_user')||'null')}catch{}
 if(saved&&saved.tail===tail&&saved.name)return show(saved.name);
@@ -732,6 +738,58 @@ ${plural(mins, 'minute')}. If you already have a token, the new one replaces it.
 <p>A claim link shows its token once and works for ${CLAIM_LINK_MINUTES} minutes. Run the workflow again, or ask an admin, for a new one.</p>
 <p>If you didn't open it yourself, someone else may have. Opening a new link replaces the token they saw.</p>`;
   return shell('Your token · HTML Server', `${topBar(null, { sidebar: false })}<main class="wrap claim">${body}</main>`, { frame: false });
+}
+
+/**
+ * Your account (/account), signed in through SSO: who you are here, your API token (make or
+ * replace it: shown once), and for an admin, the users. `sso` null: SSO isn't set up.
+ */
+export function accountPage({ user = null, sso = null, server = '', users = null }) {
+  const bar = topBar(null, { sidebar: false });
+  if (!sso) {
+    return shell('Account · HTML Server', `${bar}<main class="wrap claim"><h1>Your account</h1>
+<p>Single sign-on isn't set up on this server, so there's no account page. Your token is your sign-in:
+replace it with <code>POST /api/me/token</code>, or ask an admin to (<code>html-server reset-token NAME</code>).</p></main>`, { frame: false });
+  }
+  const when = (t) => (t ? new Date(t * 1000).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+  const idle = sso.tokenIdleDays && user.oidc_sub != null
+    ? ` It stops working if you don't sign in here for ${plural(sso.tokenIdleDays, 'day')}, and works again when you do.` : '';
+  const rows = (users || []).map((u) => `<tr><td>${esc(u.name)}</td><td>${u.is_admin ? 'admin' : u.claims_only ? 'claims-only' : 'user'}</td>
+<td>${u.sso ? 'yes' : 'no'}</td><td>${esc(when(u.last_sso_at))}</td></tr>`).join('');
+  return shell('Account · HTML Server', `${bar}<main class="wrap claim account">
+<h1>Your account</h1>
+<dl class="account-facts"><dt>Username</dt><dd>${esc(user.name)}</dd>
+${user.email ? `<dt>Email</dt><dd>${esc(user.email)}</dd>` : ''}
+<dt>Role</dt><dd>${user.is_admin ? 'admin' : 'user'}</dd>
+<dt>Signed in</dt><dd>${user.oidc_sub != null ? `through single sign-on, last ${esc(when(user.last_sso_at))}` : 'with an API token'}</dd></dl>
+<h2>API token</h2>
+<p>For the <code>html-server</code> command line, MCP and scripts. You have one at a time: a new one replaces the old,
+which stops working.${idle}</p>
+<p><button type="button" class="primary" id="account-token">Make a new token</button> <span id="account-msg" class="meta" role="status"></span></p>
+<div id="account-new" hidden>
+<p><strong>Copy it now:</strong> it won't be shown again.</p>
+<p class="claim-token"><input id="claim-token" readonly aria-label="Your new token" spellcheck="false"> <button type="button" id="claim-copy">Copy</button></p>
+<p>Then run <code>html-server login</code>, give it <code>${esc(server)}</code>, and paste the token.</p></div>
+${users ? `<h2>Users</h2><table class="users"><thead><tr><th>Name</th><th>Role</th><th>SSO</th><th>Last sign-in</th></tr></thead><tbody>${rows}</tbody></table>
+<p class="meta">Change roles or delete users with the API (<code>DELETE /api/users/NAME</code>) or <code>html-server</code> on the server.</p>` : ''}
+<form method="post" action="/api/oidc/logout"><button type="submit">Sign out</button></form>
+<script>(() => {
+  const go = document.getElementById('account-token'), msg = document.getElementById('account-msg'), box = document.getElementById('claim-token');
+  go.onclick = async () => {
+    if (!confirm('Make a new token? Your current one, if you have one, stops working.')) return;
+    go.disabled = true; msg.textContent = '';
+    try {
+      const r = await fetch('/api/me/token', { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      box.value = data.token; document.getElementById('account-new').hidden = false; box.select();
+    } catch (e) { msg.textContent = e.message; } finally { go.disabled = false; }
+  };
+  document.getElementById('claim-copy').onclick = async (e) => {
+    box.select();
+    try { await navigator.clipboard.writeText(box.value); e.target.textContent = 'Copied'; } catch { document.execCommand('copy'); }
+  };
+})();</script></main>`, { frame: false });
 }
 
 /** Something stopped a claim (the wrong GitHub account, a sign-in from another browser): what, and what to do. */

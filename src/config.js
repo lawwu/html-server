@@ -57,6 +57,31 @@ export function setGitHubSignIn(env = {}) {
   } : null;
 }
 export const githubSignIn = () => GITHUB;
+
+// Single sign-on through any OIDC provider (Microsoft Entra, Okta, Google Workspace,
+// Keycloak…): with OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET set, every page and
+// API call needs a sign-in (a browser session) or an API token, and people make their own
+// token on /account. Set from the environment by `serve` and by the Cloudflare Worker.
+// README: Single sign-on.
+export const SSO_SESSION_HOURS = 12; // a browser session; the provider's own session usually makes signing in again a click
+export const SSO_TOKEN_IDLE_DAYS = 30; // an SSO user's API token stops working after this long without signing in (0: never)
+let SSO = null;
+export function setSso(env = {}) {
+  const list = (v) => String(v ?? '').split(/[\s,]+/).filter(Boolean);
+  const num = (v, fallback) => (v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : fallback);
+  SSO = env.OIDC_ISSUER && env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET ? {
+    issuer: env.OIDC_ISSUER, clientId: env.OIDC_CLIENT_ID, clientSecret: env.OIDC_CLIENT_SECRET,
+    redirectUri: env.OIDC_REDIRECT_URI || '', // default: this server's /api/oidc/callback, as the browser reached it
+    postLogoutRedirectUri: env.OIDC_POST_LOGOUT_REDIRECT_URI || '', // default: this server's /
+    scopes: list(env.OIDC_SCOPES || 'openid profile email').join(' '),
+    adminEmails: list(env.OIDC_ADMIN_EMAILS).map((e) => e.toLowerCase()),
+    adminClaim: env.OIDC_ADMIN_CLAIM || '', adminClaimValues: list(env.OIDC_ADMIN_CLAIM_VALUES),
+    sessionHours: num(env.OIDC_SESSION_HOURS, SSO_SESSION_HOURS) || SSO_SESSION_HOURS,
+    tokenIdleDays: num(env.OIDC_TOKEN_IDLE_DAYS, SSO_TOKEN_IDLE_DAYS),
+    allowInsecureHttp: env.OIDC_ALLOW_INSECURE_HTTP === 'true', // a provider on plain http: local testing only
+  } : null;
+}
+export const sso = () => SSO;
 // A GitHub login, up to 39 characters: letters and digits, with single hyphens between them;
 // Enterprise Managed Users' logins also have an underscore before the enterprise's shortcode
 // (`jdoe_acme`), so single underscores too.
@@ -71,7 +96,7 @@ export const DEFAULT_EDITING = 'owner';
 // gallery never publishes anyone's address. Signed-in users see them in full.
 export const MASK_EMAILS_FOR_ANONYMOUS = true;
 // Top-level paths the server itself uses, so no page may take these names.
-export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'random', 'assets', 'docs', 'about', 'healthz', 'favicon.ico', 'robots.txt']);
+export const RESERVED_SLUGS = new Set(['api', 'v', 'review', 'pages', 'history', 'gallery', 'graph', 'stats', 'random', 'assets', 'docs', 'about', 'account', 'healthz', 'favicon.ico', 'robots.txt']);
 
 // How lists of pages can be sorted (?sort=, ls --sort), with their labels on the home
 // page. Featured pages stay on top whichever is chosen. Searches sort by relevance

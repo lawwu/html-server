@@ -75,6 +75,7 @@ export function pageMeta(slug, text, { path = slug } = {}) {
 }
 
 // Same schema as the Python version, so an existing artifacts.db keeps working.
+// sessions: signed-in browsers (single sign-on); the cookie holds the id, the table its hash.
 // github_claims: claim links for a GitHub account (with GitHub sign-in on). The user is found
 // or made only once someone signs in to GitHub as `login`; `state_hash` is the sign-in under way.
 const SCHEMA = `
@@ -229,6 +230,11 @@ CREATE TABLE IF NOT EXISTS asset_grants (
 );
 CREATE INDEX IF NOT EXISTS asset_grants_by_name ON asset_grants (name);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (
+    id_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS github_claims (
     code_hash TEXT PRIMARY KEY,
     login TEXT NOT NULL,
@@ -260,6 +266,13 @@ const ADDED_COLUMNS = {
     // The GitHub account a user signed in with to claim a token (its numeric id, which
     // never changes): one account per GitHub account, however its login or email changes.
     ['github_id', 'INTEGER'],
+    // Single sign-on (0.16.0): who the user is at the OIDC provider (its issuer and the
+    // person's subject there, which never changes), their email as it says, and when they
+    // last signed in through it (an SSO user's API token stops working after a long gap).
+    ['oidc_issuer', 'TEXT'],
+    ['oidc_sub', 'TEXT'],
+    ['email', 'TEXT'],
+    ['last_sso_at', 'REAL'],
   ],
   artifacts: [
     ['description', "TEXT NOT NULL DEFAULT ''"], // from <meta name="description">, for the gallery
@@ -286,6 +299,7 @@ const ADDED_COLUMNS = {
 // Indexes on columns that ADDED_COLUMNS may have just added.
 const ADDED_INDEXES = [
   'CREATE UNIQUE INDEX IF NOT EXISTS users_by_github_id ON users (github_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS users_by_oidc ON users (oidc_issuer, oidc_sub)',
   'CREATE INDEX IF NOT EXISTS artifacts_by_name_key ON artifacts (name_key)',
   // Backlink names are compared as the database compares names (see linkersOf).
   'CREATE INDEX IF NOT EXISTS link_names_by_name_nocase ON link_names (name COLLATE NOCASE)',
@@ -839,9 +853,76 @@ export class Store {
 
   userForToken(token) { return this.one('SELECT * FROM users WHERE token_hash = ?', hashToken(token)); }
 
+  // --- single sign-on ------------------------------------------------------------
+  /**
+   * The account for someone who signed in through the OIDC provider, made the first time.
+   * `who`: { issuer, sub, email, emailVerified, username, admin }. Found by issuer and
+   * subject (the provider's id for them, which never changes); else, with email usernames,
+   * an account of that email not yet tied to SSO (a claims-only one never), now tied; else
+   * a new one, an admin if `admin` says so (only then: a provider's claims changing later
+   * neither promotes nor demotes anyone). With email usernames a tied account follows the
+   * provider's email, renamed if it changed. Records the sign-in. Returns the user row.
+   */
+  ssoSignIn(who) {
+    const email = who.email && who.emailVerified !== false ? String(who.email).trim().toLowerCase() : null;
+    return this.tx(() => {
+      const cols = 'SELECT * FROM users';
+      let u = this.one(`${cols} WHERE oidc_issuer = ? AND oidc_sub = ?`, who.issuer, who.sub);
+      const byEmail = this.usernames === 'email';
+      if (byEmail && !email) throw new ApiError(403, "your sign-in didn't include a verified email address, which this server uses as your username; ask an admin");
+      if (u) {
+        if (byEmail && u.name !== this.normalizeUsername(email)) {
+          const want = this.normalizeUsername(email);
+          if (this.one('SELECT 1 AS x FROM users WHERE name = ?', want)) throw new ApiError(409, `${want} already belongs to another account here; ask an admin`);
+          this.run('UPDATE users SET name = ? WHERE id = ?', want, u.id);
+        }
+      } else if (byEmail && (u = this.one(`${cols} WHERE name = ?`, this.normalizeUsername(email)))) {
+        if (u.oidc_sub != null) throw new ApiError(409, `${u.name} belongs to another sign-in; ask an admin`);
+        if (u.claims_only) throw new ApiError(409, `${u.name} is a claims-only account, which can't sign in`);
+        this.run('UPDATE users SET oidc_issuer = ?, oidc_sub = ? WHERE id = ?', who.issuer, who.sub, u.id);
+      } else {
+        const name = byEmail ? this.normalizeUsername(email) : this.freeUsername(who.username || email || '');
+        this.createUser(name, !!who.admin);
+        this.run('UPDATE users SET oidc_issuer = ?, oidc_sub = ? WHERE name = ?', who.issuer, who.sub, name);
+        u = this.one(`${cols} WHERE name = ?`, name);
+      }
+      this.run('UPDATE users SET email = ?, last_sso_at = ? WHERE id = ?', email, now(), u.id);
+      return this.one(`${cols} WHERE id = ?`, u.id);
+    });
+  }
+
+  /** A handle for someone new, from their provider username or email: the part before any @, cleaned to the rule, unique. */
+  freeUsername(from) {
+    let base = String(from).split('@')[0].toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[^a-z0-9]+|-+$/g, '').slice(0, 36) || 'user';
+    if (!USERNAME_RULES.name.re.test(base)) base = 'user';
+    for (let i = 1; i < 1000; i++) {
+      const name = i === 1 ? base : `${base}-${i}`;
+      if (!this.one('SELECT 1 AS x FROM users WHERE name = ?', name)) return name;
+    }
+    throw new ApiError(409, 'no free username; ask an admin');
+  }
+
+  /** A signed-in browser's session: its id, for the cookie (the table keeps only its hash). */
+  createSession(userId, hours) {
+    const id = randomBytes(32).toString('base64url');
+    const t = now();
+    this.run('DELETE FROM sessions WHERE expires_at <= ?', t);
+    this.run('INSERT INTO sessions (id_hash, user_id, expires_at) VALUES (?,?,?)', hashToken(id), userId, t + hours * 3600);
+    return id;
+  }
+
+  /** The user a session cookie belongs to, or null (unknown or expired). */
+  sessionUser(id) {
+    if (!id) return null;
+    return this.one('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ? AND s.expires_at > ?', hashToken(String(id)), now()) ?? null;
+  }
+
+  endSession(id) { if (id) this.run('DELETE FROM sessions WHERE id_hash = ?', hashToken(String(id))); }
+
   listUsers() {
-    return this.all('SELECT name, is_admin, claims_only, github_id, created_at FROM users ORDER BY name')
-      .map(({ github_id, ...u }) => ({ ...u, is_admin: !!u.is_admin, claims_only: !!u.claims_only, ...(github_id != null ? { github_id } : {}) }));
+    return this.all('SELECT name, is_admin, claims_only, github_id, oidc_sub, last_sso_at, created_at FROM users ORDER BY name')
+      .map(({ github_id, oidc_sub, last_sso_at, ...u }) => ({ ...u, is_admin: !!u.is_admin, claims_only: !!u.claims_only,
+        ...(github_id != null ? { github_id } : {}), ...(oidc_sub != null ? { sso: true, last_sso_at } : {}) }));
   }
 
   deleteUser(name) {

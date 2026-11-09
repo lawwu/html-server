@@ -214,7 +214,7 @@ if (selectBtn && bulk) {
   async function call(method, path, body) {
     const r = await fetch(path, {
       method, body: body && JSON.stringify(body),
-      headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
     });
     const data = await r.json().catch(() => null);
     if (!r.ok) throw Object.assign(new Error(data?.error || r.statusText), { status: r.status });
@@ -242,7 +242,7 @@ if (selectBtn && bulk) {
     if (act === 'done') return setSelecting(false);
     if (!picked.size) return say('Tick some pages first.', true);
     if (act === 'move') return openMove([...picked], () => location.reload());
-    if (!token) return askToken();
+    if (!token && !document.body.dataset.ssoUser) return askToken(); // signed in through SSO: the cookie is enough
     const pages = [...picked];
     try {
       let failures = [];

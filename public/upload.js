@@ -5,6 +5,7 @@
 const PAGE_RE = /\.(html?|md|markdown|ipynb)$/i; // config.js PAGE_EXT_RE
 const ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|pdf)$/i; // config.js ASSET_TYPES
 const KEY = 'artifact_token';
+const SSO = () => !!document.body.dataset.ssoUser; // signed in through single sign-on: the cookie is enough
 const encodePath = (p) => p.split('/').map(encodeURIComponent).join('/');
 
 /** A file name the server takes (config.js SLUG_RE): spaces become dashes, other characters go. */
@@ -57,7 +58,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
 
   form.elements.folder.value = folder;
   try { tokenInput.value = localStorage.getItem(KEY) || ''; } catch { /* this visit only */ }
-  signin.hidden = !!tokenInput.value;
+  signin.hidden = !!tokenInput.value || SSO();
 
   const say = (text, isError = false) => { status.textContent = text; status.classList.toggle('err', isError); };
   const pending = () => rows.filter((r) => r.state === 'ready');
@@ -109,7 +110,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
     } else {
       path = `/api/assets/${encodeURIComponent(name)}`;
     }
-    const r = await fetch(path, { method: 'PUT', body: row.file, headers: { Authorization: `Bearer ${token}` } });
+    const r = await fetch(path, { method: 'PUT', body: row.file, headers: token ? { Authorization: `Bearer ${token}` } : {} });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(data.error || `${r.status} ${r.statusText}`), { status: r.status });
     return data;
@@ -138,7 +139,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const token = tokenInput.value.trim();
-    if (!token) { signin.hidden = false; tokenInput.focus(); return say('Paste your sign-in token first.', true); }
+    if (!token && !SSO()) { signin.hidden = false; tokenInput.focus(); return say('Paste your sign-in token first.', true); }
     busy = true; sync(); say('Uploading…');
     let ok = 0, failed = 0;
     for (const row of pending()) {
@@ -147,7 +148,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
       try {
         done(row, await send(row, token));
         ok++;
-        try { localStorage.setItem(KEY, token); } catch { /* this visit only */ }
+        if (token) try { localStorage.setItem(KEY, token); } catch { /* this visit only */ }
         document.querySelectorAll('[data-session]').forEach((p) => { p.hidden = false; }); // the top bar's Sign out
       } catch (err) {
         failed++;

@@ -538,3 +538,10 @@ details[open] > summary > .chev { rotate: 90deg; }
 .claim .claim-token input { flex: 1; min-width: 0; font: 14px var(--code-font); padding: .55rem .7rem; }
 .claim button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); padding: .5rem 1rem; }
 .claim li { margin: .4rem 0; }
+/* The account page (/account): facts, the token, and an admin's list of users. */
+.account-facts { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: 1rem 0 1.5rem; }
+.account-facts dt { color: var(--mute); }
+.account-facts dd { margin: 0; overflow-wrap: anywhere; }
+.account .users { border-collapse: collapse; width: 100%; font-size: 14px; }
+.account .users th, .account .users td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
+.account form { margin-top: 2rem; }

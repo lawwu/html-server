@@ -26,10 +26,11 @@
     "site": "node scripts/build-site.js _site",
     "cf:dev": "npx --yes wrangler@4.147.0 dev",
     "cf:deploy": "node src/cli.js deploy cloudflare",
-    "test:browser": "node --test test/browser.check.js"
+    "test:browser": "node --test test/browser.check.js test/sso.check.js"
   },
   "dependencies": {
     "marked": "18.1.2",
+    "openid-client": "6.8.9",
     "yaml": "2.9.1"
   },
   "devDependencies": {
