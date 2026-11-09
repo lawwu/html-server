@@ -572,17 +572,66 @@ jobs:
 ```
 
 - **Who can get a token:** anyone who can run workflows in that repo (write access). The
-  username is their GitHub login, lowercased; a deployment set to email usernames refuses it.
-- **Keep the repo private.** Anyone who can read the run can open the link before its owner
-  does. If that happens, the owner sees "used or expired" and runs it again, and opening the
-  new link replaces the token the other person saw.
+  username is their GitHub login, lowercased (with GitHub sign-in on an email server, their
+  GitHub email; below).
+- **Keep the repo private.** Without GitHub sign-in, anyone who can read the run can open the
+  link before its owner does. If that happens, the owner sees "used or expired" and runs it
+  again, and opening the new link replaces the token the other person saw. With GitHub
+  sign-in, the link is useless to anyone else.
 - **Values go through `env`,** never pasted into the script, so a login can't inject shell
   commands, and GitHub masks the secret in the log.
 - **The claims-only token is the secret to guard.** It can't publish, read or manage users,
   and it can't make links for admins, but it can make a link for any ordinary user, and
   whoever opens that link gets the account. If it may have leaked, replace it
   (`POST /api/me/token` with it, or `reset-token github-ci` on the server). An admin's token
-  works here too, but would put an admin's powers in CI.
+  works here too, but would put an admin's powers in CI. With GitHub sign-in on, a link it
+  makes is good only for the GitHub account it names, so a leaked token can't hand anyone
+  else an account.
+
+#### GitHub sign-in: the link works only for its owner (recommended)
+
+Without it, a claim link works for whoever opens it first. With a **GitHub OAuth app** set up
+on the server, the link is for a GitHub account, and the claim page asks the person to
+**Continue with GitHub**. Only someone signed in to GitHub as that account gets the token;
+anyone else sees "This link isn't for you", and the link stays good for its owner. Reading
+the run's log then gets an attacker nothing.
+
+1. **Make the app**, one per deployment, under your organization (Org settings → Developer
+   settings → OAuth Apps → New OAuth App) or your own account:
+   - *Application name:* what people see when GitHub asks them to authorize it, like `HTML Server (prod)`.
+   - *Homepage URL:* the server's address.
+   - *Authorization callback URL:* the server's address plus `/api/claim/callback`, exactly,
+     e.g. `https://html.example.com/api/claim/callback`.
+   - Leave *Enable Device Flow* off. Register it, copy the **Client ID**, and generate a
+     **client secret** (shown once).
+2. **Give both to the server** as `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`: in Docker's
+   `--env-file`, the service's environment, or the Worker's secrets (`npx wrangler secret put`).
+   `serve` says `claim links: GitHub sign-in` when they're set. `GITHUB_CALLBACK_URL` overrides
+   the callback if the server can't tell its own address behind a proxy; `GITHUB_URL` and
+   `GITHUB_API_URL` point it at GitHub Enterprise Server.
+3. Nothing else in GitHub: the workflow above works unchanged.
+
+What happens:
+
+- **Who it is.** The server asks GitHub for the person's login, numeric id and email
+  addresses (the `user:email` permission, which GitHub asks them to allow once), and revokes
+  GitHub's token straight after. Nothing else is read, and nothing of GitHub's is kept.
+- **One account per GitHub account.** An account is tied to the GitHub account's numeric id,
+  which never changes, so a renamed login or a changed email is still the same account here,
+  and its token is replaced, not added to. An account made before, not yet tied to GitHub, is
+  taken over by the GitHub account of the same name; an admin's or a claims-only account never is.
+- **Email usernames.** On a server with `config usernames email`, the username is the person's
+  GitHub email: verified, at an allowed domain (`config email-domains company.com`), their
+  primary one if it qualifies. If it changes on GitHub, their account here is renamed to it
+  the next time they claim a token, with their pages. An address that already belongs to
+  another account is refused, not merged; ask an admin.
+- **The way back must be in the same browser.** The sign-in starts with a cookie that only
+  the browser that pressed **Continue with GitHub** has, so a link to the callback sent to
+  someone else does nothing.
+- **Your server needn't be public.** GitHub sends the person's browser back to it; GitHub
+  never connects to it. The server does need to reach `github.com` (and `api.github.com`).
+
+For local testing, make a separate app with the callback `http://localhost:8765/api/claim/callback`.
 
 Admin is a user-management role only: admins can't edit, delete or see other people's
 private pages. A new admin is made by an existing admin (`"admin": true` when creating) or

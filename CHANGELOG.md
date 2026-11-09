@@ -8,6 +8,17 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **GitHub sign-in for claim links.** Set a GitHub OAuth app's `GITHUB_CLIENT_ID` and
+  `GITHUB_CLIENT_SECRET` on the server and a claim link is for a GitHub account: the page
+  asks to **Continue with GitHub**, and only someone signed in as that account gets the
+  token. Anyone else is refused, and the link stays good for its owner. The sign-in has to
+  come back to the browser that started it. GitHub's token is revoked straight after; the
+  server keeps the GitHub account's numeric id, in a new `users.github_id` column (unique),
+  so each GitHub account has one account here however its login or email changes. On a
+  server with email usernames, the username is the person's verified GitHub email, and the
+  account is renamed if that changes. The README has the app's setup.
+- **`config email-domains company.com`:** where email usernames may be, for every way a user
+  is made. `config email-domains any` lifts it.
 ## 0.14.0 (2026-11-09)
 
 - **Tokens from a GitHub workflow, never in its log.** `POST /api/users/NAME/claim` (admin)

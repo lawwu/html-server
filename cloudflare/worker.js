@@ -9,7 +9,7 @@
 import './files.generated.js'; // first: the package's own files, before anything reads them
 import { Readable } from 'node:stream';
 import { DurableObject } from 'cloudflare:workers';
-import { setUploadLimits } from '../src/config.js';
+import { setGitHubSignIn, setUploadLimits } from '../src/config.js';
 import { handleRequest } from '../src/server.js';
 import { Store } from '../src/store.js';
 import { readBody } from './body.js';
@@ -23,6 +23,7 @@ export class HtmlServer extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.store = new Store(new DurableSqlite(ctx.storage));
+    setGitHubSignIn(env); // the Worker's GitHub OAuth app secrets: GitHub sign-in for claim links
     // The first admin: on a new deployment, the user named ADMIN_NAME (default "admin")
     // gets the token in the ADMIN_TOKEN secret (`html-server deploy cloudflare` sets both).
     if (env.ADMIN_TOKEN && !this.store.one('SELECT 1 AS x FROM users LIMIT 1')) {

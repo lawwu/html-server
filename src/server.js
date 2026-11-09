@@ -5,9 +5,10 @@ import { gzipSync } from 'node:zlib';
 import { fileBytes, fileText } from './files.js';
 import {
   CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  githubSignIn,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, aboutMarkdown, claimPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
+import { VIEWS, aboutMarkdown, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
 import { renderMarkdown, safeDecode } from './markdown.js';
 import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
@@ -122,9 +123,10 @@ export const ROUTES = [
     'Issue a new token for a user who lost theirs. Their pages are untouched; the old token stops working'],
   ['DELETE', '/api/users/(?<name>[^/]+)', 'deleteUser', 'admin', 'Delete a user and all of their pages'],
   ['POST', '/api/users/(?<name>[^/]+)/claim', 'claimLink', 'admin, or a claims-only token',
-    'A one-time link that shows the user a new token in their browser, making the user if there is none. Returns `claim_path`, `claim_url` and `expires_at`, never the token, so it can run in a CI log (README: Users and admins). A new link replaces an unused one; the old token works until the link is used'],
+    'A one-time link that shows the user a new token in their browser, making the user if there is none. Returns `claim_path`, `claim_url` and `expires_at`, never the token, so it can run in a CI log (README: Users and admins). A new link replaces an unused one; the old token works until the link is used. With GitHub sign-in on, NAME is a GitHub login, and only someone signed in to GitHub as it gets the token'],
+  ['GET', '/api/claim/callback', 'claimCallback', 'anyone', 'Where GitHub sends someone back after signing in for a claim link (with GitHub sign-in on)'],
   ['GET', '/api/claim/(?<code>[\\w-]+)', 'claimPage', 'anyone with the link', 'The claim link: whose token it shows, and a button that shows it'],
-  ['POST', '/api/claim/(?<code>[\\w-]+)', 'claim', 'anyone with the link', 'Show the token, once: it replaces the user\'s old one, and the link stops working'],
+  ['POST', '/api/claim/(?<code>[\\w-]+)', 'claim', 'anyone with the link', 'Show the token, once: it replaces the user\'s old one, and the link stops working. With GitHub sign-in on, it first sends you to sign in to GitHub as the link\'s account'],
 ].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`, 'u'), label: routeLabel(path) }))
   .sort((a, b) => routePriority(a) - routePriority(b));
 
@@ -139,6 +141,38 @@ function routePriority(r) {
 }
 
 const CLAIM_HEADERS = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
+// The sign-in under way, so GitHub's answer is taken only in the browser that asked (login CSRF).
+const CLAIM_COOKIE = 'html_server_claim';
+const githubCallback = (c, gh) => gh.callbackUrl || `${c.origin()}/api/claim/callback`;
+
+/**
+ * Who signed in, from GitHub: the code exchanged for a token (the app's secret stays on this
+ * server), then their login, numeric id and email addresses. The token is revoked straight
+ * after (best effort): nothing of GitHub's is kept.
+ */
+async function githubUser(gh, code, redirectUri) {
+  const exchange = await fetch(`${gh.web}/login/oauth/access_token`, {
+    method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'html-server' },
+    body: JSON.stringify({ client_id: gh.clientId, client_secret: gh.clientSecret, code, redirect_uri: redirectUri }),
+  });
+  const { access_token: token, error, error_description: why } = await exchange.json().catch(() => ({}));
+  if (!token) throw new Error(why || error || `GitHub answered ${exchange.status}`);
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'html-server' };
+  const get = async (path) => {
+    const r = await fetch(`${gh.api}${path}`, { headers });
+    if (!r.ok) throw new Error(`GitHub ${path}: ${r.status}`);
+    return r.json();
+  };
+  try {
+    const [user, emails] = await Promise.all([get('/user'), get('/user/emails')]);
+    return { login: user.login, id: user.id, emails };
+  } finally {
+    await fetch(`${gh.api}/applications/${encodeURIComponent(gh.clientId)}/token`, {
+      method: 'DELETE', body: JSON.stringify({ access_token: token }),
+      headers: { Authorization: `Basic ${Buffer.from(`${gh.clientId}:${gh.clientSecret}`).toString('base64')}`, Accept: 'application/vnd.github+json', 'User-Agent': 'html-server', 'Content-Type': 'application/json' },
+    }).catch(() => {});
+  }
+}
 const TOC_SCRIPT = fileText('public/toc.js');
 const VERSION_BADGE_SCRIPT = fileText('public/version-badge.js');
 const EMBED_SIZE_SCRIPT = fileText('public/embed-size.js').replace(/^(\/\/.*\n)+/, ''); // without its header comment
@@ -678,6 +712,11 @@ const handlers = {
   claimLink(c, { name }) {
     const u = c.user({ claims: true });
     if (!u.is_admin && !u.claims_only) throw new ApiError(403, 'admin or claims-only token only');
+    if (githubSignIn()) { // the link is for a GitHub account; whose account here is settled at sign-in
+      const { github_login, code, expires_at } = c.store.claimLink(name, { limited: !u.is_admin, github: true });
+      const path = `/api/claim/${code}`;
+      return c.json(201, { github_login, sign_in: 'github', claim_path: path, claim_url: c.origin() + path, expires_at });
+    }
     const { name: user, code, expires_at, created } = c.store.claimLink(name, { limited: !u.is_admin });
     const path = `/api/claim/${code}`;
     c.json(201, { name: user, created, claim_path: path, claim_url: c.origin() + path, expires_at });
@@ -688,12 +727,46 @@ const handlers = {
     c.send(claim ? 200 : 410, 'text/html; charset=utf-8', claimPage(claim), CLAIM_HEADERS);
   },
   claim(c, { code }) {
+    const gh = githubSignIn();
+    if (c.store.claimFor(code)?.github_login && gh) { // sign in to GitHub first, from this browser
+      const { state, login } = c.store.startGitHubClaim(code);
+      const q = new URLSearchParams({ client_id: gh.clientId, redirect_uri: githubCallback(c, gh), scope: 'user:email', state, login, allow_signup: 'false' });
+      return c.send(303, 'text/plain; charset=utf-8', '', { ...CLAIM_HEADERS, Location: `${gh.web}/login/oauth/authorize?${q}`,
+        'Set-Cookie': `${CLAIM_COOKIE}=${state}; Path=/api/claim; Max-Age=${15 * 60}; HttpOnly; SameSite=Lax${c.origin().startsWith('https:') ? '; Secure' : ''}` });
+    }
     let shown;
     try { shown = c.store.claimToken(code); } catch (e) {
       if (e.status !== 410) throw e;
       return c.send(410, 'text/html; charset=utf-8', claimPage(null), CLAIM_HEADERS);
     }
     c.send(200, 'text/html; charset=utf-8', claimedPage({ ...shown, server: c.origin() }), CLAIM_HEADERS);
+  },
+  /** Back from GitHub: who signed in, checked against the link, then the token, once. */
+  async claimCallback(c) {
+    const headers = { ...CLAIM_HEADERS, 'Set-Cookie': `${CLAIM_COOKIE}=; Path=/api/claim; Max-Age=0; HttpOnly; SameSite=Lax` };
+    const problem = (status, title, text) => c.send(status, 'text/html; charset=utf-8', claimProblemPage(title, text), headers);
+    const gh = githubSignIn();
+    if (!gh) return problem(404, "GitHub sign-in isn't set up here", 'Ask an admin for a new claim link.');
+    if (c.query.get('error')) return problem(403, 'GitHub sign-in was cancelled', 'Open your claim link again to try again.');
+    const state = c.query.get('state') || '', code = c.query.get('code') || '';
+    const started = (c.req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${CLAIM_COOKIE}=([\\w-]+)`))?.[1];
+    if (!state || !code || started !== state) {
+      return problem(400, "This sign-in didn't start in this browser", 'Open your claim link again in the browser you want to use, and press Continue with GitHub.');
+    }
+    let who;
+    try { who = await githubUser(gh, code, githubCallback(c, gh)); } catch (e) {
+      console.error('GitHub sign-in:', e.message);
+      return problem(502, "Couldn't check who you are with GitHub", 'Open your claim link again to try again. If it keeps happening, tell an admin.');
+    }
+    let shown;
+    try { shown = c.store.finishGitHubClaim(state, who); } catch (e) {
+      if (e.status === 410) return c.send(410, 'text/html; charset=utf-8', claimPage(null), headers);
+      if ([400, 403, 409, 502].includes(e.status)) {
+        return problem(e.status, e.message.startsWith('this link is for') ? "This link isn't for you" : "Your token can't be made", `${e.message}.`);
+      }
+      throw e;
+    }
+    c.send(200, 'text/html; charset=utf-8', claimedPage({ ...shown, server: c.origin() }), headers);
   },
   deleteUser(c, { name }) {
     if (name.toLowerCase() === c.user({ admin: true }).name) throw new ApiError(400, 'refusing to delete yourself');
