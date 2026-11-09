@@ -16,7 +16,7 @@ export async function openMove(pages, onMoved) {
   const folder = form.elements.folder, filename = form.elements.filename;
   const tokenInput = form.elements.token, error = dialog.querySelector('.move-error');
   try { tokenInput.value = localStorage.getItem('artifact_token') || ''; } catch { /* this visit only */ }
-  dialog.querySelector('.move-signin').hidden = !!tokenInput.value;
+  dialog.querySelector('.move-signin').hidden = !!tokenInput.value || !!document.body.dataset.ssoUser; // SSO: the cookie is enough
   if (pages.length === 1) {
     folder.value = pages[0].split('/').slice(0, -1).join('/');
     filename.value = pages[0].split('/').at(-1);
@@ -36,13 +36,13 @@ export async function openMove(pages, onMoved) {
     const button = form.querySelector('[type="submit"]'); button.disabled = true; error.textContent = '';
     try {
       const token = tokenInput.value.trim();
-      const r = await fetch('/api/moves', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ moves: moves() }) });
+      const r = await fetch('/api/moves', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ moves: moves() }) });
       const data = await r.json();
       if (!r.ok) {
         if (r.status === 401) { dialog.querySelector('.move-signin').hidden = false; tokenInput.focus(); }
         throw new Error(data.error || 'Move failed');
       }
-      try { localStorage.setItem('artifact_token', token); } catch { /* this visit only */ }
+      if (token) try { localStorage.setItem('artifact_token', token); } catch { /* this visit only */ }
       dialog.close(); onMoved(data.results);
     } catch (err) { error.textContent = err.message; }
     finally { button.disabled = false; }

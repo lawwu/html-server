@@ -33,6 +33,7 @@ itself (see [The docs site](#the-docs-site)).
 - [The site](#the-site)
 - [Versions, history and review](#versions-history-and-review)
 - [Users and admins](#users-and-admins)
+- [Single sign-on](#single-sign-on)
 - [Docker](#docker)
 - [Deploy to Cloudflare](#deploy-to-cloudflare)
 - [PostgreSQL](#postgresql)
@@ -645,6 +646,87 @@ management goes through the API.
 masked for anyone not signed in** (`bob@…`); turn that off with `MASK_EMAILS_FOR_ANONYMOUS`
 in `src/config.js`.
 
+## Single sign-on
+
+With single sign-on (SSO) through your company's identity provider, nobody gets in without
+signing in: every page, the gallery, search, share links and the API need a sign-in in the
+browser or an API token. People sign in once in the browser, and make their own API token
+(for the CLI, MCP and scripts) on their **Account** page. It works with any OpenID Connect
+(OIDC) provider: Microsoft Entra ID, Okta, Google Workspace, Auth0, Keycloak. It's off unless
+you set it up, and modelled on [agile-tools](https://github.com/rubiss-projects/agile-tools)' SSO.
+
+**Set it up:** register html-server with the provider as a web app using the authorization code
+flow (not SAML), with the redirect URI `https://YOUR-SERVER/api/oidc/callback`, then give the
+server:
+
+| Setting | |
+| --- | --- |
+| `OIDC_ISSUER` | The provider's issuer URL (Entra: `https://login.microsoftonline.com/<tenant-id>/v2.0`) |
+| `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | The app's ID and secret |
+| `OIDC_ADMIN_EMAILS` | Optional: who becomes an admin on first sign-in, e.g. `you@company.com` |
+| `OIDC_ADMIN_CLAIM`, `OIDC_ADMIN_CLAIM_VALUES` | Optional: the same from a role or group the provider sends, e.g. `roles` and `HtmlServer.Admin` |
+| `OIDC_REDIRECT_URI` | Optional: the callback, if the server can't tell its own address behind a proxy |
+| `OIDC_POST_LOGOUT_REDIRECT_URI` | Optional: where signing out ends up (default: the server's `/`) |
+| `OIDC_SCOPES` | Optional: default `openid profile email` |
+| `OIDC_SESSION_HOURS` | Optional: how long a browser stays signed in, default 12 |
+| `OIDC_TOKEN_IDLE_DAYS` | Optional: an SSO user's API token stops working after this many days without signing in, default 30 (`0`: never) |
+
+`serve` says `single sign-on: <issuer>` when it's on. In Docker, put these in the `--env-file`;
+on Cloudflare, set them as the Worker's secrets.
+
+**Microsoft Entra ID, step by step:**
+
+1. *App registrations → New registration* (not *Enterprise applications*, which offers SAML):
+   single tenant; redirect URI, platform **Web**: `https://YOUR-SERVER/api/oidc/callback`.
+   Add `https://YOUR-SERVER/` as a second redirect URI, for after signing out.
+2. *Certificates & secrets → New client secret*. Entra's secrets expire (two years at most):
+   note when, and replace it before then.
+3. *Token configuration → Add optional claim → ID → email*, so the ID token carries the email.
+4. *App roles → Create app role*, e.g. `HtmlServer.Admin` (allowed member types: users/groups),
+   then assign it in *Enterprise applications → html-server → Users and groups*. Prefer app
+   roles to group claims: groups arrive as opaque ids, and stop arriving past 200 groups.
+5. *Enterprise applications → html-server → Properties → Assignment required: Yes*, and assign
+   the people or groups who may use html-server. Otherwise everyone in the tenant can sign in.
+6. On the server: `OIDC_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0` (your tenant
+   id, not `common`), `OIDC_CLIENT_ID` (the *Application (client) ID*), `OIDC_CLIENT_SECRET`,
+   `OIDC_ADMIN_CLAIM=roles`, `OIDC_ADMIN_CLAIM_VALUES=HtmlServer.Admin`. Optionally
+   `html-server config usernames email` and `config email-domains company.com`, so usernames
+   are work email addresses.
+
+The server has to reach the provider (`login.microsoftonline.com`); the provider never
+connects to the server, so it can stay private.
+
+**How it works:**
+
+- **Signing in** is the authorization code flow with PKCE, a state and a nonce, through
+  [openid-client](https://github.com/panva/openid-client): the provider is found by discovery
+  and its ID token checked (signature, issuer, audience, expiry, nonce). Opening any page sends
+  you to the provider and back to that page. Nothing of the provider's is kept: the server
+  runs its own session, an HttpOnly, `SameSite=Lax` cookie whose id the database keeps only as
+  a hash, for `OIDC_SESSION_HOURS`.
+- **Accounts** are found by the provider's id for the person (its issuer and `sub`), which
+  never changes. The first sign-in makes the account: with email usernames, their verified
+  email (an existing account of that email, made before SSO, is taken over); otherwise a
+  handle from their username or email (`ann.lee@company.com` → `ann-lee`; `ann-lee-2` if
+  taken). Admins are decided then, from `OIDC_ADMIN_EMAILS` or the claim, and never changed
+  by a later sign-in, so the provider's claims changing can't silently promote or demote
+  anyone; change roles with the API. With email usernames, an account follows the
+  provider's email if it changes.
+- **API tokens:** one per person, made on **Account** (shown once; a new one replaces the
+  old). An SSO user's token stops working if they haven't signed in for
+  `OIDC_TOKEN_IDLE_DAYS`, so people removed from the provider lose API access too; signing in
+  again brings it back. Accounts that don't sign in through SSO (the first admin, claims-only
+  accounts, service accounts made with `create-user`) keep their tokens as before.
+- **Uploaded pages can't act as the viewer.** They're sandboxed, so their requests come from an
+  opaque origin: the server ignores the session cookie on any request from another origin
+  (except opening a page from a link), and on any change that doesn't come from this site's
+  own pages. A note's images go by the page's link (`?from=`), since its own requests carry
+  no sign-in. The browser tests check this with a hostile page.
+- **Signing out** (**Sign out** in the top bar, or on Account) ends the session, and the
+  provider's too where it offers that (`end_session_endpoint`).
+- **Still open without signing in:** `/healthz`, the site's own stylesheets and fonts, and
+  [claim links](#tokens-from-a-github-workflow), which carry their own proof.
+
 ## Docker
 
 Each release is also an image, **`ghcr.io/lawwu/html-server`**, on Debian 13 (trixie) and
@@ -977,7 +1059,7 @@ the old capability.
   read through one module, so the same code serves from Node or from a Cloudflare Durable
   Object.
 - **Reserved names:** `api`, `v`, `review`, `pages`, `history`, `gallery`, `graph`, `stats`,
-  `random`, `assets`, `docs`, `about`, `healthz`, `favicon.ico` and `robots.txt` can't be page names, because the server
+  `random`, `assets`, `docs`, `about`, `account`, `healthz`, `favicon.ico` and `robots.txt` can't be page names, because the server
   uses those paths itself (browsers ask for `/favicon.ico` and crawlers for `/robots.txt`;
   both get a plain 404 straight away).
 

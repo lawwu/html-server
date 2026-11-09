@@ -35,12 +35,13 @@ const KEY = 'artifact_token';
 const saved = () => { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } };
 
 async function loadUsage(token, { fromForm = false, days = new URLSearchParams(location.search).get('days') || '' } = {}) {
-  if (!token) { form.hidden = false; return; }
+  const sso = !!document.body.dataset.ssoUser; // signed in through single sign-on: the cookie is enough
+  if (!token && !sso) { form.hidden = false; return; }
   let r;
-  try { r = await fetch(`/stats/usage${days ? `?days=${encodeURIComponent(days)}` : ''}`, { headers: { Authorization: `Bearer ${token}` } }); }
+  try { r = await fetch(`/stats/usage${days ? `?days=${encodeURIComponent(days)}` : ''}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); }
   catch { msg.textContent = 'Couldn’t reach the server.'; return; }
   if (r.ok) {
-    if (fromForm) { try { localStorage.setItem(KEY, token); } catch { /* this visit only */ } }
+    if (fromForm && token) { try { localStorage.setItem(KEY, token); } catch { /* this visit only */ } }
     usageBody.innerHTML = await r.text();
     if (days) history.replaceState(null, '', `?days=${encodeURIComponent(days)}#usage`);
     return;
