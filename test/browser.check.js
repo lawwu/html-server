@@ -273,6 +273,29 @@ test('a sidebar longer than the window scrolls; its sections never overlap', asy
   }
 });
 
+test('claim link: a button shows the token once; Sign in here keeps it for this browser', async () => {
+  const link = store.claimLink('octo-cat');
+  await page.goto(`${base}/api/claim/${link.code}`);
+  assert.equal(await page.locator('#claim-token').count(), 0); // opening the link shows nothing yet
+  await page.getByRole('button', { name: 'Show my token' }).click();
+  const token = await page.locator('#claim-token').inputValue();
+  assert.match(token, /^ak_/);
+  assert.equal(store.userForToken(token).name, 'octo-cat');
+  await page.getByRole('button', { name: 'Sign in here' }).click();
+  await page.getByText('Signed in.').waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), token);
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme });
+    await page.waitForTimeout(400); // links fade to the new colours (0.2 s): judge them once they're there
+    const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    assert.deepEqual(result.violations.map((v) => ({ id: v.id, targets: v.nodes.map((n) => n.target) })), [], colorScheme);
+  }
+  await page.reload(); // a reload re-sends the form: the link is used up, and says so
+  await page.getByRole('heading', { name: 'This link has been used or has expired' }).waitFor();
+  await page.goto(base + '/');
+  await page.waitForFunction(() => document.querySelector('.session:not([hidden])')?.textContent.startsWith('Signed in as octo-cat'));
+});
+
 for (const colorScheme of ['light', 'dark']) {
   test(`375px ${colorScheme}: no horizontal overflow, contrast or ARIA regressions`, async () => {
     await page.setViewportSize({ width: 375, height: 812 });

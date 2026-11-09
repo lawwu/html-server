@@ -8,7 +8,9 @@ export const usage = ({ backupDir, homeDir, server = null }) => `html-server ${V
 Run the server (on this machine, straight to the database):
   serve [--port ${DEFAULT_PORT}] [--host ${DEFAULT_HOST}] [--db PATH] [--sandbox-allow PERMISSION]...
                                         --sandbox-allow adds a sandbox permission for pages, e.g. allow-downloads
-  create-user NAME [--admin] [--save]    print a new user's token once (--save: also keep it for this CLI)
+  create-user NAME [--admin | --claims-only] [--save]
+                                        print a new user's token once (--save: also keep it for this CLI);
+                                        --claims-only: a token that can only make claim links, for CI
   reset-token NAME [--save]              new token for a user who lost theirs; pages are kept
   backup [PATH] [--keep N]               snapshot the database (safe while serving); default: ${backupDir}
                                         --keep N: then delete all but the newest N backups there
@@ -57,6 +59,8 @@ Use a running server:
   views NAME                            page views report
   rm NAME [--purge]                     trash; --purge deletes for good (trash first)
   whoami
+  claim-link NAME                       (admin or claims-only) a one-time link that shows NAME a new token in their browser;
+                                        makes the user if needed. For CI: README, "Tokens from a GitHub workflow"
   --version                             print the version
 
 Data lives in ${homeDir} (HTML_SERVER_HOME moves it), or in PostgreSQL when

@@ -38,6 +38,10 @@ export const USERNAME_RULES = {
   email: { re: /^[^\s@/]{1,64}@[^\s@/.]+(\.[^\s@/.]+)+$/, hint: 'an email address, like alice@example.com' },
 };
 export const DEFAULT_USERNAMES = 'name';
+// A claim link (POST /api/users/NAME/claim) shows its user a new token once, in the browser,
+// so the token never passes through whatever asked for the link (a GitHub workflow's log).
+// Short, because the link itself may sit in that log: whoever opens it first gets the token.
+export const CLAIM_LINK_MINUTES = 15;
 // Who may upload new versions of a page, per deployment (`config editing open`):
 // "owner" — only the person who created it (the default, so upgrading never opens
 // an existing server); "open" — any signed-in user, for public, active pages.

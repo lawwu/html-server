@@ -131,8 +131,8 @@ const serverCommands = {
       console.error(`html-server ${VERSION} on http://${opts.host}:${opts.port}  (db: ${where})`));
   },
   async 'create-user'([name], opts) {
-    if (!name) fail('usage: create-user NAME [--admin] [--save]');
-    const token = await withStore(opts, (store) => store.createUser(name, opts.admin));
+    if (!name) fail('usage: create-user NAME [--admin | --claims-only] [--save]');
+    const token = await withStore(opts, (store) => store.createUser(name, opts.admin, { claimsOnly: opts['claims-only'] }));
     console.log(token);
     if (opts.save) saveForCli(token, opts);
   },
@@ -621,6 +621,13 @@ const clientCommands = {
     const a = await api('DELETE', `/api/artifacts/${enc(name)}${opts.purge ? '?purge=1' : ''}`, { auth: 'required' });
     console.log(`${a.slug} → ${a.state}`);
   },
+  async 'claim-link'([name]) {
+    if (!name) fail('usage: claim-link NAME');
+    const c = await api('POST', `/api/users/${encodeURIComponent(name)}/claim`, { auth: 'required' });
+    if (c.created) console.error(`made user '${c.name}'`);
+    console.log(`${SERVER}${c.claim_path}`);
+    console.error(`works once, until ${new Date(c.expires_at * 1000).toLocaleTimeString()}; it shows ${c.name} a new token, which replaces any old one`);
+  },
   async whoami() {
     const me = await api('GET', '/api/me', { auth: 'required' });
     console.log(`${me.name}${me.is_admin ? ' (admin)' : ''} on ${SERVER}`);
@@ -706,6 +713,7 @@ export async function main(argv) {
       sort: { type: 'string' },
       port: { type: 'string', default: String(DEFAULT_PORT) },
       admin: { type: 'boolean', default: false },
+      'claims-only': { type: 'boolean', default: false },
       save: { type: 'boolean', default: false },
       private: { type: 'boolean', default: false },
       purge: { type: 'boolean', default: false },

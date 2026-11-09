@@ -7,7 +7,7 @@
 // still go through tx() so a failure leaves nothing half-done.
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS,
+  API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLAIM_LINK_MINUTES, CLIENT_KINDS, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS,
   PAGE_EXT_RE, POPULAR_WEEKS, SEARCH_SORT, SLUG_HINT, SLUG_RE, SORTS, USERNAME_RULES,
   VIEW_REPORT_DAYS, VISIBILITIES,
 } from './config.js';
@@ -227,6 +227,11 @@ CREATE TABLE IF NOT EXISTS asset_grants (
 );
 CREATE INDEX IF NOT EXISTS asset_grants_by_name ON asset_grants (name);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS token_claims (
+    code_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at REAL NOT NULL
+);
 `;
 // The search index has its own version: when its columns change, it is rebuilt
 // from each page's latest version on startup (see ensureSearchIndex).
@@ -239,6 +244,11 @@ const LINKS_VERSION = '3';
 // Columns added after the first release, per table: [name, definition, backfill SQL].
 // Applied on startup if missing, so older databases upgrade in place.
 const ADDED_COLUMNS = {
+  users: [
+    // A token that can only make claim links (POST /api/users/NAME/claim), for a CI workflow:
+    // less than an admin's, and it can't reach admins or other such users (0.14.0).
+    ['claims_only', 'INTEGER NOT NULL DEFAULT 0'],
+  ],
   artifacts: [
     ['description', "TEXT NOT NULL DEFAULT ''"], // from <meta name="description">, for the gallery
     ['category', "TEXT NOT NULL DEFAULT ''"], //    from <meta name="category">
@@ -651,11 +661,12 @@ export class Store {
   }
 
   /** Returns the new user's token: a fresh one, or `token` when the deployment supplies it (its first admin). */
-  createUser(name, isAdmin = false, { token = 'ak_' + randomBytes(32).toString('base64url') } = {}) {
+  createUser(name, isAdmin = false, { token = 'ak_' + randomBytes(32).toString('base64url'), claimsOnly = false } = {}) {
     name = this.normalizeUsername(name);
+    if (isAdmin && claimsOnly) throw new ApiError(400, 'a user is an admin or claims-only, not both');
     try {
-      this.run('INSERT INTO users (name, token_hash, is_admin, created_at) VALUES (?,?,?,?)',
-        name, hashToken(token), isAdmin ? 1 : 0, now());
+      this.run('INSERT INTO users (name, token_hash, is_admin, claims_only, created_at) VALUES (?,?,?,?,?)',
+        name, hashToken(token), isAdmin ? 1 : 0, claimsOnly ? 1 : 0, now());
     } catch (e) {
       if (/UNIQUE/.test(e.message) || e.sqlState === '23505') throw new ApiError(409, `user '${name}' already exists`);
       throw e;
@@ -672,11 +683,54 @@ export class Store {
     return token;
   }
 
+  /**
+   * A one-time link that shows `name` a new token (claimToken), making the user first if
+   * there is none: what a GitHub workflow asks for, so the token never appears in its log.
+   * A new user gets a token nobody knows until then. Only the code's hash is kept; a new
+   * link replaces the user's unused one. Returns { name, code, expires_at, created }.
+   * `limited` (a claims-only caller): refused for admins and other claims-only users, since
+   * whoever holds the link gets the account.
+   */
+  claimLink(name, { minutes = CLAIM_LINK_MINUTES, limited = false } = {}) {
+    name = this.normalizeUsername(name);
+    const code = randomBytes(32).toString('base64url');
+    const t = now();
+    let created = false;
+    this.tx(() => {
+      let u = this.one('SELECT id, is_admin, claims_only FROM users WHERE name = ?', name);
+      if (u && limited && (u.is_admin || u.claims_only)) throw new ApiError(403, `a claims-only token can't make links for '${name}', an ${u.is_admin ? 'admin' : 'account like itself'}`);
+      if (!u) {
+        this.createUser(name);
+        u = this.one('SELECT id FROM users WHERE name = ?', name);
+        created = true;
+      }
+      this.run('DELETE FROM token_claims WHERE user_id = ? OR expires_at <= ?', u.id, t);
+      this.run('INSERT INTO token_claims (code_hash, user_id, expires_at) VALUES (?,?,?)', hashToken(code), u.id, t + minutes * 60);
+    });
+    return { name, code, expires_at: t + minutes * 60, created };
+  }
+
+  /** Whose token a claim link shows, and until when; null once it's used or expired. */
+  claimFor(code) {
+    return this.one('SELECT u.name, c.expires_at FROM token_claims c JOIN users u ON u.id = c.user_id WHERE c.code_hash = ? AND c.expires_at > ?',
+      hashToken(String(code)), now()) ?? null;
+  }
+
+  /** Use a claim link, once: the user's new token, which replaces their old one. 410 if it's used or expired. */
+  claimToken(code) {
+    return this.tx(() => {
+      const c = this.one('SELECT c.user_id, c.expires_at, u.name FROM token_claims c JOIN users u ON u.id = c.user_id WHERE c.code_hash = ?', hashToken(String(code)));
+      if (!c || c.expires_at <= now()) throw new ApiError(410, 'this link has been used or has expired');
+      this.run('DELETE FROM token_claims WHERE code_hash = ?', hashToken(String(code)));
+      return { name: c.name, token: this.resetToken(c.name) };
+    });
+  }
+
   userForToken(token) { return this.one('SELECT * FROM users WHERE token_hash = ?', hashToken(token)); }
 
   listUsers() {
-    return this.all('SELECT name, is_admin, created_at FROM users ORDER BY name')
-      .map((u) => ({ ...u, is_admin: !!u.is_admin }));
+    return this.all('SELECT name, is_admin, claims_only, created_at FROM users ORDER BY name')
+      .map((u) => ({ ...u, is_admin: !!u.is_admin, claims_only: !!u.claims_only }));
   }
 
   deleteUser(name) {

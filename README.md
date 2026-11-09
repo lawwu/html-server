@@ -500,6 +500,7 @@ stores only its hash.
 | Anyone (no token) | Browse, search and read public pages, their history and their comments |
 | User | Upload pages, then change, trash or delete **their own**; comment; rotate their own token. Under open editing, also add versions to anyone's public pages |
 | Admin | Everything a user can, plus create, list and delete users and reset their tokens |
+| Claims-only | Make [claim links](#tokens-from-a-github-workflow) for new and ordinary users, and replace its own token. Nothing else: no pages, no reading, no user management, and no links for admins or other claims-only users. For CI: `create-user ci-bot --claims-only`, or `"claims_only": true` |
 | Shell access to the server | `html-server create-user NAME [--admin]` and `reset-token NAME`, with no token needed: how the first admin is made, and how a lost admin token is recovered |
 
 **Signing in.** There are no passwords or login screen; the token is the credential.
@@ -518,6 +519,70 @@ stores only its hash.
 `html-server login` once. **A lost token:** an admin runs `POST /api/users/NAME/token`, or
 anyone with shell access runs `reset-token NAME`; the user's pages are kept. If a token
 leaks, `POST /api/me/token` replaces it.
+
+### Tokens from a GitHub workflow
+
+People can get their own token by running a workflow in a GitHub repo, signed in as
+themselves: no admin hands it over, and it never appears in the job's log. The workflow asks
+the server for a **claim link** for the GitHub login that started the run
+(`POST /api/users/NAME/claim`), which makes that user if there isn't one. It
+writes the link to the run's summary. The person opens it and presses **Show my token**; the
+server then makes the token and shows it once, with **Sign in here** for that browser and
+`html-server login` for the CLI. The link works once, for 15 minutes (`CLAIM_LINK_MINUTES`
+in `src/config.js`). A new link replaces an unused one, and the person's old token works
+until they use it. Opening the address doesn't use it up (the button does), so a chat app's
+link preview can't. An admin can make one by hand with `html-server claim-link NAME`.
+
+Put this in each deployment's **private** repo, as `.github/workflows/html-server-token.yml`,
+with an [environment](https://docs.github.com/actions/deployment/targeting-different-environments)
+holding the server's address (a variable, `HTML_SERVER_URL`) and a **claims-only** token (a
+secret, `HTML_SERVER_CLAIMS_TOKEN`), made on the server with
+`html-server create-user github-ci --claims-only` (or `docker exec html-server html-server …`).
+For several deployments, add one file per deployment, each
+naming its own environment.
+
+```yaml
+name: Get my html-server token
+on: workflow_dispatch
+permissions: {}
+jobs:
+  link:
+    runs-on: ubuntu-latest
+    environment: html-server
+    steps:
+      - name: Make a one-time link
+        env:
+          SERVER: ${{ vars.HTML_SERVER_URL }}
+          CLAIMS_TOKEN: ${{ secrets.HTML_SERVER_CLAIMS_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          RUNNER: ${{ github.triggering_actor }}
+        run: |
+          if [ "$ACTOR" != "$RUNNER" ]; then
+            echo "::error::Start a new run yourself: re-running someone else's run makes a link for them."
+            exit 1
+          fi
+          # Two steps, not curl | jq: GitHub runs this without pipefail, so a refusal would pass.
+          reply=$(curl -fsS -X POST -H "Authorization: Bearer $CLAIMS_TOKEN" "$SERVER/api/users/$ACTOR/claim")
+          path=$(jq -er .claim_path <<< "$reply")
+          {
+            echo "### Your html-server token"
+            echo
+            echo "[Open this link]($SERVER$path) within 15 minutes and press **Show my token**. It works once."
+          } >> "$GITHUB_STEP_SUMMARY"
+```
+
+- **Who can get a token:** anyone who can run workflows in that repo (write access). The
+  username is their GitHub login, lowercased; a deployment set to email usernames refuses it.
+- **Keep the repo private.** Anyone who can read the run can open the link before its owner
+  does. If that happens, the owner sees "used or expired" and runs it again, and opening the
+  new link replaces the token the other person saw.
+- **Values go through `env`,** never pasted into the script, so a login can't inject shell
+  commands, and GitHub masks the secret in the log.
+- **The claims-only token is the secret to guard.** It can't publish, read or manage users,
+  and it can't make links for admins, but it can make a link for any ordinary user, and
+  whoever opens that link gets the account. If it may have leaked, replace it
+  (`POST /api/me/token` with it, or `reset-token github-ci` on the server). An admin's token
+  works here too, but would put an admin's powers in CI.
 
 Admin is a user-management role only: admins can't edit, delete or see other people's
 private pages. A new admin is made by an existing admin (`"admin": true` when creating) or
@@ -798,6 +863,7 @@ that says `did you mean 'trip-plan.html'?`, and uploading a new `trip-plan` whil
 | Your trash | `curl -H "$H" "$A/api/artifacts?state=trashed"` |
 | Who am I · replace your token | `curl -H "$H" $A/api/me` · `curl -X POST -H "$H" $A/api/me/token` |
 | Users (admin) | `POST /api/users` `{"name":"bob"}` · `GET /api/users` · `POST /api/users/bob/token` · `DELETE /api/users/bob` (deletes their pages too) |
+| A one-time link that shows bob a new token (admin) | `curl -X POST -H "$H" $A/api/users/bob/claim`: `claim_path`, never the token. See [Tokens from a GitHub workflow](#tokens-from-a-github-workflow) |
 
 Every GET route also answers **HEAD** (`curl -I`, link checkers, uptime monitors) with the
 same status and headers and no body; HEAD requests don't count as views.
