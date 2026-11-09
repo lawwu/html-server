@@ -649,11 +649,11 @@ in `src/config.js`.
 
 Each release is also an image, **`ghcr.io/lawwu/html-server`**, on Debian 13 (trixie) and
 Node 24, for amd64 and arm64, with the PostgreSQL driver built in. Its tags are the
-version (`0.14.0`), the minor line (`0.14`) and `latest`, the newest release.
+version (`0.15.0`), the minor line (`0.15`) and `latest`, the newest release.
 
 ```bash
 docker run -d --name html-server --restart unless-stopped \
-  -p 127.0.0.1:8765:8765 -v html-server:/data ghcr.io/lawwu/html-server:0.14.0
+  -p 127.0.0.1:8765:8765 -v html-server:/data ghcr.io/lawwu/html-server:0.15.0
 ```
 
 - **Data** lives in the `/data` volume: the database, backups, and the login of the CLI
@@ -672,7 +672,7 @@ docker run -d --name html-server --restart unless-stopped \
 - **Other commands** run in the container: `docker exec html-server html-server backup --keep 14`
   writes to `/data/backups`. Arguments after the image name replace the default
   `serve --host 0.0.0.0`, so to change how it serves, give the whole command:
-  `… ghcr.io/lawwu/html-server:0.14.0 serve --host 0.0.0.0 --sandbox-allow allow-downloads`.
+  `… ghcr.io/lawwu/html-server:0.15.0 serve --host 0.0.0.0 --sandbox-allow allow-downloads`.
 - **[PostgreSQL](#postgresql):** add `-e DATABASE_URL=…`, or `--env-file` to keep the
   password out of your shell history. The data is then in PostgreSQL, not in `/data`.
 - **Time zone.** Stats count days in the container's time zone, UTC unless you add

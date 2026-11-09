@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.15.0 (2026-11-09)
+
 - **GitHub sign-in for claim links.** Set a GitHub OAuth app's `GITHUB_CLIENT_ID` and
   `GITHUB_CLIENT_SECRET` on the server and a claim link is for a GitHub account: the page
   asks to **Continue with GitHub**, and only someone signed in as that account gets the
