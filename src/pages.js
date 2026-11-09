@@ -1,6 +1,6 @@
 // Server-rendered pages: your pages at /, the example gallery at /gallery, history,
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
-import { CLAIM_LINK_MINUTES, MAX_BODY_BYTES, POPULAR_CHOICES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
+import { CLI_FROM_GITHUB, CLAIM_LINK_MINUTES, MAX_BODY_BYTES, POPULAR_CHOICES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
 import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, heroTile, sparkline, stackedColumnChart } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
@@ -744,7 +744,10 @@ ${plural(mins, 'minute')}. If you already have a token, the new one replaces it.
  * Your account (/account), signed in through SSO: who you are here, your API token (make or
  * replace it: shown once), and for an admin, the users. `sso` null: SSO isn't set up.
  */
-export function accountPage({ user = null, sso = null, server = '', users = null }) {
+/** The command to install the command line: from this server when it offers its package, else from GitHub. */
+export const cliInstall = (server, cli) => (cli ? `npm install -g ${server}/api/cli/html-server.tgz` : CLI_FROM_GITHUB);
+
+export function accountPage({ user = null, sso = null, server = '', cli = false, users = null }) {
   const bar = topBar(null, { sidebar: false });
   if (!sso) {
     return shell('Account · HTML Server', `${bar}<main class="wrap claim"><h1>Your account</h1>
@@ -762,13 +765,17 @@ replace it with <code>POST /api/me/token</code>, or ask an admin to (<code>html-
 ${user.email ? `<dt>Email</dt><dd>${esc(user.email)}</dd>` : ''}
 <dt>Role</dt><dd>${user.is_admin ? 'admin' : 'user'}</dd>
 <dt>Signed in</dt><dd>${user.oidc_sub != null ? `through single sign-on, last ${esc(when(user.last_sso_at))}` : 'with an API token'}</dd></dl>
+<h2>The command line</h2>
+<p>Install <code>html-server</code>${cli ? ' from this server' : ''} (it needs Node.js 24 or newer). It's the version this server runs.</p>
+<p class="claim-token"><input id="cli-install" readonly value="${esc(cliInstall(server, cli))}" aria-label="The install command" spellcheck="false"> <button type="button" data-copy="cli-install">Copy</button></p>
+<p>Then make a token below and run <code>html-server login</code>. After this server is upgraded, run the same command again.</p>
 <h2>API token</h2>
 <p>For the <code>html-server</code> command line, MCP and scripts. You have one at a time: a new one replaces the old,
 which stops working.${idle}</p>
 <p><button type="button" class="primary" id="account-token">Make a new token</button> <span id="account-msg" class="meta" role="status"></span></p>
 <div id="account-new" hidden>
 <p><strong>Copy it now:</strong> it won't be shown again.</p>
-<p class="claim-token"><input id="claim-token" readonly aria-label="Your new token" spellcheck="false"> <button type="button" id="claim-copy">Copy</button></p>
+<p class="claim-token"><input id="claim-token" readonly aria-label="Your new token" spellcheck="false"> <button type="button" data-copy="claim-token">Copy</button></p>
 <p>Then run <code>html-server login</code>, give it <code>${esc(server)}</code>, and paste the token.</p></div>
 ${users ? `<h2>Users</h2><table class="users"><thead><tr><th>Name</th><th>Role</th><th>SSO</th><th>Last sign-in</th></tr></thead><tbody>${rows}</tbody></table>
 <p class="meta">Change roles or delete users with the API (<code>DELETE /api/users/NAME</code>) or <code>html-server</code> on the server.</p>` : ''}
@@ -785,10 +792,13 @@ ${users ? `<h2>Users</h2><table class="users"><thead><tr><th>Name</th><th>Role</
       box.value = data.token; document.getElementById('account-new').hidden = false; box.select();
     } catch (e) { msg.textContent = e.message; } finally { go.disabled = false; }
   };
-  document.getElementById('claim-copy').onclick = async (e) => {
-    box.select();
-    try { await navigator.clipboard.writeText(box.value); e.target.textContent = 'Copied'; } catch { document.execCommand('copy'); }
-  };
+  for (const b of document.querySelectorAll('[data-copy]')) {
+    b.onclick = async () => {
+      const field = document.getElementById(b.dataset.copy);
+      field.select();
+      try { await navigator.clipboard.writeText(field.value); b.textContent = 'Copied'; } catch { document.execCommand('copy'); }
+    };
+  }
 })();</script></main>`, { frame: false });
 }
 
@@ -798,7 +808,7 @@ export function claimProblemPage(title, text) {
 }
 
 /** The token, shown this once (POST /api/claim/CODE), with how to use it. */
-export function claimedPage({ name, token, server, created = false, renamed_from: renamed = null }) {
+export function claimedPage({ name, token, server, cli = false, created = false, renamed_from: renamed = null }) {
   return shell('Your token · HTML Server', `${topBar(null, { sidebar: false })}<main class="wrap claim">
 <h1>Your token, ${esc(name)}</h1>
 ${renamed ? `<p>Your account was <strong>${esc(renamed)}</strong>; it's now <strong>${esc(name)}</strong>, your email on GitHub. Your pages came with it.</p>` : ''}
@@ -809,7 +819,7 @@ ${created ? '<p>Your account is new.</p>' : ''}
 <h2>Use it</h2>
 <ul>
 <li><strong>In this browser</strong>, for Upload, comments and the rest: <button type="button" id="claim-here">Sign in here</button> <span id="claim-done" class="meta" role="status"></span></li>
-<li><strong>The command line:</strong> run <code>html-server login</code>, give it <code>${esc(server)}</code>, and paste the token. MCP uses the same login.</li>
+<li><strong>The command line:</strong> install it with <code>${esc(cliInstall(server, cli))}</code> (Node.js 24 or newer), then run <code>html-server login</code>, give it <code>${esc(server)}</code>, and paste the token. MCP uses the same login.</li>
 <li><strong>Scripts:</strong> keep it in a secret store and send it as <code>Authorization: Bearer &lt;token&gt;</code>.</li>
 </ul>
 <script>(() => {
@@ -888,8 +898,8 @@ ${skills}
  * the MCP tools, the ROUTES table), so it can't drift. Served as is at /docs.md (for
  * agents, and for anyone who wants the source) and rendered at /docs (and /api).
  */
-export function docsMarkdown(base, routes, { tools = [] } = {}) {
-  const display = (pattern) => pattern.replace(/\(\?<(\w+)>[^)]*\)/g, '<$1>').replace(/\/\?/g, '/').replace(/\(\?:|\)\?/g, '') || '/';
+export function docsMarkdown(base, routes, { tools = [], cliHere = false } = {}) {
+  const display = (pattern) => pattern.replace(/\(\?<(\w+)>[^)]*\)/g, '<$1>').replace(/\/\?/g, '/').replace(/\(\?:|\)\?/g, '').replace(/\\(.)/g, '$1') || '/';
   const cell = (t) => t.replace(/\|/g, '\\|').replace(/\n/g, ' ');
   const rows = routes.filter((r) => r.doc).map((r) => `| ${r.method} | \`${display(r.path)}\` | ${cell(r.who)} | ${cell(r.doc)} |`).join('\n');
   const cli = usage({ backupDir: '~/.html-server/backups', homeDir: '~/.html-server' }).split('\n').slice(2).join('\n');
@@ -908,10 +918,10 @@ time; the browser keeps it for this site. It sends the same requests as \`html-s
 
 ## Command line
 
-Install it, sign in once, and publish:
+Install it (Node.js 24 or newer${cliHere && !STATIC_SITE ? '; from this server, the version it runs' : ''}), sign in once, and publish:
 
 \`\`\`sh
-npm install -g github:lawwu/html-server#v${VERSION}
+${cliInstall(base, cliHere && !STATIC_SITE)}
 html-server login --url ${base}      # asks for your token, checks it, saves it
 html-server put trip-plan.html "first draft"
 \`\`\`

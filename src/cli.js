@@ -285,6 +285,14 @@ const mcpCommands = {
   },
 };
 
+/** What the server says about installing its command line (GET /api/cli), or null: servers before 0.17 don't. */
+async function cliOn(url) {
+  try {
+    const r = await fetch(`${url}/api/cli`);
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+
 const accountCommands = {
   async login(args, opts) {
     const tty = process.stdin.isTTY;
@@ -301,6 +309,10 @@ const accountCommands = {
     saveCredentials(url, tok);
     console.log(`signed in as ${me.name}${me.is_admin ? ' (admin)' : ''} on ${url}`);
     console.log(`saved to ${CREDENTIALS_FILE} (only you can read it)`);
+    const cli = await cliOn(url);
+    if (cli?.version && cli.version !== VERSION) {
+      console.log(`this command line is ${VERSION}, the server ${cli.version}; to match it: ${cli.install}`);
+    }
   },
   async logout() {
     if (!existsSync(CREDENTIALS_FILE)) return console.log('not signed in');

@@ -8,7 +8,8 @@
 #
 # It checks: the version and Debian 13; a non-root user; the PostgreSQL driver loads;
 # on SQLite, a first start makes an admin, the health check turns healthy, a page can be
-# published, searched and survives a restart, and `docker stop` is quick; on PostgreSQL
+# published, searched and survives a restart, the CLI installs from the server itself,
+# and `docker stop` is quick; on PostgreSQL
 # (a postgres:16 container), the same server with DATABASE_URL publishes and searches.
 set -euo pipefail
 
@@ -69,6 +70,11 @@ has smoke.html "$(docker exec "$run-sqlite" html-server search trixie)" || fail 
 status=$(docker exec "$run-sqlite" node -e "fetch('http://127.0.0.1:8765/pages/smoke.html').then((r) => console.log(r.status))")
 [ "$status" = 200 ] || fail "SQLite: /pages/smoke.html answered $status"
 ok "SQLite: published, searched, served"
+
+# The command line, installed from the server itself, as people without GitHub access do.
+served=$(docker exec "$run-sqlite" sh -c 'npm install -g --prefix /tmp/cli --no-audit --no-fund --no-update-notifier --loglevel=error http://127.0.0.1:8765/api/cli/html-server.tgz >/dev/null && /tmp/cli/bin/html-server --version')
+[ "$served" = "$want" ] || fail "the CLI installed from /api/cli says $served, package.json $want"
+ok "CLI installed from the server: $served"
 
 start=$(date +%s)
 docker stop "$run-sqlite" >/dev/null

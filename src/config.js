@@ -6,6 +6,8 @@ import { join } from 'node:path';
 // The running version comes from package.json, so --version, the footer and the
 // release links can never drift from what's installed.
 export const VERSION = JSON.parse(fileText('package.json')).version;
+/** Installing this version's command line from GitHub, where a server can't offer it itself (Cloudflare). */
+export const CLI_FROM_GITHUB = `npm install -g github:lawwu/html-server#v${VERSION}`;
 export const REPO_URL = 'https://github.com/lawwu/html-server';
 export const RELEASE_URL = `${REPO_URL}/releases/tag/v${VERSION}`; // this version's release notes
 

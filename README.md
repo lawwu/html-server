@@ -50,6 +50,24 @@ npm install -g github:lawwu/html-server
 
 From a clone, `npm link` does the same.
 
+**From your own server,** with no GitHub access needed: every server offers the command line
+it runs, as an npm package (`GET /api/cli` says where), so people install it from the
+server they use:
+
+```bash
+npm install -g https://YOUR-SERVER/api/cli/html-server.tgz
+```
+
+That gets the version the server runs, and `html-server login` says when the two no
+longer match, after the server is upgraded, with the same command to catch up. npm still
+fetches the package's dependencies (`marked`, `yaml`, `openid-client`) from your npm
+registry or its mirror. The served package leaves out the optional PostgreSQL driver: a
+server on PostgreSQL installs from GitHub or runs the [Docker image](#docker). The address
+works without signing in, with [single sign-on](#single-sign-on) on too, since npm can't
+sign in and it's the same MIT code as here; the **Account** page and `/docs` show the
+command with your server's address. A server on Cloudflare can't offer it (the Worker
+has no copy of its own code to pack), and `/api/cli` gives the GitHub command instead.
+
 **On the machine that runs the server**, start it:
 
 ```bash
@@ -712,6 +730,8 @@ connects to the server, so it can stay private.
   by a later sign-in, so the provider's claims changing can't silently promote or demote
   anyone; change roles with the API. With email usernames, an account follows the
   provider's email if it changes.
+- **The command line:** **Account** shows how to install it from this server
+  (`npm install -g https://YOUR-SERVER/api/cli/html-server.tgz`), so nobody needs GitHub.
 - **API tokens:** one per person, made on **Account** (shown once; a new one replaces the
   old). An SSO user's token stops working if they haven't signed in for
   `OIDC_TOKEN_IDLE_DAYS`, so people removed from the provider lose API access too; signing in
