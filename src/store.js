@@ -755,7 +755,7 @@ export class Store {
    */
   githubClaimLink(login, { minutes = CLAIM_LINK_MINUTES, limited = false } = {}) {
     login = String(login ?? '').trim();
-    if (!GITHUB_LOGIN_RE.test(login)) throw new ApiError(400, 'a GitHub login is letters, digits and single hyphens (up to 39)');
+    if (!GITHUB_LOGIN_RE.test(login)) throw new ApiError(400, 'a GitHub login is letters and digits, with single hyphens or underscores between them (up to 39)');
     login = login.toLowerCase();
     const code = randomBytes(32).toString('base64url');
     const t = now();

@@ -8,6 +8,9 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Claim links with GitHub sign-in take Enterprise Managed Users' logins,** which have an
+  underscore before the enterprise's shortcode (`jdoe_acme`); a link for one was refused.
+  The 39-character limit on logins is now enforced, as the error said it was.
 - **Single sign-on through any OIDC provider** (Microsoft Entra ID, Okta, Google Workspace,
   Keycloak…), modelled on agile-tools'. With `OIDC_ISSUER`, `OIDC_CLIENT_ID` and
   `OIDC_CLIENT_SECRET` set, nothing is reachable without signing in: every page, share links

@@ -201,5 +201,16 @@ test('GitHub sign-in: a claims-only token never reaches an admin, even one tied 
   const [s, page] = await claimAs(l.claim_path, { login: 'the-boss', id: 42, emails: [] });
   assert.equal(s, 403);
   assert.match(page, /Your token can&#39;t be made[^]*a claims-only token can&#39;t make links for &#39;boss&#39;/);
-  assert.equal((await fetch(`${base}/api/users/not_a_login/claim`, { method: 'POST', headers: { Authorization: `Bearer ${bot}` } })).status, 400);
+  for (const bad of ['-octo', 'octo-', 'oc--to', 'oc__to', 'octo_', 'not%20a%20login', 'a'.repeat(40)]) {
+    assert.equal((await fetch(`${base}/api/users/${bad}/claim`, { method: 'POST', headers: { Authorization: `Bearer ${bot}` } })).status, 400, bad);
+  }
+});
+
+test('GitHub sign-in: Enterprise Managed Users, whose logins have an underscore (jdoe_acme)', async () => {
+  const l = await link('JDoe_Acme');
+  assert.equal(l.github_login, 'jdoe_acme');
+  const [status, page] = await claimAs(l.claim_path, { login: 'JDoe_Acme', id: 9001, emails: [] });
+  assert.equal(status, 200);
+  assert.match(page, /Your token, jdoe_acme<\/h1>/);
+  assert.equal((await link(`${'a'.repeat(34)}_acme`)).github_login.length, 39); // the longest GitHub allows
 });
