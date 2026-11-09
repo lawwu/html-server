@@ -6,9 +6,11 @@ import { fileBytes, fileText } from './files.js';
 import {
   CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
   githubSignIn,
+  sso,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
-import { VIEWS, aboutMarkdown, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
+import { SESSION_COOKIE, clearLoginCookie, clearSessionCookie, finishLogin, logoutUrl, sessionCookie, startLogin } from './sso.js';
+import { VIEWS, aboutMarkdown, accountPage, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
 import { renderMarkdown, safeDecode } from './markdown.js';
 import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
@@ -124,6 +126,10 @@ export const ROUTES = [
   ['DELETE', '/api/users/(?<name>[^/]+)', 'deleteUser', 'admin', 'Delete a user and all of their pages'],
   ['POST', '/api/users/(?<name>[^/]+)/claim', 'claimLink', 'admin, or a claims-only token',
     'A one-time link that shows the user a new token in their browser, making the user if there is none. Returns `claim_path`, `claim_url` and `expires_at`, never the token, so it can run in a CI log (README: Users and admins). A new link replaces an unused one; the old token works until the link is used. With GitHub sign-in on, NAME is a GitHub login, and only someone signed in to GitHub as it gets the token'],
+  ['GET', '/api/oidc/login', 'oidcLogin', 'anyone', 'Sign in through the OIDC provider (single sign-on, when it\'s set up); `?next=` is where to go after'],
+  ['GET', '/api/oidc/callback', 'oidcCallback', 'anyone', 'Where the OIDC provider sends the browser back after signing in'],
+  ['POST', '/api/oidc/logout', 'oidcLogout', 'anyone', 'Sign out: ends this browser\'s session, and the provider\'s too if it offers that'],
+  ['GET', '/account', 'account', 'signed in', 'Your account: make or replace your API token (for the CLI, MCP and scripts); an admin also sees the users'],
   ['GET', '/api/claim/callback', 'claimCallback', 'anyone', 'Where GitHub sends someone back after signing in for a claim link (with GitHub sign-in on)'],
   ['GET', '/api/claim/(?<code>[\\w-]+)', 'claimPage', 'anyone with the link', 'The claim link: whose token it shows, and a button that shows it'],
   ['POST', '/api/claim/(?<code>[\\w-]+)', 'claim', 'anyone with the link', 'Show the token, once: it replaces the user\'s old one, and the link stops working. With GitHub sign-in on, it first sends you to sign in to GitHub as the link\'s account'],
@@ -138,6 +144,22 @@ function routePriority(r) {
   if (r.handler === 'folder') return 3;
   if (['describe', 'put', 'review'].includes(r.handler)) return 2;
   return 0;
+}
+
+// With SSO on, what can be reached without signing in: signing in itself, health checks,
+// the files the sign-in pages need, and claim links (they carry their own proof).
+const OPEN_WITH_SSO = new Set(['oidcLogin', 'oidcCallback', 'oidcLogout', 'health', 'static', 'font', 'notFound',
+  'claimPage', 'claim', 'claimCallback']);
+
+/** Not signed in: a browser opening a page is sent to sign in, and comes back here after; anything else gets a 401. */
+function signInFirst(c, path) {
+  const h = c.req.headers;
+  const opening = (c.req.method === 'GET' || c.head) && (h['sec-fetch-dest'] === 'document' || (!h['sec-fetch-dest'] && /text\/html/.test(h.accept || '')));
+  if (opening) {
+    const next = encodeURIComponent(path + c.url.search);
+    return c.send(302, 'text/plain; charset=utf-8', '', { Location: `/api/oidc/login?next=${next}`, 'Cache-Control': 'no-store' });
+  }
+  throw new ApiError(401, 'sign in, or send a bearer token');
 }
 
 const CLAIM_HEADERS = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
@@ -271,7 +293,12 @@ class Ctx {
   }
 
   json(status, obj) { this.send(status, 'application/json', JSON.stringify(obj, null, 2) + '\n'); }
-  html(body) { this.send(200, 'text/html; charset=utf-8', body); }
+  /** A page of the site's own. Signed in through SSO, its <body> says as whom, for its scripts (the top bar, Upload, comments). */
+  html(body) {
+    const u = this.sessionUser();
+    if (u) body = body.replace('<body ', `<body data-sso-user="${u.name.replace(/[&"<>]/g, (ch) => `&#${ch.charCodeAt(0)};`)}" `);
+    this.send(200, 'text/html; charset=utf-8', body);
+  }
   text(body) { this.send(200, 'text/plain; charset=utf-8', body); }
 
   /** An artifact (or anything showing its content): sandboxed so its scripts can't reach the API. */
@@ -344,7 +371,8 @@ class Ctx {
       asset: (name) => {
         const a = this.store.asset(name);
         if (!a || !this.store.canReadAsset(a, viewer, { via: page?.share_id })) return null;
-        const url = `/assets/${encodeURIComponent(a.name)}${page && page.visibility !== 'public' ? `?from=${encodeURIComponent(page.share_id)}` : ''}`;
+        // With SSO a note's own requests carry no sign-in (it's sandboxed), so its files go by the page's link too.
+        const url = `/assets/${encodeURIComponent(a.name)}${page && (page.visibility !== 'public' || sso()) ? `?from=${encodeURIComponent(page.share_id)}` : ''}`;
         const small = inline && a.mime.startsWith('image/') && a.size <= MAX_INLINE_BYTES;
         return { mime: a.mime, url, src: small ? `data:${a.mime};base64,${Buffer.from(a.data).toString('base64')}` : url };
       },
@@ -485,19 +513,56 @@ class Ctx {
     return data;
   }
 
-  /** The token's user. A claims-only token works only where `claims` says it may (making claim links, /api/me). */
+  /**
+   * Who's asking: the bearer token's user, or a browser signed in through SSO. A claims-only
+   * token works only where `claims` says it may (making claim links, /api/me). With SSO, the
+   * token of someone who signs in through it stops working after OIDC_TOKEN_IDLE_DAYS
+   * without signing in, so people the provider has removed lose API access too.
+   */
   user({ admin = false, claims = false } = {}) {
     const auth = this.req.headers.authorization || '';
-    if (!auth.startsWith('Bearer ')) throw new ApiError(401, 'missing bearer token');
-    const u = this.store.userForToken(auth.slice(7).trim());
-    if (!u) throw new ApiError(401, 'bad token');
+    let u;
+    if (auth.startsWith('Bearer ')) {
+      u = this.store.userForToken(auth.slice(7).trim());
+      if (!u) throw new ApiError(401, 'bad token');
+      const s = sso();
+      if (s?.tokenIdleDays && u.oidc_sub != null && (u.last_sso_at ?? 0) < Date.now() / 1000 - s.tokenIdleDays * 86400) {
+        throw new ApiError(401, `this token stopped working: its owner hasn't signed in for ${s.tokenIdleDays} days. Sign in at ${this.origin()}/account and it works again`);
+      }
+    } else {
+      u = this.sessionUser();
+      if (!u) throw new ApiError(401, sso() ? 'sign in, or send a bearer token' : 'missing bearer token');
+    }
     if (u.claims_only && !claims) throw new ApiError(403, 'this token can only make claim links');
     if (admin && !u.is_admin) throw new ApiError(403, 'admin only');
     return u;
   }
 
-  /** Reads are open: no token means anonymous; a bad token is still an error. */
-  viewerId() { return this.req.headers.authorization ? this.user().id : null; }
+  /** Reads are open: no token means anonymous (or, with SSO, the signed-in browser); a bad token is still an error. */
+  viewerId() { return this.req.headers.authorization ? this.user().id : this.sessionUser()?.id ?? null; }
+
+  /**
+   * The browser's signed-in user (SSO), or null. Its cookie counts for this site's own pages
+   * and for opening an address (a link, a bookmark), never for a request an uploaded page
+   * makes: pages are sandboxed with an opaque origin, so theirs arrive cross-site, or with
+   * Origin: null, and get nothing of the viewer's. A change (anything but GET) also has to
+   * come from this site's pages (its Origin), so another site can't make one (CSRF).
+   */
+  sessionUser() {
+    if (this.session !== undefined) return this.session;
+    this.session = null;
+    if (!sso()) return null;
+    const h = this.req.headers;
+    const id = (h.cookie || '').match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([\\w-]+)`))?.[1];
+    if (!id || h.origin === 'null') return null;
+    const read = this.req.method === 'GET' || this.req.method === 'HEAD';
+    const site = h['sec-fetch-site'];
+    const opening = read && h['sec-fetch-mode'] === 'navigate' && h['sec-fetch-dest'] === 'document';
+    if (site && site !== 'same-origin' && site !== 'none' && !opening) return null;
+    if (!read && h.origin !== this.origin()) return null;
+    this.session = this.store.sessionUser(id);
+    return this.session;
+  }
   /** Who's viewing, for the view count; null for HEAD (link checkers and uptime monitors aren't views). */
   visit() { return this.head ? null : [this.req.socket.remoteAddress, this.req.headers['user-agent'] || '']; }
 }
@@ -741,6 +806,45 @@ const handlers = {
     }
     c.send(200, 'text/html; charset=utf-8', claimedPage({ ...shown, server: c.origin() }), CLAIM_HEADERS);
   },
+  // --- single sign-on ---
+  async oidcLogin(c) {
+    if (!sso()) throw new ApiError(404, "single sign-on isn't set up on this server");
+    const { url, cookie } = await startLogin(c.origin(), c.query.get('next'));
+    c.send(302, 'text/plain; charset=utf-8', '', { Location: url, 'Set-Cookie': cookie, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+  },
+  async oidcCallback(c) {
+    const s = sso();
+    if (!s) throw new ApiError(404, "single sign-on isn't set up on this server");
+    const secure = c.origin().startsWith('https:');
+    const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Set-Cookie': clearLoginCookie(secure) };
+    const problem = (status, title, text) => c.send(status, 'text/html; charset=utf-8', claimProblemPage(title, text), headers);
+    if (c.query.get('error')) return problem(403, "Signing in didn't finish", `The sign-in service said: ${c.query.get('error_description') || c.query.get('error')}.`);
+    let who;
+    try { who = await finishLogin(c.origin(), `${c.origin()}${c.url.pathname}${c.url.search}`, c.req.headers.cookie); } catch (e) {
+      if (e.status === 400) return problem(400, "This sign-in didn't start in this browser", 'Open the page you wanted again, and sign in from there.');
+      console.error('sign-in:', e.message);
+      return problem(502, "Couldn't finish signing in", 'Try again. If it keeps happening, tell an admin.');
+    }
+    let u;
+    try { u = c.store.ssoSignIn(who); } catch (e) {
+      if ([400, 403, 409].includes(e.status)) return problem(e.status, "You can't sign in yet", `${e.message}.`);
+      throw e;
+    }
+    const id = c.store.createSession(u.id, s.sessionHours);
+    c.send(302, 'text/plain; charset=utf-8', '', { ...headers, Location: who.next, 'Set-Cookie': [sessionCookie(id, s.sessionHours, secure), clearLoginCookie(secure)] });
+  },
+  async oidcLogout(c) {
+    const secure = c.origin().startsWith('https:');
+    c.store.endSession((c.req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([\\w-]+)`))?.[1]);
+    c.send(303, 'text/plain; charset=utf-8', '', { Location: sso() ? await logoutUrl(c.origin()) : '/', 'Set-Cookie': clearSessionCookie(secure), 'Cache-Control': 'no-store' });
+  },
+  account(c) {
+    const s = sso();
+    if (!s) return c.html(accountPage({ sso: null }));
+    const u = c.user();
+    c.html(accountPage({ user: u, sso: s, server: c.origin(), users: u.is_admin ? c.store.listUsers() : null }));
+  },
+
   /** Back from GitHub: who signed in, checked against the link, then the token, once. */
   async claimCallback(c) {
     const headers = { ...CLAIM_HEADERS, 'Set-Cookie': `${CLAIM_COOKIE}=; Path=/api/claim; Max-Age=0; HttpOnly; SameSite=Lax` };
@@ -859,7 +963,12 @@ export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) 
       for (const r of ROUTES) {
         // HEAD is answered like GET (link checkers, uptime monitors, curl -I), without the body.
         const m = r.method === (c.head ? 'GET' : req.method) && r.re.exec(path);
-        if (m) { c.route = r; return await handlers[r.handler](c, m.groups || {}); }
+        if (m) {
+          c.route = r;
+          if (sso() && !OPEN_WITH_SSO.has(r.handler) && !c.req.headers.authorization && !c.sessionUser()
+            && !(r.handler === 'assetFile' && c.query.get('from'))) return signInFirst(c, path); // a file by a page's link (?from=) is checked by it
+          return await handlers[r.handler](c, m.groups || {});
+        }
       }
       throw new ApiError(404, 'no route');
     } catch (e) {

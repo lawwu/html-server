@@ -23,7 +23,7 @@ async function api(path, opts = {}) {
 }
 
 async function whoami() {
-  if (!token) { $('who').textContent = 'Reading as a guest.'; return; }
+  if (!token && !document.body.dataset.ssoUser) { $('who').textContent = 'Reading as a guest.'; return; } // SSO: the cookie signs in
   try {
     const me = await api('/api/me');
     $('who').textContent = `Signed in as ${me.name}`; // Sign out is in the top bar
