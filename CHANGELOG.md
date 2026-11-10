@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.17.1 (2026-11-09)
+
 Fixes from a review of the whole app. Upgrade before turning single sign-on on for everyone.
 
 - **Security: a page's category could run script on the graph page.** `/graph` drew each
