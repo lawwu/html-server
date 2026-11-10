@@ -84,6 +84,29 @@ export function setSso(env = {}) {
   } : null;
 }
 export const sso = () => SSO;
+
+// The address people use to reach this server, when a proxy in front of it changes what the
+// server sees (it rewrites Host, or terminates TLS without saying so): HTML_SERVER_PUBLIC_URL,
+// e.g. https://pages.company.com. Links the server writes (claim links, install commands,
+// the docs) and its check that a signed-in browser's changes come from its own pages use it.
+// Unset, the server goes by the Host header and X-Forwarded-Proto, and with single sign-on,
+// by OIDC_REDIRECT_URI's address when that's set. Never X-Forwarded-Host: anyone can send it,
+// and a cache in front could keep a page written for an address of their choosing.
+let PUBLIC_ORIGIN = null;
+export function setPublicUrl(env = {}) {
+  const v = String(env.HTML_SERVER_PUBLIC_URL ?? '').trim();
+  if (!v) { PUBLIC_ORIGIN = null; return; }
+  let u;
+  try { u = new URL(v); } catch { throw new Error('HTML_SERVER_PUBLIC_URL must be an address like https://pages.company.com'); }
+  if (!/^https?:$/.test(u.protocol)) throw new Error('HTML_SERVER_PUBLIC_URL must start with https:// or http://');
+  PUBLIC_ORIGIN = u.origin;
+}
+/** The configured public address's origin ("https://pages.company.com"), or null. */
+export function publicOrigin() {
+  if (PUBLIC_ORIGIN) return PUBLIC_ORIGIN;
+  if (SSO?.redirectUri) { try { return new URL(SSO.redirectUri).origin; } catch { /* not an address: ignored */ } }
+  return null;
+}
 // A GitHub login, up to 39 characters: letters and digits, with single hyphens between them;
 // Enterprise Managed Users' logins also have an underscore before the enterprise's shortcode
 // (`jdoe_acme`), so single underscores too.

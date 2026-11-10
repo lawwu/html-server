@@ -99,6 +99,45 @@ test('a failed connection is closed before its error goes on', async () => {
   assert.equal(ended, 1);
 });
 
+test('a lost connection: the next query connects again; a read that found it gone runs again, a write does not', async () => {
+  const clients = [];
+  class Flaky { // a connection that can drop, as a database restart or an idle timeout drops one
+    constructor() {
+      this.n = clients.push(this);
+      this.down = false;
+      this.pq = { transactionStatus: () => (this.down ? 4 : 0), cmdTuples: () => '0', resultErrorFields: () => ({}) };
+    }
+    connectSync() { if (Flaky.refuse) throw new Error('connection refused'); }
+    querySync(sql) {
+      if (this.down) throw new Error('server closed the connection unexpectedly');
+      return /to_regprocedure/.test(sql) ? [{ x: true }] : [{ client: this.n }];
+    }
+    end(cb) { setImmediate(cb); }
+  }
+  const log = console.error;
+  console.error = () => {};
+  try {
+    const db = PostgresDatabase.open('postgres://db.example/x', { Client: Flaky, types: { getTypeParser: () => String } });
+    clients[0].down = true;
+    assert.equal(db.raw('SELECT 1 AS x')[0].client, 2); // a read: run again, on a new connection
+    clients[1].down = true;
+    assert.throws(() => db.raw('UPDATE t SET x = 1'), /server closed/); // a write may have been done: not run twice
+    assert.equal(db.raw('UPDATE t SET x = 1')[0].client, 3); // the next query connects again
+    assert.throws(() => db.transaction(() => { clients[2].down = true; return db.raw('SELECT 1'); }), /server closed/); // in a transaction: never again
+    assert.equal(db.raw('SELECT 2')[0].client, 4);
+    // The database is still down: connecting again fails, and the query after tries again.
+    Flaky.refuse = true;
+    clients[3].down = true;
+    assert.throws(() => db.raw('SELECT 3'), /connection refused/);
+    assert.throws(() => db.raw('SELECT 4'), /connection refused/);
+    Flaky.refuse = false;
+    assert.equal(db.raw('SELECT 5')[0].client, 7);
+    await db.close();
+  } finally {
+    console.error = log;
+  }
+});
+
 // --- against a real PostgreSQL -----------------------------------------------------------
 let dir, db, store;
 before(async () => {
@@ -156,4 +195,20 @@ test('a closed connection says so, and closing twice is fine', { skip: live }, a
   await other.close();
   await other.close();
   assert.throws(() => other.raw('SELECT 1'), /connection is closed/);
+});
+
+test('the database ends this connection: the next query connects again', { skip: live }, async () => {
+  const mine = PostgresDatabase.open(TEST_DATABASE_URL), killer = PostgresDatabase.open(TEST_DATABASE_URL);
+  const log = console.error;
+  console.error = () => {};
+  try {
+    const pid = mine.raw('SELECT pg_backend_pid() AS pid')[0].pid;
+    killer.raw('SELECT pg_terminate_backend($1)', [pid]); // as a restart or a failover would
+    assert.deepEqual(mine.raw('SELECT 1 AS x'), [{ x: 1 }]); // was: every query failed until the server restarted
+    assert.notEqual(mine.raw('SELECT pg_backend_pid() AS pid')[0].pid, pid);
+  } finally {
+    console.error = log;
+    await mine.close();
+    await killer.close();
+  }
 });

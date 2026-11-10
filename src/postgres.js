@@ -236,8 +236,25 @@ const SETUP = [
 // The advisory lock SETUP runs under: any number, the same for every html-server ("html" in ASCII).
 const SETUP_LOCK = 0x68746d6c;
 
-/** Native clients being closed, kept from the garbage collector until libuv is done with them (see close). */
+/** Native clients being closed, kept from the garbage collector until libuv is done with them (see release). */
 const CLOSING = new Set();
+/** PQtransactionStatus's answer when the connection itself is gone (PQTRANS_UNKNOWN). */
+const CONNECTION_LOST = 4;
+
+/**
+ * Let go of a native client; a promise, settled once its handle is done with. libpq's addon
+ * closes its socket watcher with libuv's asynchronous uv_close but lets go of the object at
+ * once: if the garbage collector freed it before libuv's close phase ran, libuv would write
+ * to freed memory and the process would crash. So a closing client is held (CLOSING) until
+ * two turns of the event loop have passed, after that phase.
+ */
+function release(client) {
+  CLOSING.add(client);
+  return new Promise((resolve) => {
+    const released = () => setImmediate(() => setImmediate(() => { CLOSING.delete(client); resolve(); }));
+    try { client.end(released); } catch { released(); }
+  });
+}
 
 export class PostgresDatabase {
   /**
@@ -251,12 +268,9 @@ export class PostgresDatabase {
       const require = createRequire(createRequire(import.meta.url).resolve('pg-native'));
       types ??= require('pg-types');
     }
-    const client = new Client({ types: typeParsers(types) });
-    const db = new PostgresDatabase(client);
+    const db = new PostgresDatabase({ url, Client, types });
+    db.connect();
     try {
-      client.connectSync(connectionString(url));
-      // Notices ("already exists, skipping") are for people at a psql prompt, not a server's log.
-      db.raw(`SET client_min_messages = warning; SET statement_timeout = '${STATEMENT_TIMEOUT}'; SET lock_timeout = '${LOCK_TIMEOUT}'`);
       // One connection at a time: two starting together (two servers, or test files in
       // parallel) would both find the function missing and both create it, and the second
       // fails on a duplicate. The lock is the database's, held only for these two statements.
@@ -270,38 +284,81 @@ export class PostgresDatabase {
       }
     } catch (e) {
       db.close().catch(() => {});
-      throw cleanError(e, client);
+      throw e;
     }
     return db;
   }
 
-  constructor(client) {
-    this.client = client;
+  constructor({ url, Client, types }) {
+    Object.assign(this, { url, Client, types });
+    this.client = null;
+    this.closed = false;
     this.depth = 0; // open transactions: 0, or 1 + the savepoints inside
-    this.tz = null;
-    this.tzEnv = Symbol('unset');
     this.search = postgresSearch;
     this.backend = 'postgres';
   }
 
-  /** Untranslated SQL, PostgreSQL's own: rows. */
-  raw(sql, values) {
-    if (!this.client) throw new Error('the PostgreSQL connection is closed');
-    this.syncTimeZone();
+  /**
+   * A new connection, with this server's session settings. Throws, with nothing left open,
+   * if the database can't be reached.
+   */
+  connect() {
+    const client = new this.Client({ types: typeParsers(this.types) });
     try {
-      return values ? this.client.querySync(sql, values.map(param)) : this.client.querySync(sql);
+      client.connectSync(connectionString(this.url));
+      // Notices ("already exists, skipping") are for people at a psql prompt, not a server's log.
+      client.querySync(`SET client_min_messages = warning; SET statement_timeout = '${STATEMENT_TIMEOUT}'; SET lock_timeout = '${LOCK_TIMEOUT}'`);
     } catch (e) {
-      throw cleanError(e, this.client);
+      release(client).catch(() => {});
+      throw cleanError(e, client);
     }
+    this.client = client;
+    this.tz = null; // a new session: its time zone is set again before its first query
+    this.tzEnv = Symbol('unset');
+  }
+
+  /**
+   * Untranslated SQL, PostgreSQL's own: rows. When the connection is gone (the database
+   * restarted, failed over, or something on the way dropped an idle connection), the next
+   * query outside a transaction connects again. The query that found it gone is run again
+   * on the new connection if it only reads; anything else fails, since it may have been done.
+   */
+  raw(sql, values) {
+    if (this.closed) throw new Error('the PostgreSQL connection is closed');
+    if (!this.client) {
+      if (this.depth) throw new Error('the PostgreSQL connection was lost during a transaction');
+      this.connect();
+    }
+    try {
+      return this.query(sql, values);
+    } catch (e) {
+      if (!this.lost()) throw cleanError(e, this.client);
+      const err = cleanError(e, this.client);
+      release(this.client).catch(() => {});
+      this.client = null;
+      if (this.depth || !/^\s*SELECT\b/i.test(sql)) throw err;
+      console.error(`PostgreSQL: the connection was lost (${err.message}); connecting again`);
+      this.connect();
+      try { return this.query(sql, values); } catch (again) { throw cleanError(again, this.client); }
+    }
+  }
+
+  query(sql, values) {
+    this.syncTimeZone();
+    return values ? this.client.querySync(sql, values.map(param)) : this.client.querySync(sql);
+  }
+
+  /** Is the connection itself gone (rather than this one query failing)? */
+  lost() {
+    try { return this.client.pq.transactionStatus() === CONNECTION_LOST; } catch { return false; }
   }
 
   /** Keep the session's TimeZone the same as Node's, so local days agree with JavaScript's. */
   syncTimeZone() {
     if (this.tzEnv === process.env.TZ) return;
-    this.tzEnv = process.env.TZ;
     const tz = nodeTimeZone();
-    if (tz === this.tz) return;
-    this.client.querySync(`SET TIME ZONE '${tz.replace(/'/g, "''")}'`);
+    if (tz !== this.tz) this.client.querySync(`SET TIME ZONE '${tz.replace(/'/g, "''")}'`);
+    this.tzEnv = process.env.TZ;
     this.tz = tz;
   }
 
@@ -335,27 +392,18 @@ export class PostgresDatabase {
       return out;
     } catch (e) {
       this.depth--;
-      if (this.client) this.raw(sp ? `ROLLBACK TO SAVEPOINT ${sp}` : 'ROLLBACK');
+      // A lost connection has rolled back already (the database does that), and says so in e.
+      if (this.client && !this.closed) this.raw(sp ? `ROLLBACK TO SAVEPOINT ${sp}` : 'ROLLBACK');
       throw e;
     }
   }
 
-  /**
-   * Close the connection; a promise, settled once the native handle is done with. libpq's
-   * addon closes its socket watcher with libuv's asynchronous uv_close but lets go of the
-   * object at once: if the garbage collector freed it before libuv's close phase ran, libuv
-   * would write to freed memory and the process would crash. So a closing client is held
-   * (CLOSING) until two turns of the event loop have passed, after that phase.
-   */
+  /** Close the connection; a promise, settled once the native handle is done with (see release). */
   close() {
     const client = this.client;
     this.client = null;
-    if (!client) return Promise.resolve();
-    CLOSING.add(client);
-    return new Promise((resolve) => {
-      const released = () => setImmediate(() => setImmediate(() => { CLOSING.delete(client); resolve(); }));
-      try { client.end(released); } catch { released(); }
-    });
+    this.closed = true;
+    return client ? release(client) : Promise.resolve();
   }
 }
 

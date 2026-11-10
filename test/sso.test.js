@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
-import { setSso } from '../src/config.js';
+import { setPublicUrl, setSso } from '../src/config.js';
 import { makeServer } from '../src/server.js';
 import { forgetProvider } from '../src/sso.js';
 import { fakeProvider } from './fake-oidc.js';
@@ -223,4 +223,77 @@ test('SSO off: nothing changes', async () => {
   assert.equal((await get('/', PAGE)).status, 200);
   assert.match(await (await get('/account', PAGE)).text(), /Single sign-on isn&#39;t set up on this server|Single sign-on isn't set up on this server/);
   assert.equal((await get('/api/oidc/login', PAGE)).status, 404);
+});
+
+test('SSO: a made-up token gets nowhere; a real one still does, and a claims-only one only where it may', async () => {
+  store.putVersion(store.userForToken(admin).id, 'plan.html', Buffer.from('<title>Plan</title><p>budget</p>'));
+  const share = store.exact('plan.html', store.userForToken(admin).id).share_id;
+  const made = { Authorization: 'Bearer not-a-token' };
+  for (const path of ['/?fragment=1&q=budget', `/v/${share}`, '/api/search?q=budget', '/graph', '/docs']) {
+    assert.equal((await get(path, made)).status, 401, path); // was: any Authorization header skipped the sign-in
+    assert.equal((await get(path, { Authorization: 'Basic eDp5' })).status, 401, path);
+  }
+  const listed = await get('/?fragment=1&q=budget', { Authorization: `Bearer ${admin}` });
+  assert.equal(listed.status, 200);
+  assert.match(await listed.text(), /plan\.html/);
+  const ci = store.createUser('ci', false, { claimsOnly: true });
+  assert.equal((await get('/?fragment=1', { Authorization: `Bearer ${ci}` })).status, 403); // it makes claim links, and reads nothing
+  assert.equal((await get('/api/me', { Authorization: `Bearer ${ci}` })).status, 200);
+});
+
+test("SSO: a page's files by its link (?from=): only through that page's share link when not signed in", async () => {
+  const owner = store.userForToken(admin).id;
+  store.putAsset(owner, 'chart.png', Buffer.from('png'));
+  store.putVersion(owner, 'pics.html', Buffer.from('<title>Pics</title><img src="/assets/chart.png"> <img src="https://cdn.example/assets/chart.png"> <img src="/assets/chart.png?w=2">'));
+  const share = store.exact('pics.html', owner).share_id;
+  assert.equal((await get('/assets/chart.png')).status, 401); // not signed in
+  assert.equal((await get('/assets/chart.png?from=1')).status, 404); // was 200: any ?from= let a public page's files out
+  assert.equal((await get(`/assets/chart.png?from=${share}`)).status, 200);
+  // The page itself carries that link, since its own requests go without the session.
+  const { session } = await signIn({ sub: 'u-1', email: 'ann@example.com' });
+  const page = await (await get('/pages/pics.html?raw=1', { ...OWN, cookie: session })).text();
+  assert.ok(page.includes(`<img src="/assets/chart.png?from=${share}">`), page);
+  assert.ok(page.includes('<img src="https://cdn.example/assets/chart.png">')); // another site's address: never the share id
+  assert.ok(page.includes('<img src="/assets/chart.png?w=2">')); // a query of its own: left alone
+  // Signed in, a public page's file needs no link.
+  assert.equal((await get('/assets/chart.png', { ...OWN, cookie: session })).status, 200);
+});
+
+test('SSO: an email the provider says is unverified never makes an admin', async () => {
+  await signIn({ sub: 'impostor', email: 'boss@example.com', email_verified: false, preferred_username: 'boss' });
+  const u = store.listUsers().find((x) => x.sso);
+  assert.equal(u.is_admin, false);
+  await signIn({ sub: 'boss', email: 'boss@example.com', email_verified: true });
+  assert.equal(store.listUsers().filter((x) => x.sso && x.is_admin).length, 1);
+});
+
+test("SSO: back after signing in to a page whose name isn't ASCII", async () => {
+  const path = `/pages/${encodeURIComponent('日本語メモ.md')}`;
+  const { landed, session } = await signIn({ sub: 'u-1', email: 'ann@example.com' }, path); // was a 500: Location can't hold 日本語
+  assert.equal(landed, path);
+  assert.ok(session);
+  // However the address came (a hand-made ?next= with the name decoded), it goes back encoded.
+  const login = await get(`/api/oidc/login?next=${encodeURIComponent('/pages/日本語メモ.md')}`, PAGE);
+  idp.st.next = { sub: 'u-1', email: 'ann@example.com' };
+  const back = await fetch(login.headers.get('location'), { redirect: 'manual' });
+  const done = await get(back.headers.get('location'), { ...PAGE, cookie: cookieOf(login, 'html_server_oidc') });
+  assert.equal(done.status, 302);
+  assert.equal(done.headers.get('location'), path);
+});
+
+test('SSO: behind a proxy, HTML_SERVER_PUBLIC_URL is this site: its pages make changes, and its links use it', async () => {
+  const { session } = await signIn({ sub: 'u-1', email: 'ann@example.com' });
+  setPublicUrl({ HTML_SERVER_PUBLIC_URL: 'https://pages.example/ignored/path' });
+  try {
+    const change = (origin) => post('/api/me/token', { ...OWN, Origin: origin, cookie: session });
+    assert.equal((await change('https://pages.example')).status, 200); // the browser's Origin: the public address
+    assert.equal((await change(base)).status, 200); // and the address this request came to
+    assert.equal((await change('https://evil.example')).status, 401);
+    assert.equal((await (await get('/api/cli', { cookie: session, ...OWN })).json()).tarball, 'https://pages.example/api/cli/html-server.tgz');
+  } finally {
+    setPublicUrl({});
+  }
+  assert.throws(() => setPublicUrl({ HTML_SERVER_PUBLIC_URL: 'pages.example' }), /must be an address like/);
+  assert.throws(() => setPublicUrl({ HTML_SERVER_PUBLIC_URL: 'ftp://pages.example' }), /must start with https:/);
+  setPublicUrl({});
 });

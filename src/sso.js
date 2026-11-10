@@ -78,7 +78,9 @@ export async function finishLogin(origin, callbackUrl, cookieHeader) {
   if (!issuer || !sub) throw Object.assign(new Error("the provider didn't say who signed in"), { status: 502 });
   const email = typeof claims.email === 'string' ? claims.email : null;
   const values = (v) => (Array.isArray(v) ? v : v == null ? [] : [v]).map(String);
-  const admin = (email && s.adminEmails.includes(email.toLowerCase()))
+  // An email the provider says isn't verified (email_verified: false) never makes an admin:
+  // on some providers people choose their own. Entra sends no such claim; prefer a role there.
+  const admin = (email && claims.email_verified !== false && s.adminEmails.includes(email.toLowerCase()))
     || (s.adminClaim && values(claims[s.adminClaim]).some((v) => s.adminClaimValues.includes(v)));
   return {
     issuer, sub, email, emailVerified: claims.email_verified, admin: !!admin, next: started.next,

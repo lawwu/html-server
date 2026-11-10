@@ -801,7 +801,7 @@ export class Store {
       const id = Number(gh.id);
       if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError(502, "GitHub didn't say who you are");
       const want = this.usernames === 'email' ? this.githubEmail(gh.emails) : this.normalizeUsername(row.login);
-      const cols = 'SELECT id, name, is_admin, claims_only, github_id FROM users';
+      const cols = 'SELECT id, name, is_admin, claims_only, github_id, oidc_sub FROM users';
       let u = this.one(`${cols} WHERE github_id = ?`, id);
       let created = false, renamed = null;
       if (u) {
@@ -814,6 +814,9 @@ export class Store {
         u = this.one(`${cols} WHERE name = ?`, want);
         if (u?.github_id != null) throw new ApiError(409, `${want} belongs to another GitHub account; ask an admin`);
         if (u && (u.is_admin || u.claims_only)) throw new ApiError(409, `${want} is an ${u.is_admin ? 'admin' : 'claims-only'} account, which a claim link can't take over`);
+        // Someone who signs in through single sign-on has an account of that name: that's who it
+        // is, whoever owns the same name on GitHub. They make their token on Account instead.
+        if (u?.oidc_sub != null) throw new ApiError(409, `${want} signs in with single sign-on; sign in there and make your token on the Account page`);
         if (u) this.run('UPDATE users SET github_id = ? WHERE id = ?', id, u.id);
         else {
           this.createUser(want, false, { githubId: id });
@@ -1585,10 +1588,11 @@ export class Store {
    * or whose share link they hold (`via`, its share id). A page only vouches for its own
    * owner's files, so naming someone else's file in your page doesn't publish it.
    */
-  canReadAsset(x, viewerId, { via } = {}) {
+  canReadAsset(x, viewerId, { via, publicPages = true } = {}) {
     if (viewerId != null && x.owner_id === viewerId) return true;
+    // `publicPages: false` (single sign-on, nobody signed in): only the page whose share id is `via`.
     return !!this.one("SELECT 1 AS ok FROM asset_grants r JOIN artifacts a ON a.id = r.artifact_id WHERE r.name = ? AND a.owner_id = ?"
-      + " AND a.state = 'active' AND (a.visibility = 'public' OR a.share_id = ?) LIMIT 1", x.name, x.owner_id, via ?? '');
+      + ` AND a.state = 'active' AND (${publicPages ? "a.visibility = 'public' OR " : ''}a.share_id = ?) LIMIT 1`, x.name, x.owner_id, via ?? '');
   }
 
   /** The assets this user uploaded, or every one for an admin. */

@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { parse as parseYaml } from 'yaml';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
-import { VERSION, githubSignIn, setGitHubSignIn, setSso, sso } from './config.js';
+import { VERSION, githubSignIn, publicOrigin, setGitHubSignIn, setPublicUrl, setSso, sso } from './config.js';
 import { encodePath, pageUrl } from './paths.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
@@ -130,6 +130,8 @@ const serverCommands = {
     if (githubSignIn()) console.error('claim links: GitHub sign-in (GITHUB_CLIENT_ID is set)');
     setSso(process.env);
     if (sso()) console.error(`single sign-on: ${sso().issuer} (every page and API call needs a sign-in or a token)`);
+    try { setPublicUrl(process.env); } catch (e) { fail(e.message); }
+    if (publicOrigin()) console.error(`public address: ${publicOrigin()}`);
     const { makeServer } = await import('./server.js');
     makeServer(store, { sandboxAllow }).listen(Number(opts.port), opts.host, () =>
       console.error(`html-server ${VERSION} on http://${opts.host}:${opts.port}  (db: ${where})`));

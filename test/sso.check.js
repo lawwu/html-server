@@ -41,6 +41,7 @@ before(async () => {
   const owner = store.userForToken(author).id;
   store.putVersion(owner, 'hostile.html', Buffer.from(HOSTILE.replaceAll('ORIGIN', base)));
   store.putVersion(owner, 'secret.md', Buffer.from('# Secret'), { visibility: 'private' });
+  store.putVersion(owner, 'discuss.md', Buffer.from('# Discuss\n\nSomething to talk about.'));
   browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } : {}) });
 });
 after(async () => {
@@ -107,6 +108,33 @@ test('SSO in Chromium: sign in, upload without a token, and an uploaded page get
   const [logout] = await Promise.all([page.waitForRequest((r) => r.url().startsWith(`${idp.issuer}/logout`)), page.getByRole('button', { name: 'Sign out' }).last().click()]);
   assert.equal(new URL(logout.url()).searchParams.get('post_logout_redirect_uri'), `${base}/`);
   assert.equal(store.sessionUser(signedIn), null);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('SSO in Chromium: a token saved before single sign-on never gets in the way, and commenting needs only the session', async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  page.setDefaultTimeout(8000);
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  // A token this browser kept from before (the claim page's "Sign in here"), replaced since.
+  await page.goto(`${base}/healthz`);
+  await page.evaluate(() => localStorage.setItem('artifact_token', 'ak_replaced-long-ago'));
+  idp.st.next = { sub: 'c-1', email: 'carol@example.com', email_verified: true };
+  await page.goto(`${base}/review/discuss.md`);
+  await page.waitForURL(`${base}/review/discuss.md`);
+  await page.locator('#who', { hasText: 'Signed in as carol' }).waitFor(); // was "Saved token was rejected."
+  assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), null); // forgotten: the session is the sign-in
+  // Commenting, replying and resolving with no token at all.
+  await page.locator('#body').fill('Looks good to me');
+  await page.locator('#new button').click(); // was "Sign in to comment."
+  const comment = page.locator('#list .c', { hasText: 'Looks good to me' });
+  await comment.waitFor();
+  assert.equal(await comment.getByRole('button', { name: 'Reply' }).isVisible(), true);
+  await comment.getByRole('button', { name: 'Resolve' }).click();
+  await page.locator('#list .c.done', { hasText: 'Looks good to me' }).waitFor();
+  assert.equal(store.one("SELECT COUNT(*) AS n FROM comments c JOIN users u ON u.id = c.author_id WHERE u.name = 'carol' AND c.resolved_at IS NOT NULL").n, 1);
   assert.deepEqual(errors, []);
   await context.close();
 });

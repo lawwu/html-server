@@ -214,3 +214,24 @@ test('GitHub sign-in: Enterprise Managed Users, whose logins have an underscore 
   assert.match(page, /Your token, jdoe_acme<\/h1>/);
   assert.equal((await link(`${'a'.repeat(34)}_acme`)).github_login.length, 39); // the longest GitHub allows
 });
+
+test("GitHub sign-in: never takes over an account that signs in with single sign-on", async () => {
+  store.createUser('alee');
+  store.run("UPDATE users SET oidc_issuer = 'https://idp.example', oidc_sub = 'ann-1' WHERE name = 'alee'"); // Ann, through SSO
+  const before = store.one("SELECT token_hash FROM users WHERE name = 'alee'").token_hash;
+  const l = await link('alee');
+  const [status, page] = await claimAs(l.claim_path, { login: 'alee', id: 4242, emails: [] }); // someone else called alee on GitHub
+  assert.equal(status, 409);
+  assert.match(page, /alee signs in with single sign-on; sign in there and make your token on the Account page/);
+  assert.equal(tokenIn(page), undefined);
+  const u = store.one("SELECT token_hash, github_id FROM users WHERE name = 'alee'");
+  assert.deepEqual([u.token_hash, u.github_id], [before, null]); // untouched
+});
+
+test('GitHub sign-in: the token page says to install the command line from this server', async () => {
+  const l = await link('octo-cat');
+  const [status, page] = await claimAs(l.claim_path, OCTO);
+  assert.equal(status, 200);
+  assert.ok(page.includes(`npm install -g ${base}/api/cli/html-server.tgz`), page); // was the GitHub command
+  assert.doesNotMatch(page, /github:lawwu\/html-server/);
+});

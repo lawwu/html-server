@@ -66,5 +66,6 @@ Use a running server:
 
 Data lives in ${homeDir} (HTML_SERVER_HOME moves it), or in PostgreSQL when
 DATABASE_URL is set to a postgres:// URI (server commands only; see the README).
+Behind a proxy that changes the address serve sees, HTML_SERVER_PUBLIC_URL gives it.
 Client commands use the server and token saved by login (or by the first serve on
 this machine). HTML_SERVER_URL and HTML_SERVER_TOKEN override them for one shell.${server ? `\nCurrently: ${server}` : ''}`;

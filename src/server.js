@@ -6,6 +6,7 @@ import { fileBytes, fileText } from './files.js';
 import {
   CLI_FROM_GITHUB, CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
   githubSignIn,
+  publicOrigin,
   sso,
 } from './config.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
@@ -13,7 +14,7 @@ import { cliPackage } from './package.js';
 import { SESSION_COOKIE, clearLoginCookie, clearSessionCookie, finishLogin, logoutUrl, sessionCookie, startLogin } from './sso.js';
 import { VIEWS, aboutMarkdown, accountPage, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
-import { renderMarkdown, safeDecode } from './markdown.js';
+import { ASSET_RE, renderMarkdown, safeDecode } from './markdown.js';
 import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
 import { isNote, isNotebook, parseNotebook, renderNotebook } from './notebook.js';
 import { Store, pageMeta, summary } from './store.js';
@@ -142,8 +143,10 @@ export const ROUTES = [
 ].map(([method, path, handler, who, doc]) => ({ method, path, handler, who, doc, re: new RegExp(`^${path}$`, 'u'), label: routeLabel(path) }))
   .sort((a, b) => routePriority(a) - routePriority(b));
 
-/** A page's address for a Location header, which is ASCII: a name in any script, encoded. */
-const pageLocation = (slug) => pageUrl(slug).replace(/[^\x00-\x7f]+/gu, encodeURIComponent);
+/** An address for a Location header, which is ASCII: anything else in it, percent-encoded. */
+const asciiLocation = (path) => path.replace(/[^\x00-\x7f]+/gu, encodeURIComponent);
+/** A page's address for a Location header. */
+const pageLocation = (slug) => asciiLocation(pageUrl(slug));
 
 function routePriority(r) {
   if (r.handler === 'render') return 4;
@@ -152,13 +155,20 @@ function routePriority(r) {
   return 0;
 }
 
+// Handlers a claims-only token may call (see Ctx.user's `claims`).
+const CLAIMS_OK = new Set(['me', 'rotateOwnToken', 'claimLink']);
+
 // With SSO on, what can be reached without signing in: signing in itself, health checks,
 // the files the sign-in pages need, claim links (they carry their own proof), and the
 // command line's package (the same MIT code as on GitHub; npm can't sign in to fetch it).
 const OPEN_WITH_SSO = new Set(['oidcLogin', 'oidcCallback', 'oidcLogout', 'health', 'static', 'font', 'notFound',
   'claimPage', 'claim', 'claimCallback', 'cliInfo', 'cliLatest', 'cliTarball']);
 
-/** Not signed in: a browser opening a page is sent to sign in, and comes back here after; anything else gets a 401. */
+/**
+ * Not signed in: a browser opening a page is sent to sign in, and comes back here after;
+ * anything else gets a 401. `path` as the browser sent it, still percent-encoded, so the
+ * address it comes back to can go in a Location header.
+ */
 function signInFirst(c, path) {
   const h = c.req.headers;
   const opening = (c.req.method === 'GET' || c.head) && (h['sec-fetch-dest'] === 'document' || (!h['sec-fetch-dest'] && /text\/html/.test(h.accept || '')));
@@ -248,6 +258,24 @@ export function withEmbedSizing(doc) {
 export function withBase(doc, href) {
   const html = doc.toString('utf8');
   return /<base\b/i.test(html) ? null : Buffer.from(inHead(html, `<base href="${href}">`));
+}
+
+/**
+ * With single sign-on, a page's own requests carry no sign-in (it's sandboxed, so the browser
+ * sends no cookie with them): its links to this server's files (/assets/NAME) go by the page's
+ * share link (?from=), as a note's do, which is what lets them load. Only addresses on this
+ * server, so a share id never goes to another site; one that has a query of its own is left.
+ */
+export function withAssetLinks(doc, shareId) {
+  const html = doc.toString('utf8');
+  const from = `from=${encodeURIComponent(shareId)}`;
+  let changed = false;
+  const out = html.replace(/(?<=["'(\s=,])\/assets\/[^"'\s?#)<>,]+/g, (m, at, all) => {
+    if (all[at + m.length] === '?' || !ASSET_RE.test(safeDecode(m))) return m;
+    changed = true;
+    return `${m}?${from}`;
+  });
+  return changed ? Buffer.from(out) : doc;
 }
 
 /** Keep links to a place on the page (#section) on the page: public/in-page-links.js. */
@@ -455,6 +483,7 @@ class Ctx {
         const doc = withBase(body, `/pages/${encodePath(written)}${n < latest ? `?v=${n}` : ''}`);
         if (doc) { body = doc; based = true; }
       }
+      if (sso()) body = withAssetLinks(body, page.share_id);
     }
     if (this.preview()) return body;
     // In the site's frame the title bar shows the version, and a floating contents box
@@ -466,6 +495,9 @@ class Ctx {
     if (n < latest) doc = withVersionBadge(doc, { n, latest, ...links });
     return doc;
   }
+
+  /** The page that shows a claimed token, once, with how to use it here. */
+  claimed(shown) { return claimedPage({ ...shown, server: this.origin(), cli: !!cliPackage() }); }
 
   /** The docs page's Markdown: CLI, MCP and API (pages.js docsMarkdown). */
   docs() { return docsMarkdown(this.origin(), ROUTES, { tools: MCP_TOOLS, cliHere: !!cliPackage() }); }
@@ -488,9 +520,15 @@ class Ctx {
     return w;
   }
 
-  /** This server as the client reached it, for examples in the docs. */
-  /** This server as the client reached it: behind a proxy that terminates TLS, the scheme it says it used. */
-  origin() {
+  /**
+   * This server's address as people reach it: HTML_SERVER_PUBLIC_URL (or OIDC_REDIRECT_URI's)
+   * when set; else as this request reached it, behind a proxy that terminates TLS with the
+   * scheme it says it used.
+   */
+  origin() { return publicOrigin() ?? this.requestOrigin(); }
+
+  /** This server as this request reached it: behind a proxy that terminates TLS, the scheme it says it used. */
+  requestOrigin() {
     const proto = String(this.req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
     return `${proto === 'https' ? 'https' : 'http'}://${this.req.headers.host || 'localhost'}`;
   }
@@ -566,12 +604,23 @@ class Ctx {
     const site = h['sec-fetch-site'];
     const opening = read && h['sec-fetch-mode'] === 'navigate' && h['sec-fetch-dest'] === 'document';
     if (site && site !== 'same-origin' && site !== 'none' && !opening) return null;
-    if (!read && h.origin !== this.origin()) return null;
+    // Its public address, or the one this request came to (an admin on the machine itself).
+    if (!read && h.origin !== this.origin() && h.origin !== this.requestOrigin()) return null;
     this.session = this.store.sessionUser(id);
     return this.session;
   }
-  /** Who's viewing, for the view count; null for HEAD (link checkers and uptime monitors aren't views). */
-  visit() { return this.head ? null : [this.req.socket.remoteAddress, this.req.headers['user-agent'] || '']; }
+  /**
+   * Who's viewing, for the view count; null for HEAD (link checkers and uptime monitors aren't
+   * views). Behind a reverse proxy every request comes from the proxy, so the client's own
+   * address is the first in X-Forwarded-For when there is one. Only ever hashed into a daily
+   * visitor id: someone setting it themselves can only count as more visitors, as they could
+   * by changing their user agent.
+   */
+  visit() {
+    if (this.head) return null;
+    const forwarded = String(this.req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    return [forwarded || this.req.socket.remoteAddress, this.req.headers['user-agent'] || ''];
+  }
 }
 
 const handlers = {
@@ -711,8 +760,11 @@ const handlers = {
   categories(c) { c.json(200, c.store.categories(c.viewerId())); },
   assetFile(c, { slug }) {
     const a = c.store.asset(slug);
-    // A private note's file links carry its share id (?from=), like its share link.
-    if (!a || !c.store.canReadAsset(a, c.viewerId(), { via: c.query.get('from') })) throw new ApiError(404, 'no such asset');
+    // A private note's file links carry its share id (?from=), like its share link. With SSO,
+    // someone not signed in gets a file only through the page whose share id that is: a
+    // public page's files are for signed-in people, like the page.
+    const signedIn = !sso() || !!c.req.headers.authorization || !!c.sessionUser();
+    if (!a || !c.store.canReadAsset(a, c.viewerId(), { via: c.query.get('from'), publicPages: signedIn })) throw new ApiError(404, 'no such asset');
     // SVG can carry script: serve it (and everything) sandboxed and unsniffed. Private: who may have it depends on who asks.
     c.send(200, a.mime, Buffer.from(a.data), { 'Content-Security-Policy': c.csp, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-cache' });
   },
@@ -833,7 +885,7 @@ const handlers = {
       if (e.status !== 410) throw e;
       return c.send(410, 'text/html; charset=utf-8', claimPage(null), CLAIM_HEADERS);
     }
-    c.send(200, 'text/html; charset=utf-8', claimedPage({ ...shown, server: c.origin(), cli: !!cliPackage() }), CLAIM_HEADERS);
+    c.send(200, 'text/html; charset=utf-8', c.claimed(shown), CLAIM_HEADERS);
   },
   // --- single sign-on ---
   async oidcLogin(c) {
@@ -860,7 +912,7 @@ const handlers = {
       throw e;
     }
     const id = c.store.createSession(u.id, s.sessionHours);
-    c.send(302, 'text/plain; charset=utf-8', '', { ...headers, Location: who.next, 'Set-Cookie': [sessionCookie(id, s.sessionHours, secure), clearLoginCookie(secure)] });
+    c.send(302, 'text/plain; charset=utf-8', '', { ...headers, Location: asciiLocation(who.next), 'Set-Cookie': [sessionCookie(id, s.sessionHours, secure), clearLoginCookie(secure)] });
   },
   async oidcLogout(c) {
     const secure = c.origin().startsWith('https:');
@@ -899,7 +951,7 @@ const handlers = {
       }
       throw e;
     }
-    c.send(200, 'text/html; charset=utf-8', claimedPage({ ...shown, server: c.origin() }), headers);
+    c.send(200, 'text/html; charset=utf-8', c.claimed(shown), headers);
   },
   deleteUser(c, { name }) {
     if (name.toLowerCase() === c.user({ admin: true }).name) throw new ApiError(400, 'refusing to delete yourself');
@@ -994,8 +1046,13 @@ export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) 
         const m = r.method === (c.head ? 'GET' : req.method) && r.re.exec(path);
         if (m) {
           c.route = r;
-          if (sso() && !OPEN_WITH_SSO.has(r.handler) && !c.req.headers.authorization && !c.sessionUser()
-            && !(r.handler === 'assetFile' && c.query.get('from'))) return signInFirst(c, path); // a file by a page's link (?from=) is checked by it
+          // With SSO, a request needs a sign-in: a token that works (checked here, so a made-up
+          // header gets nowhere) or the browser's session. A file by a page's link (?from=) is
+          // checked by assetFile: only against that page's share link, never as "public".
+          if (sso() && !OPEN_WITH_SSO.has(r.handler) && !(r.handler === 'assetFile' && c.query.get('from'))) {
+            if (c.req.headers.authorization) c.user({ claims: CLAIMS_OK.has(r.handler) });
+            else if (!c.sessionUser()) return signInFirst(c, c.url.pathname);
+          }
           return await handlers[r.handler](c, m.groups || {});
         }
       }
@@ -1005,11 +1062,22 @@ export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) 
       if (!res.headersSent) c.json(e.status || 500, { error: e.status ? e.message : 'internal error' });
     } finally {
       // Health checks come every few seconds: neither logged nor counted as API use.
-      // Never log tokens or query strings, nor a claim link's code (it's as good as a token until used).
-      if (c.route?.handler !== 'health') console.error(`${req.method} ${c.route?.handler?.startsWith('claim') && c.route.handler !== 'claimLink' ? '/api/claim/…' : url.pathname}`);
+      if (c.route?.handler !== 'health') console.error(`${req.method} ${logPath(c, url)}`);
       if (url.pathname.startsWith('/api/') && !['docsSource', 'health'].includes(c.route?.handler)) recordApiCall(store, req, c);
     }
   }
+}
+
+/**
+ * A request's path as the log shows it. Never a token or a query string, nor anything in the
+ * path that works like a password: a claim link's code (a token until it's used) or a share
+ * link's id (it opens a private page).
+ */
+function logPath(c, url) {
+  const h = c.route?.handler;
+  if (h === 'renderShare') return '/v/…';
+  if (h?.startsWith('claim') && h !== 'claimLink' && h !== 'claimCallback') return '/api/claim/…';
+  return url.pathname;
 }
 
 /** "/api/artifacts/(?<slug>…)" → "/api/artifacts/<slug>": how a route shows in the docs and the usage stats. */

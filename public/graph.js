@@ -277,9 +277,20 @@ function start() {
   // Legend: categories; click to light up a category's pages.
   const legend = document.getElementById('legend');
   const hasOther = pages.some((n) => !cats.includes(n.category));
-  legend.innerHTML = [...cats, ...(hasOther ? ['*other'] : [])]
-    .map((c) => `<button type="button" data-cat="${c}"><i style="background:${color(c)}"></i>${c === '*other' ? 'Other' : data.labels[c]}</button>`).join('')
-    + (tagNodes.length ? '<span class="legend-note"><i class="ring"></i>tag</span>' : '');
+  // Built as elements: a category is whatever a page's <meta name="category"> says, so never markup.
+  legend.replaceChildren(...[...cats, ...(hasOther ? ['*other'] : [])].map((c) => {
+    const b = Object.assign(document.createElement('button'), { type: 'button' });
+    b.dataset.cat = c;
+    const swatch = document.createElement('i');
+    swatch.style.background = color(c);
+    b.append(swatch, c === '*other' ? 'Other' : String(data.labels[c] ?? c));
+    return b;
+  }));
+  if (tagNodes.length) {
+    const note = Object.assign(document.createElement('span'), { className: 'legend-note' });
+    note.append(Object.assign(document.createElement('i'), { className: 'ring' }), 'tag');
+    legend.append(note);
+  }
   legend.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
