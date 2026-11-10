@@ -8,6 +8,46 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+Fixes from a review of the whole app. Upgrade before turning single sign-on on for everyone.
+
+- **Security: a page's category could run script on the graph page.** `/graph` drew each
+  page's category (an HTML page's `<meta name="category">`, as written) into its legend as
+  markup, so a page could run script as whoever opened the graph, with their saved token or
+  their session. It's text now.
+- **Security, single sign-on: a made-up token got past the sign-in.** Any `Authorization`
+  header skipped it, and some pages (the home page's cards and search, share links) don't
+  check a token themselves. A token is now checked before anything else, and a claims-only
+  token goes only where it may.
+- **Security, single sign-on: a public page's files without signing in.** `/assets/NAME?from=`
+  with any value at all gave out any file a public page shows. Not signed in, a file now
+  comes only through the page whose share link `from` is.
+- **Security, single sign-on: an unverified email made an admin.** `OIDC_ADMIN_EMAILS` now
+  counts an email only if the provider doesn't say it's unverified (`email_verified: false`).
+- **Security: a GitHub claim link could take over an account that signs in with single
+  sign-on** of the same name (a GitHub account called `alee` and Ann, `alee` through SSO). It's
+  refused: they make their token on Account.
+- **Security: share links' ids were in the server's log.** Logged as `/v/…` now, as claim
+  links' codes already were.
+- **Single sign-on: commenting in the browser works with the session alone.** The review
+  page still asked for a pasted token. A token saved in the browser from before is also
+  forgotten once signed in, so a replaced one no longer makes every change fail.
+- **Single sign-on: an HTML page's images** (`/assets/NAME`) load, by its share link as a
+  note's do; they were refused, since a sandboxed page's requests carry no sign-in.
+- **Single sign-on: back to a page whose name isn't ASCII** after signing in, rather than an
+  internal error.
+- **Behind a reverse proxy:** `HTML_SERVER_PUBLIC_URL` gives the server its public address
+  when the proxy changes what it sees, which signed-in browsers' changes were refused over
+  (README: Behind a reverse proxy). Page views count each client by `X-Forwarded-For`, where
+  everyone behind a proxy counted as one visitor a day.
+- **PostgreSQL: a dropped connection is opened again** (a database restart, a failover, an
+  idle connection closed on the way); every query failed until the server was restarted.
+  A read that found it gone runs again; a change fails once.
+- **The token page after GitHub sign-in** gives this server's install command, as the
+  other claim page does, not GitHub's.
+- **Copy HTML** says it couldn't load the page, rather than copying an error as the page.
+- **Dark mode: tags and the "current" badge** are easier to read (the accent is a little
+  lighter, for 4.5:1 contrast on their tint).
+
 ## 0.17.0 (2026-11-09)
 
 - **Install the command line from your own server:** `npm install -g https://YOUR-SERVER/api/cli/html-server.tgz`

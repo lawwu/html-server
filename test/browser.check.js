@@ -23,6 +23,8 @@ before(async () => {
   put('private.md', '# Private\n\nPrivate content', { visibility: 'private' });
   put('no-gesture.html', '<title>No gesture</title><script>setTimeout(() => parent.postMessage({htmlServer: "go", href: location.origin + "/docs"}, "*"), 50)</script><p>No gesture</p>');
   put('links.html', '<title>Links</title><a id="local" href="/pages/beta.md">Beta</a>');
+  // A category is whatever a page's <meta name="category"> says: here, markup that would run if drawn as markup.
+  put('odd-category.html', '<title>Odd category</title><meta name="category" content="<img src=x onerror=window.pwned=1 "><p>odd</p>');
   put('hostile.html', `<title>&lt;img src=x onerror=window.pwned=1&gt;</title><script>window.probe={};try{probe.token=localStorage.getItem('artifact_token')}catch(e){probe.storage=e.name}try{probe.parent=parent.document.title}catch(e){probe.parent=e.name}</script><p>Hostile</p>`);
   put('hostile.md', '# Hostile note\n<script>try{window.leaked=localStorage.getItem("artifact_token")}catch(e){window.blocked=e.name}</script>');
   put('hostile.ipynb', JSON.stringify({ nbformat: 4, cells: [{ cell_type: 'code', source: ['1'], outputs: [{ output_type: 'display_data', data: { 'text/html': '<script>try{window.leaked=localStorage.getItem("artifact_token")}catch(e){window.blocked=e.name}</script>' } }] }] }));
@@ -345,3 +347,20 @@ for (const colorScheme of ['light', 'dark']) {
     assert.deepEqual(result.violations.map((v) => ({ id: v.id, targets: v.nodes.map((n) => n.target) })), [], 'upload dialog');
   });
 }
+
+test("the graph draws a page's category as text, never as markup", async () => {
+  await page.goto(base + '/graph');
+  const legend = page.locator('#legend button', { hasText: '<img src=x' });
+  await legend.waitFor(); // the category, shown as the text it is
+  await page.waitForTimeout(200); // an <img> with a broken src would have fired its onerror by now
+  assert.equal(await page.evaluate(() => !!window.pwned), false);
+  assert.equal(await page.locator('#legend img').count(), 0);
+});
+
+test("Copy HTML never copies an error as if it were the page", async () => {
+  await page.goto(base + '/pages/links.html');
+  await page.route('**/api/artifacts/links.html/versions/*', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"sign in, or send a bearer token"}' }));
+  const button = page.locator('.copy-source');
+  await button.click();
+  await button.getByText('Couldn’t load it').waitFor(); // was "Copied", with the error on the clipboard
+});

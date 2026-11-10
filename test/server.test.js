@@ -2005,3 +2005,25 @@ test('claims-only users: a token that can make claim links and nothing else', as
   const plain = store.createUser('plain');
   assert.equal((await req('POST', '/api/users/someone/claim', { token: plain }))[0], 403);
 });
+
+test('views behind a reverse proxy: each client counted by its address in X-Forwarded-For', async () => {
+  await put('busy.html', '<title>Busy</title><p>busy</p>');
+  // Everyone comes from the proxy (127.0.0.1 here), with the same browser.
+  for (const ip of ['203.0.113.1', '203.0.113.2', '203.0.113.2']) {
+    await fetch(`${base}/pages/busy.html`, { headers: { 'User-Agent': BROWSER, 'X-Forwarded-For': `${ip}, 10.0.0.1` } });
+  }
+  await fetch(`${base}/pages/busy.html`, { headers: { 'User-Agent': BROWSER } }); // no proxy: the socket's address
+  const [, v] = await req('GET', '/api/artifacts/busy.html/views', { token: admin });
+  assert.deepEqual([v.views, v.visitor_days], [4, 3]); // was [4, 1]: one visitor a day for everyone
+});
+
+test("the server's log never shows a share link's id", async () => {
+  const [, a] = await put('secret.html', '<title>Secret</title><p>shh</p>', admin, '?visibility=private');
+  const id = a.share_url.split('/').pop();
+  const lines = [];
+  const log = console.error;
+  console.error = (...x) => lines.push(x.join(' '));
+  try { assert.equal((await req('GET', a.share_url))[0], 200); } finally { console.error = log; }
+  assert.ok(lines.includes('GET /v/…'), lines.join('\n'));
+  assert.ok(!lines.some((l) => l.includes(id)), lines.join('\n'));
+});

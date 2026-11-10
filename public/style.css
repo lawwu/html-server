@@ -26,11 +26,11 @@
 /* Dark: the system's choice unless the viewer picked one with the sun/moon switch. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) { --bg: #161618; --fg: #ebebec; --text: #d4d4d4; --mute: #a0a0a0; --line: #393639; --card: #1e1e21;
-    --accent: #7b97aa; --accent-soft: rgba(143, 159, 169, .15); --mark: #b3aa0288; color-scheme: dark;
+    --accent: #86a2b5; --accent-soft: rgba(143, 159, 169, .15); --mark: #b3aa0288; color-scheme: dark;
     --tok-keyword: #ff7b72; --tok-string: #a5d6ff; --tok-number: #79c0ff; --tok-comment: #8b949e; --tok-builtin: #d2a8ff; --tok-decorator: #ffa657; }
 }
 :root[data-theme="dark"] { --bg: #161618; --fg: #ebebec; --text: #d4d4d4; --mute: #a0a0a0; --line: #393639; --card: #1e1e21;
-  --accent: #7b97aa; --accent-soft: rgba(143, 159, 169, .15); --mark: #b3aa0288; color-scheme: dark;
+  --accent: #86a2b5; --accent-soft: rgba(143, 159, 169, .15); --mark: #b3aa0288; color-scheme: dark;
     --tok-keyword: #ff7b72; --tok-string: #a5d6ff; --tok-number: #79c0ff; --tok-comment: #8b949e; --tok-builtin: #d2a8ff; --tok-decorator: #ffa657; }
 * { box-sizing: border-box; }
 html { scrollbar-gutter: stable; } /* a page short enough to have no scrollbar sits where a long one does */

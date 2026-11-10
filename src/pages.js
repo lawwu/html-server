@@ -45,13 +45,16 @@ if(localStorage.getItem('sidebar')==='hidden')r.dataset.sidebar='hidden'}catch{}
 // page can read the saved token. A sandboxed note can't (its storage throws), so there it
 // stays hidden. The name is fetched once per token and kept beside it, so pages don't each
 // call /api/me. Sign out forgets both. The token itself lives with the forms that ask for
-// it (gallery, upload, review).
+// it (gallery, upload, review). Signed in through single sign-on, the session is the sign-in:
+// a token saved in this browser before is forgotten, so a stale one can't stand in its way
+// (a token always wins over the session, and the site's scripts send any they find).
 const SESSION_LINE = '<span class="session" data-session hidden><span class="sr-only" data-session-as></span><span data-session-who>Signed in</span> · '
   + '<a href="/account" data-session-account hidden>Account</a><span data-session-account hidden> · </span><button type="button" class="link-btn" data-sign-out>Sign out</button></span>';
 const SESSION_SCRIPT = `document.addEventListener('click',(e)=>{if(!e.target.closest('[data-sign-out]'))return;
 try{localStorage.removeItem('artifact_token');localStorage.removeItem('artifact_user')}catch{}
 if(document.body.dataset.ssoUser){const f=document.createElement('form');f.method='post';f.action='/api/oidc/logout';document.body.append(f);f.submit();return}
 location.reload()});
+if(document.body.dataset.ssoUser){try{localStorage.removeItem('artifact_token');localStorage.removeItem('artifact_user')}catch{}}
 document.querySelectorAll('[data-session]').forEach((p)=>{const sso=document.body.dataset.ssoUser;
 if(sso){p.hidden=false;p.querySelector('[data-session-as]').textContent='Signed in as ';const w=p.querySelector('[data-session-who]');w.textContent=sso;w.title='Signed in as '+sso;
 p.querySelectorAll('[data-session-account]').forEach((a)=>{a.hidden=false});return}

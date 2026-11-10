@@ -12,6 +12,8 @@ const kb = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
 
 let token = '';
 try { token = localStorage.getItem('artifact_token') || ''; } catch { /* storage blocked: guest */ }
+const SSO = !!document.body.dataset.ssoUser; // signed in through single sign-on: the session cookie is the sign-in
+const signedIn = () => !!token || SSO;
 let meta, cur, showingDiff = false, diffAsked = '';
 
 async function api(path, opts = {}) {
@@ -116,7 +118,7 @@ async function load(n) {
 function card(c, replies = []) {
   const acts = `<div class="acts">${c.parent ? '' : `<button data-reply=${c.id}>Reply</button><button data-resolve=${c.id} data-undo=${c.resolved_at ? 1 : 0}>${c.resolved_at ? 'Reopen' : 'Resolve'}</button>`}<button data-del=${c.id}>Delete</button></div>`;
   return `<div class="${c.parent ? 'r' : 'c'}${c.resolved_at ? ' done' : ''}"><div class="meta">${esc(c.author)} · ${when(c.created_at)}${c.resolved_at ? ' · resolved' : ''}</div>
-    <div class="b">${esc(c.body)}</div>${token ? acts : ''}${replies.map((r) => card(r)).join('')}
+    <div class="b">${esc(c.body)}</div>${signedIn() ? acts : ''}${replies.map((r) => card(r)).join('')}
     ${c.parent ? '' : `<form data-replyform=${c.id} hidden><textarea placeholder="Reply"></textarea><button>Reply</button></form>`}</div>`;
 }
 
@@ -170,7 +172,7 @@ $('save').onclick = () => {
 $('new').onsubmit = (e) => {
   e.preventDefault();
   act(async () => {
-    if (!token) throw new Error('Sign in to comment.');
+    if (!signedIn()) throw new Error('Sign in to comment.');
     await api(`/api/artifacts/${S}/comments`, { method: 'POST', body: JSON.stringify({ body: $('body').value, version: cur }) });
     $('body').value = '';
   });

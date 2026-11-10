@@ -18,7 +18,12 @@ document.addEventListener('click', async (e) => {
   let text;
   try {
     const held = b.dataset.copySource && document.getElementById(b.dataset.copySource);
-    text = held ? JSON.parse(held.textContent) : await (await fetch(b.dataset.src)).text();
+    if (held) text = JSON.parse(held.textContent);
+    else {
+      const r = await fetch(b.dataset.src);
+      if (!r.ok) throw new Error(r.statusText); // signed out, or the page has gone: never its error, as if it were the page
+      text = await r.text();
+    }
   } catch { return flash(b, 'Couldn’t load it'); }
   try {
     await navigator.clipboard.writeText(text);

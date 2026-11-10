@@ -38,6 +38,7 @@ itself (see [The docs site](#the-docs-site)).
 - [Deploy to Cloudflare](#deploy-to-cloudflare)
 - [PostgreSQL](#postgresql)
 - [Backups and updating](#backups-and-updating)
+- [Behind a reverse proxy](#behind-a-reverse-proxy)
 - [Replacing an existing page service](#replacing-an-existing-page-service)
 - [HTTP API](#http-api)
 - [Design notes](#design-notes) · [The sandbox](#the-sandbox) · [Files](#files) · [The docs site](#the-docs-site) · [Versioning](#versioning) · [License](#license)
@@ -681,7 +682,7 @@ server:
 | --- | --- |
 | `OIDC_ISSUER` | The provider's issuer URL (Entra: `https://login.microsoftonline.com/<tenant-id>/v2.0`) |
 | `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | The app's ID and secret |
-| `OIDC_ADMIN_EMAILS` | Optional: who becomes an admin on first sign-in, e.g. `you@company.com` |
+| `OIDC_ADMIN_EMAILS` | Optional: who becomes an admin on first sign-in, e.g. `you@company.com`. Never by an email the provider says is unverified (`email_verified: false`); where people choose their own email, use a role instead |
 | `OIDC_ADMIN_CLAIM`, `OIDC_ADMIN_CLAIM_VALUES` | Optional: the same from a role or group the provider sends, e.g. `roles` and `HtmlServer.Admin` |
 | `OIDC_REDIRECT_URI` | Optional: the callback, if the server can't tell its own address behind a proxy |
 | `OIDC_POST_LOGOUT_REDIRECT_URI` | Optional: where signing out ends up (default: the server's `/`) |
@@ -740,12 +741,25 @@ connects to the server, so it can stay private.
 - **Uploaded pages can't act as the viewer.** They're sandboxed, so their requests come from an
   opaque origin: the server ignores the session cookie on any request from another origin
   (except opening a page from a link), and on any change that doesn't come from this site's
-  own pages. A note's images go by the page's link (`?from=`), since its own requests carry
-  no sign-in. The browser tests check this with a hostile page.
+  own pages. A page's own files go by its share link (`?from=<share id>`, which the server
+  adds to a note's images and to an HTML page's `/assets/` links), since its own requests
+  carry no sign-in; not signed in, a file comes only through the page whose link that is.
+  The browser tests check this with a hostile page.
+- **A token has to work.** A request with an `Authorization` header is let in only if its
+  token is good (and a claims-only token only where it may go), never for having the header.
 - **Signing out** (**Sign out** in the top bar, or on Account) ends the session, and the
   provider's too where it offers that (`end_session_endpoint`).
-- **Still open without signing in:** `/healthz`, the site's own stylesheets and fonts, and
-  [claim links](#tokens-from-a-github-workflow), which carry their own proof.
+- **Still open without signing in:** `/healthz`, the site's own stylesheets and fonts,
+  [claim links](#tokens-from-a-github-workflow), which carry their own proof, and the
+  command line's package (`/api/cli`).
+- **Behind a proxy** that changes the address the server sees (it rewrites `Host`, or
+  terminates TLS without sending `X-Forwarded-Proto`), set `HTML_SERVER_PUBLIC_URL` (see
+  [Behind a reverse proxy](#behind-a-reverse-proxy)); `OIDC_REDIRECT_URI`'s address counts as
+  the public one when that's set instead. Otherwise a signed-in browser's changes look as if
+  they came from another site, and are refused.
+- **Signed in, the browser needs no token:** a token saved in it from before (the claim
+  page's **Sign in here**) is forgotten, so it can't stand in for the session once it's been
+  replaced.
 
 ## Docker
 
@@ -780,6 +794,8 @@ docker run -d --name html-server --restart unless-stopped \
 - **Time zone.** Stats count days in the container's time zone, UTC unless you add
   `-e TZ=America/Los_Angeles`.
 - **Health.** The image checks `/healthz` itself, so `docker ps` shows `healthy`.
+- **Behind a reverse proxy** (an ingress, a load balancer): see
+  [Behind a reverse proxy](#behind-a-reverse-proxy).
 - **Updating:** back up, pull the new tag, and start a new container on the same volume;
   the database upgrades in place on startup:
   ```bash
@@ -893,6 +909,10 @@ html-server create-user alice --admin --save   # PostgreSQL starts with no users
   are one page name on PostgreSQL and two on SQLite. Finding pages, moves (each move in a
   batch is checked again as it lands), old addresses and backlinks all follow the
   database's rule.
+- **A dropped connection** (the database restarted or failed over, or something between
+  them closed an idle connection) is opened again by the next query. The query that found
+  it gone is run again if it only reads; a change fails once (it may have been made), and
+  so does anything in a transaction, which the database rolls back.
 - **Limits of this first version:** queries run synchronously, as with SQLite, so each
   one holds up the server while it travels to the database and back; that's fine for one
   person or a team, not for heavy traffic. Run **one** server process per database: it
@@ -936,6 +956,25 @@ again. On [PostgreSQL](#postgresql), back up with `pg_dump` instead.
 
 To roll back, reinstall the previous tag and restart. Older versions ignore columns they
 don't know about. Restore the backup only if the data itself went wrong.
+
+## Behind a reverse proxy
+
+Most deployments sit behind something that terminates HTTPS: nginx, Caddy, a cloud load
+balancer, a Kubernetes ingress. The server works out its own address from each request's
+`Host` header and `X-Forwarded-Proto`, which is right when the proxy passes both on. When it
+doesn't (it sends its own backend host name, or drops the scheme), tell the server its
+public address:
+
+```bash
+HTML_SERVER_PUBLIC_URL=https://pages.company.com html-server serve --host 127.0.0.1
+```
+
+It's used for the addresses the server writes (claim links, the install command on
+**Account** and `/docs`, sign-in and sign-out) and, with single sign-on, to recognize the
+site's own pages when a signed-in browser makes a change. Only its scheme, host and port
+count. `X-Forwarded-Host` is never used: anyone can send it, and a cache in front could keep
+a page written for an address of their choosing. Page views count each client by the first
+address in `X-Forwarded-For`.
 
 ## Replacing an existing page service
 
@@ -1063,7 +1102,9 @@ the old capability.
   or its share link (for a framed page, when the frame loads it). The API, crawlers,
   link-preview bots, `curl` and gallery previews don't count. A visitor is a hash of a
   server secret, the day, the IP address and the browser, so one person counts once per
-  day and no IP address or browser string is stored.
+  day and no IP address or browser string is stored. Behind a reverse proxy the address is
+  the first in `X-Forwarded-For`, since every request comes from the proxy itself (someone
+  who sets it can only count as more visitors, as by changing their browser string).
 - **One resolver for names, worked out on writes.** URLs, wikilinks, Markdown links,
   backlinks and the graph all rank the pages a name may mean the same way: the exact name,
   then with `.html`, `.md` or `.ipynb`, the same ignoring case, a note's bare file name
