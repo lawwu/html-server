@@ -5,6 +5,8 @@
 # installs, and the github-pages environment only deploys from the default branch until
 # told otherwise (a release's run is on its tag). Needs Settings → Pages → Source: GitHub
 # Actions; until then the run stops at configure-pages and nothing is published.
+# The build (npm ci, the tests, the site) only reads the repository; publishing to Pages
+# (pages: write, and the id-token that proves the run is this repo's) is the deploy job's.
 name: pages
 on:
   push:
@@ -12,8 +14,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  pages: write
-  id-token: write
 # One deploy at a time; a newer push waits for the one in progress rather than cancelling it.
 concurrency:
   group: pages
@@ -22,24 +22,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: lts/*
           cache: npm
       - run: npm ci
       - run: npm test
       - run: npm run site
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@v5.0.0
         with:
           path: _site
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/configure-pages@v6.0.0
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v5.0.1

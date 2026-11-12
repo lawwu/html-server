@@ -1,0 +1,47 @@
+# The workflows themselves, on every pull request and push to main.
+#
+# Actions lock: every action the workflows use runs at the commit recorded for it in
+# .github/workflows/actions.lock, written by GitHub's gh-actions-lock. The workflows name
+# exact versions (actions/checkout@v7.0.1) and the lock file holds their commits, so a tag
+# moved to other code later (a hijacked release) can't change what runs. The job fails
+# when a workflow uses an action the lock file doesn't have, or a locked commit no longer
+# matches upstream. After changing a workflow, relock: `gh actions-lock` (installed with
+# `gh extension install github/gh-actions-lock`). Dependabot updates the lock file with
+# each action it bumps (.github/dependabot.yml).
+#
+# zizmor: a security linter for workflows (template injection, broad permissions,
+# credentials left on disk, dangerous triggers…), including the audits that ask GitHub
+# (actions with known vulnerabilities, impostor commits). Findings fail the job and show
+# on the pull request. Locally: `uvx zizmor .github/`.
+name: actions
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  lockfile:
+    name: Actions lock
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: gh extension install github/gh-actions-lock --pin v0.4.1
+      - run: gh actions-lock --verify
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@v0.8.1
+        with:
+          version: 1.32.0 # the first that reads actions.lock
+          advanced-security: false # findings fail the job, as annotations on the pull request
+          annotations: true

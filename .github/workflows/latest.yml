@@ -20,9 +20,10 @@ jobs:
   latest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # every tag
+          persist-credentials: true # zizmor: ignore[artipacked] the step below pushes the tag with them
       - name: Point latest at the newest release
         run: |
           newest=$(git tag -l 'v*' --sort=-v:refname | grep -m1 -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)

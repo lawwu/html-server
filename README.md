@@ -1243,6 +1243,22 @@ server and stop them afterward. `PLAYWRIGHT_EXECUTABLE_PATH` optionally selects 
 Chromium executable. Example metadata and bytes are a single process snapshot; restart a
 development server after editing the bundled gallery.
 
+**The workflows** (`.github/workflows/`) name exact action versions, and
+`.github/workflows/actions.lock` records each one's commit, so a release tag moved to other
+code later can't change what runs. After changing a workflow, relock with GitHub's
+[gh-actions-lock](https://github.com/github/gh-actions-lock) and check it with
+[zizmor](https://docs.zizmor.sh), as CI does (`.github/workflows/actions.yml`):
+
+```bash
+gh extension install github/gh-actions-lock   # once
+gh actions-lock                               # pin new or changed actions
+uvx zizmor .github/                           # security lint for the workflows
+```
+
+Relocking rewrites each `uses:` line it pins and drops a comment at the end of that line,
+so keep comments (zizmor's `# zizmor: ignore[...]` among them) on lines of their own.
+Dependabot's weekly update of the actions updates the lock file too.
+
 ## Versioning
 
 Releases are git tags, `vX.Y.Z`, following semantic versioning; [`CHANGELOG.md`](CHANGELOG.md)
