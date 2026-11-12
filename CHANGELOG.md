@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.18.0 (2026-11-12)
+
 - **People, in the admins' usage stats.** `/stats` shows admins each signed-in user's API
   calls (by kind of client), errors, pages viewed and when they were last seen; a name opens
   their activity, with the pages they viewed and the MCP tools and CLI commands they used
