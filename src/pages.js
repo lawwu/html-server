@@ -459,7 +459,71 @@ ${barList(u.mcp_tools.map((r) => ({ label: r.name, value: r.calls })), { title: 
 ${barList(u.cli_commands.map((r) => ({ label: r.name, value: r.calls })), { title: 'Most used CLI commands', unit: 'calls', empty: 'No CLI calls yet.' })}
 </div>
 <figure class="chart"><figcaption><span>Busiest routes</span><b>errors are 4xx/5xx answers</b></figcaption>${routes}</figure>
+${peopleFigure(u, range)}
 <p class="meta">Every <code>/api</code> request: who called (the MCP tool or CLI command; browsers and other HTTP clients by kind), the route's pattern and the status, never query strings, request bodies or tokens. Each request's details are kept ${u.retention_days} days, then folded into daily totals that are kept for good. MCP calls that fail on your machine before reaching the server aren't counted.</p>`;
+}
+
+/** "just now", "5 min ago", "3 h ago", else the date. */
+function whenAgo(ts) {
+  if (ts == null) return '—';
+  const m = Math.round((Date.now() / 1000 - ts) / 60);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago`
+    : new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+const clientMix = (p) => USAGE_SERIES.map((s) => `${fmtNum(p[s.key])} ${s.label}`).join(', ');
+
+/**
+ * The People table in the usage section: each signed-in user's API calls (split by kind of
+ * client), errors, the pages they viewed, and when they were last seen. A name opens their
+ * activity below the table (public/stats.js loads /stats/usage/people/NAME).
+ */
+function peopleFigure(u, range) {
+  const people = u.people;
+  const max = Math.max(1, ...people.map((p) => p.calls));
+  const rows = people.map((p) => `<tr>
+<th scope="row"><button type="button" class="person-link" data-person="${esc(p.name)}" aria-controls="person-detail">${esc(p.name)}</button>${p.admin ? ' <span class="badge">admin</span>' : ''}</th>
+<td><span class="mark mix" tabindex="0" data-tip="${esc(`${p.name}: ${fmtNum(p.calls)} API calls (${clientMix(p)})`)}">`
+    + `<span class="mix-track"><span class="mix-bar" style="width:${p.calls ? Math.max((p.calls / max) * 100, 2).toFixed(1) : 0}%">`
+    + USAGE_SERIES.filter((s) => p[s.key]).map((s) => `<i class="sw s${USAGE_SERIES.indexOf(s) + 1}" style="flex:${p[s.key]}"></i>`).join('')
+    + `</span></span><span class="mix-n">${fmtNum(p.calls)}</span></span></td>
+<td class="num">${p.errors ? `<span class="err-count">${fmtNum(p.errors)}</span>` : '0'}</td>
+<td class="num">${fmtNum(p.pages)}</td><td class="num">${fmtNum(p.views)}</td>
+<td class="when">${esc(whenAgo(p.last_seen))}</td></tr>`).join('');
+  const table = people.length ? `<ul class="legend-row">${USAGE_SERIES.map((s, i) => `<li><i class="sw s${i + 1}"></i>${s.label}</li>`).join('')}</ul>
+<div class="scroll"><table class="people-table"><thead><tr><th scope="col">Person</th><th scope="col">API calls</th><th scope="col" class="num">Errors</th>
+<th scope="col" class="num">Pages viewed</th><th scope="col" class="num">Views</th><th scope="col">Last seen</th></tr></thead>
+<tbody>${rows}</tbody></table></div>`
+    : `<p class="empty">No signed-in activity in ${esc(range)}.</p>`;
+  const note = u.track_people
+    ? 'Pages viewed counts views made while signed in, since <code>track-people</code> was turned on; they\'re kept as long as views are, for good. API calls show who made them: details for 90 days, then each person\'s daily totals.'
+    : 'Who viewed which pages isn\'t being recorded, so Pages viewed stays at 0: turn it on with <code>html-server config track-people on</code>. API calls show who made them for the last 90 days.';
+  return `<figure class="chart people" id="people"><figcaption><span>People</span><b>${fmtNum(people.length)} of ${plural(u.users_total, 'user')} active in ${esc(range)}</b></figcaption>
+${table}
+<div id="person-detail" class="person-detail" hidden></div>
+<p class="meta">${note}</p></figure>`;
+}
+
+/** One person's activity, shown under the People table: their totals, tools and commands, and the pages they viewed. */
+export function personSection(p) {
+  const t = p.totals;
+  const range = p.days == null ? 'all time' : p.days === 365 ? 'the last year' : `the last ${p.days} days`;
+  const minor = [[t.calls, 'API calls'], ...USAGE_SERIES.map((s) => [t[s.key], s.label]), [t.errors, t.errors === 1 ? 'error' : 'errors'],
+    [t.pages, t.pages === 1 ? 'page viewed' : 'pages viewed'], [t.views, t.views === 1 ? 'view' : 'views']];
+  const label = { mcp: 'MCP', cli: 'CLI', browser: 'Browser', http: 'HTTP' };
+  const pages = p.pages.length ? `<div class="scroll"><table class="routes-table"><thead><tr><th>Page</th><th class="num">Views</th><th>Last viewed</th></tr></thead>
+<tbody>${p.pages.map((r) => `<tr><td><a href="${esc(r.url)}">${esc(r.title)}</a></td><td class="num">${fmtNum(r.views)}</td><td>${esc(whenAgo(r.last))}</td></tr>`).join('')}</tbody></table></div>`
+    : `<p class="empty">${p.track_people ? `No pages viewed while signed in, in ${esc(range)}.` : 'Views aren\'t recorded by person: <code>html-server config track-people on</code> starts it.'}</p>`;
+  const more = [p.more_pages ? `${plural(p.more_pages, 'more page')} not listed` : '',
+    p.hidden.pages ? `${plural(p.hidden.views, 'view')} of ${plural(p.hidden.pages, 'page')} you can't see (someone else's private pages, or the trash), not named` : '']
+    .filter(Boolean);
+  return `<div class="person-head"><h3>${esc(p.name)}${p.admin ? ' <span class="badge">admin</span>' : ''}</h3>
+<span class="meta">${esc(range)} · last seen ${esc(whenAgo(t.last_seen))}</span>
+<button type="button" class="person-close" aria-label="Close ${esc(p.name)}'s activity">Close</button></div>
+<ul class="minor" aria-label="${esc(p.name)}'s totals">${minor.map(([v, l]) => `<li><b>${fmtNum(v)}</b> ${esc(l)}</li>`).join('')}</ul>
+<div class="charts two-one">
+<figure class="chart"><figcaption><span>Pages viewed</span><b>most recent first</b></figcaption>${pages}${more.length ? `<p class="meta">${esc(more.join('; '))}.</p>` : ''}</figure>
+${barList(p.tools.map((r) => ({ label: `${label[r.client] ?? r.client} · ${r.name}`, value: r.calls })), { title: 'MCP tools and CLI commands', unit: 'calls', empty: 'None used.' })}
+</div>`;
 }
 
 // Notes are served sandboxed (like every page), and a sandboxed page may not be allowed
@@ -750,7 +814,7 @@ ${plural(mins, 'minute')}. If you already have a token, the new one replaces it.
 /** The command to install the command line: from this server when it offers its package, else from GitHub. */
 export const cliInstall = (server, cli) => (cli ? `npm install -g ${server}/api/cli/html-server.tgz` : CLI_FROM_GITHUB);
 
-export function accountPage({ user = null, sso = null, server = '', cli = false, users = null }) {
+export function accountPage({ user = null, sso = null, server = '', cli = false, users = null, trackPeople = false }) {
   const bar = topBar(null, { sidebar: false });
   if (!sso) {
     return shell('Account · HTML Server', `${bar}<main class="wrap claim"><h1>Your account</h1>
@@ -768,6 +832,7 @@ replace it with <code>POST /api/me/token</code>, or ask an admin to (<code>html-
 ${user.email ? `<dt>Email</dt><dd>${esc(user.email)}</dd>` : ''}
 <dt>Role</dt><dd>${user.is_admin ? 'admin' : 'user'}</dd>
 <dt>Signed in</dt><dd>${user.oidc_sub != null ? `through single sign-on, last ${esc(when(user.last_sso_at))}` : 'with an API token'}</dd></dl>
+${trackPeople ? '<p class="meta">This server records which pages you view while signed in, and how you use the API (the command line, MCP tools and scripts, by day). Admins see both on the Stats page. Views are kept indefinitely; API details for 90 days, then daily totals.</p>' : ''}
 <h2>The command line</h2>
 <p>Install <code>html-server</code>${cli ? ' from this server' : ''} (it needs Node.js 24 or newer). It's the version this server runs.</p>
 <p class="claim-token"><input id="cli-install" readonly value="${esc(cliInstall(server, cli))}" aria-label="The install command" spellcheck="false"> <button type="button" data-copy="cli-install">Copy</button></p>

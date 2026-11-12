@@ -458,6 +458,23 @@ numbers stay, only who made each call goes. MCP calls
 that fail on your machine before reaching the server (not signed in, server down) aren't
 counted.
 
+**People**, in the same section: each signed-in user's API calls (split by kind of client),
+errors, the pages they viewed, and when they were last seen, busiest first, over the period
+picked. A name opens that person's activity: their totals, the pages they viewed (most recent
+first) and the MCP tools and CLI commands they used most; as JSON,
+`/api/stats/usage/people/NAME`. A page the admin can't see themselves (someone else's private
+page, or one in the trash) is counted there but not named. Who viewed which pages is recorded
+only once it's turned on:
+
+```bash
+html-server config track-people on
+```
+
+From then on a view made while signed in also records who made it, kept as long as the view
+(for good), and each person's API calls are kept as daily totals once their details pass the
+90 days. Anonymous visitors stay anonymous. Each user's Account page says that it's on.
+`config track-people off` stops recording; what was recorded stays.
+
 **Gallery** (`/gallery`) shows the example pages that ship in this package's `gallery/`
 folder, read-only, so every install has them and they never mix with your own. In a browser
 tab an example sits in the site's frame, as your pages do (`?raw=1` for the example alone).
@@ -1105,7 +1122,9 @@ the old capability.
   or its share link (for a framed page, when the frame loads it). The API, crawlers,
   link-preview bots, `curl` and gallery previews don't count. A visitor is a hash of a
   server secret, the day, the IP address and the browser, so one person counts once per
-  day and no IP address or browser string is stored. Behind a reverse proxy the address is
+  day and no IP address or browser string is stored. With `config track-people on`, a view
+  made while signed in also keeps the viewer's user (see People under [The site](#the-site)
+  above); deleting the user leaves their views anonymous. Behind a reverse proxy the address is
   the first in `X-Forwarded-For`, since every request comes from the proxy itself (someone
   who sets it can only count as more visitors, as by changing their browser string).
 - **One resolver for names, worked out on writes.** URLs, wikilinks, Markdown links,

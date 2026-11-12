@@ -64,6 +64,32 @@ usageBody?.addEventListener('click', (e) => {
   loadUsage(saved() || document.getElementById('usage-token')?.value.trim(), { days: a.dataset.days });
 });
 
+// People: a name opens that person's activity, for the period shown, under the table.
+usageBody?.addEventListener('click', async (e) => {
+  const close = e.target.closest('.person-close');
+  const panel = document.getElementById('person-detail');
+  if (close && panel) {
+    panel.hidden = true;
+    const open = usageBody.querySelector('.person-link[aria-expanded="true"]');
+    open?.setAttribute('aria-expanded', 'false');
+    open?.focus();
+    return;
+  }
+  const link = e.target.closest('.person-link');
+  if (!link || !panel) return;
+  const token = saved() || document.getElementById('usage-token')?.value.trim();
+  const days = usageBody.querySelector('.range-picker a.on')?.dataset.days || '';
+  for (const other of usageBody.querySelectorAll('.person-link')) other.setAttribute('aria-expanded', String(other === link));
+  panel.hidden = false;
+  panel.innerHTML = '<p class="meta">Loading…</p>';
+  try {
+    const r = await fetch(`/stats/usage/people/${encodeURIComponent(link.dataset.person)}${days ? `?days=${encodeURIComponent(days)}` : ''}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    panel.innerHTML = r.ok ? await r.text() : `<p class="meta">Couldn’t load it (HTTP ${r.status}).</p>`;
+  } catch { panel.innerHTML = '<p class="meta">Couldn’t reach the server.</p>'; }
+  panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+});
+
 // The Popular list's period: swap in that period's list (from this page at ?weeks=) and keep
 // the choice in the address. Without scripts, the form's Show button loads the page so.
 let asked = 0;

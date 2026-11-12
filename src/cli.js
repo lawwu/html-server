@@ -227,14 +227,16 @@ const serverCommands = {
     });
   },
   async config([key, value], opts) {
-    if (key && !(['usernames', 'editing', 'email-domains'].includes(key) && value)) fail('usage: config [usernames name|email] [editing owner|open] [email-domains DOMAIN,...|any]');
+    if (key && !(['usernames', 'editing', 'email-domains', 'track-people'].includes(key) && value)) fail('usage: config [usernames name|email] [editing owner|open] [email-domains DOMAIN,...|any] [track-people on|off]');
     await withStore(opts, (store) => {
       if (key === 'usernames') store.setUsernames(value);
       else if (key === 'editing') store.setEditing(value);
       else if (key === 'email-domains') store.setEmailDomains(value === 'any' ? '' : value);
+      else if (key === 'track-people') store.setTrackPeople(value);
       console.log(`usernames: ${store.usernames}`);
       console.log(`email-domains: ${store.emailDomains.join(', ') || 'any'}${store.usernames === 'email' ? '' : ' (applies with email usernames)'}`);
       console.log(`editing:   ${store.editing}${store.editing === 'open' ? ' (any signed-in user can add versions to public pages)' : ' (only a page\'s owner adds versions)'}`);
+      console.log(`track-people: ${store.trackPeople ? 'on (admins see who viewed which pages while signed in, kept as long as the views)' : 'off'}`);
     });
   },
 };

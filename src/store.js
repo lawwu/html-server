@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS api_calls (
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS api_calls_by_time ON api_calls (at);
+CREATE INDEX IF NOT EXISTS api_calls_by_user ON api_calls (user_id, at);
 -- The same, totalled per day, once the detailed rows pass API_CALL_RETENTION_DAYS. Kept for good.
 CREATE TABLE IF NOT EXISTS api_calls_daily (
     day TEXT NOT NULL,              -- YYYY-MM-DD, the server's local day
@@ -154,6 +155,18 @@ CREATE TABLE IF NOT EXISTS api_calls_daily (
     errors INTEGER NOT NULL,        -- 4xx and 5xx
     server_errors INTEGER NOT NULL, -- 5xx
     PRIMARY KEY (day, client, name, method, route)
+);
+-- Each signed-in user's share of those totals, by kind of client and MCP tool or CLI command
+-- (no routes), so the People stats reach back past the detailed rows. Filled only while the
+-- deployment tracks people (\`config track-people on\`, 0.18.0); earlier rows had no user kept.
+CREATE TABLE IF NOT EXISTS api_calls_user_daily (
+    day TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client TEXT NOT NULL,
+    name TEXT NOT NULL,
+    calls INTEGER NOT NULL,
+    errors INTEGER NOT NULL,
+    PRIMARY KEY (day, user_id, client, name)
 );
 CREATE TABLE IF NOT EXISTS comments (
     id INTEGER PRIMARY KEY,
@@ -295,6 +308,11 @@ const ADDED_COLUMNS = {
     ['author_id', 'INTEGER REFERENCES users(id) ON DELETE SET NULL',
       'UPDATE versions SET author_id = (SELECT owner_id FROM artifacts WHERE artifacts.id = versions.artifact_id)'],
   ],
+  views: [
+    // Who viewed, when they were signed in and the deployment tracks people (0.18.0); NULL for
+    // everyone else, as for every view before. Kept as long as the view is.
+    ['viewer_id', 'INTEGER REFERENCES users(id) ON DELETE SET NULL'],
+  ],
 };
 // Indexes on columns that ADDED_COLUMNS may have just added.
 const ADDED_INDEXES = [
@@ -303,6 +321,7 @@ const ADDED_INDEXES = [
   'CREATE INDEX IF NOT EXISTS artifacts_by_name_key ON artifacts (name_key)',
   // Backlink names are compared as the database compares names (see linkersOf).
   'CREATE INDEX IF NOT EXISTS link_names_by_name_nocase ON link_names (name COLLATE NOCASE)',
+  'CREATE INDEX IF NOT EXISTS views_by_viewer ON views (viewer_id, at)',
 ];
 /**
  * A loose key for two names that may be the same page name: lowercase, with accents,
@@ -317,6 +336,13 @@ const now = () => Date.now() / 1000;
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 export const hashToken = sha256;
 const localDay = (t) => new Date(t * 1000).toLocaleDateString('en-CA'); // YYYY-MM-DD, server's timezone
+/** The usage stats' window: the last `days` local days from midnight on the first (`since`, and `sinceDay` for daily totals), or everything. */
+const usageWindow = (days) => {
+  if (days == null) return { since: 0, sinceDay: '' };
+  const d = new Date(); d.setDate(d.getDate() - (days - 1));
+  const sinceDay = d.toLocaleDateString('en-CA');
+  return { sinceDay, since: new Date(`${sinceDay}T00:00`).getTime() / 1000 };
+};
 /** Local midnight `back` days before today. Counted on the calendar (setDate), so a DST change can't skip a day or repeat one. */
 const dayStart = (back) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - back); return d; };
 const VIEWS = '(SELECT COUNT(*) FROM views v WHERE v.artifact_id = a.id) AS views';
@@ -671,6 +697,17 @@ export class Store {
   setEditing(mode) {
     if (!EDITING_MODES.includes(mode)) throw new ApiError(400, `editing must be one of ${EDITING_MODES.join(', ')}`);
     this.setSetting('editing', mode);
+  }
+
+  /**
+   * Whether the People stats are being gathered (`config track-people on|off`, off unless
+   * turned on): who viewed each page while signed in, and each user's API totals once the
+   * detailed rows are folded away. Admins see both on /stats.
+   */
+  get trackPeople() { return this.setting('track_people', 'off') === 'on'; }
+  setTrackPeople(mode) {
+    if (!['on', 'off'].includes(mode)) throw new ApiError(400, 'track-people must be on or off');
+    this.setSetting('track_people', mode);
   }
 
   /** May this user add versions to this page? The owner always; anyone signed in under open editing. */
@@ -1640,16 +1677,16 @@ export class Store {
     const a = this.readable(slug, viewerId);
     if (a.state !== ACTIVE) throw new ApiError(404, 'no such artifact');
     const body = this.version(a, n);
-    this.countView(a, n, visit, 'url');
+    this.countView(a, n, visit, 'url', viewerId);
     return { body, slug: a.slug, n: n || a.latest_version, latest: a.latest_version, page: a };
   }
 
   /** Capability link: works for private artifacts too, never for trashed ones. */
-  renderShare(shareId, n, visit) {
+  renderShare(shareId, n, visit, viewerId = null) {
     const a = this.one('SELECT * FROM artifacts WHERE share_id = ?', shareId);
     if (!a || a.state !== ACTIVE) throw new ApiError(404, 'not found');
     const body = this.version(a, n);
-    this.countView(a, n, visit, 'share');
+    this.countView(a, n, visit, 'share', viewerId);
     return { body, slug: a.slug, n: n || a.latest_version, latest: a.latest_version, page: a };
   }
 
@@ -1670,6 +1707,13 @@ export class Store {
   /** Fold requests from before `cutoff` into api_calls_daily (adding to any day already there), then drop them. */
   rollUpApiCalls(cutoff) {
     this.tx(() => {
+      if (this.trackPeople) {
+        this.run('INSERT INTO api_calls_user_daily (day, user_id, client, name, calls, errors)'
+          + " SELECT date(at, 'unixepoch', 'localtime'), user_id, client, name, COUNT(*), SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END)"
+          + ' FROM api_calls WHERE at < ? AND user_id IS NOT NULL GROUP BY 1, 2, 3, 4 ORDER BY 1'
+          + ' ON CONFLICT (day, user_id, client, name) DO UPDATE SET calls = api_calls_user_daily.calls + excluded.calls,'
+          + ' errors = api_calls_user_daily.errors + excluded.errors', cutoff);
+      }
       this.run("INSERT INTO api_calls_daily (day, client, name, method, route, calls, errors, server_errors)"
         + " SELECT date(at, 'unixepoch', 'localtime'), client, name, method, route, COUNT(*),"
         + ' SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), SUM(CASE WHEN status >= 500 THEN 1 ELSE 0 END)'
@@ -1692,8 +1736,7 @@ export class Store {
     const today = new Date();
     const dayStr = (d) => d.toLocaleDateString('en-CA');
     const ago = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return d; };
-    const sinceDay = days == null ? '' : dayStr(ago(days - 1));
-    const since = days == null ? 0 : new Date(`${sinceDay}T00:00`).getTime() / 1000;
+    const { since, sinceDay } = usageWindow(days);
     const ALL = "(SELECT date(at, 'unixepoch', 'localtime') AS day, client, name, method, route, 1 AS calls,"
       + ' CASE WHEN status >= 400 THEN 1 ELSE 0 END AS errors, CASE WHEN status >= 500 THEN 1 ELSE 0 END AS server_errors FROM api_calls WHERE at >= ?'
       + ' UNION ALL SELECT day, client, name, method, route, calls, errors, server_errors FROM api_calls_daily WHERE day >= ?) AS calls_all';
@@ -1736,17 +1779,93 @@ export class Store {
       cli_commands: named('cli'),
       routes: q('SELECT method, route, SUM(calls) AS calls, SUM(errors) AS errors FROM $ALL'
         + ' GROUP BY method, route ORDER BY calls DESC, route LIMIT ?', top),
+      track_people: this.trackPeople,
+      people: this.peopleActivity(since, sinceDay),
+      users_total: this.one('SELECT COUNT(*) AS n FROM users').n,
     };
   }
 
-  countView(a, n, visit, via) {
+  /**
+   * Each user's activity from `since` (`sinceDay` for the daily totals): API calls by kind
+   * of client, errors, the pages they viewed while signed in, and when they were last seen.
+   * Only users with some activity, busiest first. Calls come from the detailed rows and,
+   * past those, from the per-user daily totals; views only from views kept with a viewer.
+   */
+  peopleActivity(since, sinceDay, userId = null) {
+    const only = userId == null ? '' : ' AND user_id = ?';
+    const more = userId == null ? [] : [userId];
+    const people = new Map(this.all('SELECT id, name, is_admin FROM users').map((u) => [u.id, {
+      name: u.name, admin: !!u.is_admin, calls: 0, ...Object.fromEntries(CLIENT_KINDS.map((k) => [k, 0])),
+      errors: 0, views: 0, pages: 0, last_seen: null }]));
+    const seen = (p, t) => { if (t != null && (p.last_seen == null || t > p.last_seen)) p.last_seen = t; };
+    for (const r of this.all('SELECT user_id, client, SUM(calls) AS calls, SUM(errors) AS errors, MAX(at) AS last FROM'
+      + ` (SELECT user_id, client, 1 AS calls, CASE WHEN status >= 400 THEN 1 ELSE 0 END AS errors, at FROM api_calls WHERE user_id IS NOT NULL AND at >= ?${only}`
+      + ` UNION ALL SELECT user_id, client, calls, errors, NULL AS at FROM api_calls_user_daily WHERE day >= ?${only}) AS c GROUP BY user_id, client`,
+    since, ...more, sinceDay, ...more)) {
+      const p = people.get(r.user_id);
+      if (!p) continue;
+      p[r.client] = (p[r.client] || 0) + r.calls;
+      p.calls += r.calls;
+      p.errors += r.errors;
+      seen(p, r.last);
+    }
+    // A day's totals say only the day: count it as that day's noon.
+    for (const r of this.all(`SELECT user_id, MAX(day) AS day FROM api_calls_user_daily WHERE day >= ?${only} GROUP BY user_id`, sinceDay, ...more)) {
+      const p = people.get(r.user_id);
+      if (p) seen(p, new Date(`${r.day}T12:00`).getTime() / 1000);
+    }
+    for (const r of this.all('SELECT viewer_id, COUNT(*) AS views, COUNT(DISTINCT artifact_id) AS pages, MAX(at) AS last FROM views'
+      + ` WHERE viewer_id IS NOT NULL AND at >= ?${userId == null ? '' : ' AND viewer_id = ?'} GROUP BY viewer_id`, since, ...more)) {
+      const p = people.get(r.viewer_id);
+      if (!p) continue;
+      Object.assign(p, { views: r.views, pages: r.pages });
+      seen(p, r.last);
+    }
+    return [...people.values()].filter((p) => p.calls || p.views)
+      .sort((a, b) => (b.calls + b.views) - (a.calls + a.views) || a.name.localeCompare(b.name));
+  }
+
+  /**
+   * One user's activity for admins, over the last `days` (or all of it): their totals as in
+   * peopleActivity, the MCP tools and CLI commands they used most, and the pages they viewed,
+   * most recent first. A page the asking admin can't see (another user's private page, or one
+   * in the trash) is counted but not named.
+   */
+  personActivity(name, { days = 30, top = 10, pages = 100 } = {}, viewerId = null) {
+    const u = this.one('SELECT id, name, is_admin, created_at FROM users WHERE name = ?', String(name ?? '').trim().toLowerCase());
+    if (!u) throw new ApiError(404, 'no such user');
+    const { since, sinceDay } = usageWindow(days);
+    const totals = this.peopleActivity(since, sinceDay, u.id)[0] ?? { name: u.name, admin: !!u.is_admin, calls: 0,
+      ...Object.fromEntries(CLIENT_KINDS.map((k) => [k, 0])), errors: 0, views: 0, pages: 0, last_seen: null };
+    const tools = this.all('SELECT client, name, SUM(calls) AS calls, SUM(errors) AS errors FROM'
+      + " (SELECT client, name, 1 AS calls, CASE WHEN status >= 400 THEN 1 ELSE 0 END AS errors FROM api_calls WHERE user_id = ? AND at >= ? AND name != ''"
+      + " UNION ALL SELECT client, name, calls, errors FROM api_calls_user_daily WHERE user_id = ? AND day >= ? AND name != '') AS c"
+      + ' GROUP BY client, name ORDER BY calls DESC, name LIMIT ?', u.id, since, u.id, sinceDay, top);
+    const viewed = this.all('SELECT a.slug, a.title, a.state, a.visibility, a.owner_id, COUNT(*) AS views, MAX(x.at) AS last FROM views x'
+      + ' JOIN artifacts a ON a.id = x.artifact_id WHERE x.viewer_id = ? AND x.at >= ? GROUP BY a.id ORDER BY last DESC', u.id, since);
+    const shown = viewed.filter((a) => visible(a, viewerId));
+    const hidden = viewed.filter((a) => !visible(a, viewerId));
+    return {
+      name: u.name,
+      admin: !!u.is_admin,
+      days,
+      track_people: this.trackPeople,
+      totals,
+      tools: tools.map((r) => ({ ...r })),
+      pages: shown.slice(0, pages).map((a) => ({ slug: a.slug, title: a.title, url: pageUrl(a.slug), views: a.views, last: a.last })),
+      more_pages: Math.max(shown.length - pages, 0),
+      hidden: { pages: hidden.length, views: hidden.reduce((n, a) => n + a.views, 0) },
+    };
+  }
+
+  countView(a, n, visit, via, viewerId = null) {
     if (!visit) return;
     const [ip, ua] = visit;
     if (BOT_UA_RE.test(ua || '')) return;
     const t = now();
     const visitor = sha256(`${this.visitorSecret}|${localDay(t)}|${ip}|${ua}`).slice(0, 16);
-    this.run('INSERT INTO views (artifact_id, n, at, visitor, via) VALUES (?,?,?,?,?)',
-      a.id, n || a.latest_version, t, visitor, via);
+    this.run('INSERT INTO views (artifact_id, n, at, visitor, via, viewer_id) VALUES (?,?,?,?,?,?)',
+      a.id, n || a.latest_version, t, visitor, via, viewerId != null && this.trackPeople ? viewerId : null);
   }
 
   /** Owner-only traffic report for one page (a read: found by name as pages are). */
