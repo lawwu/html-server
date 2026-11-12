@@ -48,9 +48,10 @@ jobs:
       latest: ${{ steps.vars.outputs.latest }}
       publish: ${{ steps.vars.outputs.publish }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # every tag, to find the newest release
+          persist-credentials: false # nothing here pushes with git; the repository is public to fetch
       - id: vars
         env:
           EVENT: ${{ github.event_name }}
@@ -88,9 +89,10 @@ jobs:
           - { arch: amd64, platform: linux/amd64, runner: ubuntu-latest }
           - { arch: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.resolve.outputs.ref }}
+          persist-credentials: false
       - &packaging
         name: The Dockerfile, for a release cut before there was one
         run: |
@@ -99,8 +101,8 @@ jobs:
             git checkout FETCH_HEAD -- Dockerfile .dockerignore scripts/docker-smoke.sh
             echo "Packaging from $GITHUB_SHA, code from $(git rev-parse HEAD)."
           fi
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v7
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/build-push-action@v7.4.0
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -120,20 +122,21 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.resolve.outputs.ref }}
+          persist-credentials: false
       - *packaging
       # Both architectures' layers come from the checks' cache; QEMU only runs what's missing.
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-qemu-action@v4.4.0
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@v6.2.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
@@ -156,7 +159,7 @@ jobs:
           annotations: |
             org.opencontainers.image.description=Host, version, search and link HTML pages and Markdown notes. Debian 13, Node 24; SQLite or PostgreSQL.
       - id: push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64

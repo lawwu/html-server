@@ -6,7 +6,8 @@
 # person, who sees the image's own check (docker.yml) first. A version is only proposed
 # once it's 7 days old: a hijacked release is usually pulled before then, and otherwise
 # it would reach `main`, which the README's install command installs, without anyone
-# looking. Security fixes don't wait.
+# looking. Security fixes don't wait. The actions' updates also update
+# .github/workflows/actions.lock, which records the commit each version is.
 version: 2
 updates:
   - package-ecosystem: npm

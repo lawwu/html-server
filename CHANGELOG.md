@@ -8,6 +8,14 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Under the hood: the workflows' actions are locked.** Each workflow names exact action
+  versions, and `.github/workflows/actions.lock` (GitHub's gh-actions-lock) records each
+  one's commit, actions they use in turn included; CI fails if a workflow and the lock file
+  disagree or a locked commit stops matching upstream. CI also runs zizmor, a security
+  linter for workflows: following it, checkouts no longer leave the token in `.git/config`
+  (but for the one that pushes the `latest` tag), the tests' workflow can only read the
+  repository, and only the Pages deploy job may publish.
+
 ## 0.17.1 (2026-11-09)
 
 Fixes from a review of the whole app. Upgrade before turning single sign-on on for everyone.

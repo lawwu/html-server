@@ -3,18 +3,24 @@
 # ruleset "main: CI before merging" requires, so renaming it means updating the ruleset.
 # Time zones aren't a CI axis: the tests that count local days (stats, usage, visits) run
 # themselves in UTC, Los Angeles and Auckland, so a runner in UTC still checks them.
+# Nothing here writes to the repository: the token can only read it, and checkout doesn't
+# leave it in .git/config for the steps after.
 name: test
 on:
   push:
     branches: [main]
   pull_request:
+permissions:
+  contents: read
 jobs:
   test:
     name: Node 24
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -43,10 +49,12 @@ jobs:
       TEST_DATABASE_URL: postgres://html_server:html_server@localhost:5432/html_server_test
       REQUIRE_POSTGRES: '1'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
       - name: Native-driver prerequisites (libpq and a C toolchain, for pg-native)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev build-essential python3
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -72,8 +80,10 @@ jobs:
     name: Browser
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
           cache: npm
