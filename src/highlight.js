@@ -7,6 +7,9 @@ import { escapeHtml as esc } from './text.js';
 const words = (s) => new Set(s.split(/\s+/));
 const C_LIKE = /\/\/[^\n]*|\/\*[\s\S]*?\*\//;
 const HASH = /#[^\n]*/;
+// In a shell, # starts a comment only at the start of a word: npm i pkg#v1 has none, and
+// neither has $# or ${#var}.
+const SHELL_HASH = /(?<![^\s;|&()])#[^\n]*/;
 const LANGS = {
   python: {
     comment: HASH,
@@ -22,7 +25,7 @@ const LANGS = {
     builtins: words('console document window Math JSON Object Array String Number Promise Map Set fetch require module'),
   },
   shell: {
-    comment: HASH,
+    comment: SHELL_HASH,
     strings: /"(?:\\.|[^"\\])*"|'[^']*'/,
     keywords: words('if then else elif fi for while until do done case esac function in export local return set unset source alias'),
     builtins: words('echo cd ls cat grep sed awk curl git npm npx node pip python python3 make sudo mkdir rm cp mv'),

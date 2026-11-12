@@ -81,6 +81,11 @@ test('highlighting: tokens per language, unknown languages escaped', () => {
     '<span class="tok-keyword">def</span> f(): <span class="tok-keyword">return</span> <span class="tok-string">&quot;x&quot;</span>');
   assert.equal(highlight('SELECT 1 -- c', 'sql'), '<span class="tok-keyword">SELECT</span> <span class="tok-number">1</span> <span class="tok-comment">-- c</span>');
   assert.equal(highlight('<b>', 'cobol'), '&lt;b&gt;');
+  // A shell comment starts only at the start of a word.
+  assert.equal(highlight('npm i -g x#latest   # note', 'bash'),
+    '<span class="tok-builtin">npm</span> i -g x#latest   <span class="tok-comment"># note</span>');
+  assert.equal(highlight('# top\necho $# ${#a};# end', 'sh'),
+    '<span class="tok-comment"># top</span>\n<span class="tok-builtin">echo</span> $# ${#a};<span class="tok-comment"># end</span>');
 });
 
 // --- hosted ----------------------------------------------------------------------------

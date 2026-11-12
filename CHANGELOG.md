@@ -15,6 +15,15 @@ couldn't be migrated would be a major version.
   linter for workflows: following it, checkouts no longer leave the token in `.git/config`
   (but for the one that pushes the `latest` tag), the tests' workflow can only read the
   repository, and only the Pages deploy job may publish.
+- **The install commands take the newest release.** The README's `npm install -g` lines,
+  and the PostgreSQL driver's error message, now use `github:lawwu/html-server#latest`
+  instead of `main`. Dependabot's patch and minor updates merge into `main` by themselves
+  once CI passes, so `main` can carry an update no release has shipped yet; `#latest` only
+  moves when a release is cut. The README also lists `openid-client` among the runtime
+  dependencies, and `actions.yml` among the workflows.
+- **Fixed: shell code blocks no longer grey out text after a `#` inside a word.** In
+  Markdown and notebook code marked `bash`, `sh` or `zsh`, `#` now starts a comment only
+  at the start of a word, as in a shell, so `pkg#v1`, `$#` and `${#var}` keep their colours.
 
 ## 0.17.1 (2026-11-09)
 
