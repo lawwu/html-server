@@ -9,14 +9,15 @@ restore. Publish from the command line, from Claude and other AI apps over MCP, 
 curl, or sync a whole notes repo on every git commit. Everything is public unless you mark
 it private, and a page's URL is its file name.
 
-It runs on Node.js 24 or newer, on Node's built-in SQLite, with two runtime dependencies
-(`marked` for Markdown and `yaml` for sync exclusions); on [PostgreSQL](#postgresql) if
-you'd rather keep the data there; or on Cloudflare Workers with one command.
+It runs on Node.js 24 or newer, on Node's built-in SQLite, with three runtime dependencies
+(`marked` for Markdown, `yaml` for sync exclusions and `openid-client` for single sign-on);
+on [PostgreSQL](#postgresql) if you'd rather keep the data there; or on Cloudflare Workers
+with one command.
 
 ```bash
-npm install -g github:lawwu/html-server   # puts `html-server` on your PATH
-html-server serve                         # first run: makes you an admin and signs the CLI in
-html-server put page.html "first draft"   # → http://127.0.0.1:8765/pages/page.html
+npm install -g github:lawwu/html-server#latest   # puts `html-server` on your PATH
+html-server serve                                # first run: makes you an admin and signs the CLI in
+html-server put page.html "first draft"          # → http://127.0.0.1:8765/pages/page.html
 ```
 
 Every running server documents itself at **`/docs`**: the command line, MCP and the HTTP
@@ -46,10 +47,12 @@ itself (see [The docs site](#the-docs-site)).
 ## Install and run
 
 ```bash
-npm install -g github:lawwu/html-server
+npm install -g github:lawwu/html-server#latest
 ```
 
-From a clone, `npm link` does the same.
+From a clone, `npm link` does the same. `#latest` is the newest release; without it you get
+the newest commit on `main`, which includes Dependabot's updates as soon as they merge,
+before any release (see [Versioning](#versioning)).
 
 **From your own server,** with no GitHub access needed: every server offers the command line
 it runs, as an npm package (`GET /api/cli` says where), so people install it from the
@@ -862,7 +865,7 @@ html-server create-user alice --admin --save   # PostgreSQL starts with no users
 - **Install.** The driver, `pg-native`, is an optional dependency that builds against
   libpq, so install libpq and a C toolchain first (`brew install libpq`, or
   `apt-get install libpq-dev build-essential`). npm 11 and newer run a dependency's build
-  only when allowed: `npm install -g github:lawwu/html-server --allow-scripts=libpq`.
+  only when allowed: `npm install -g github:lawwu/html-server#latest --allow-scripts=libpq`.
   Without the driver, SQLite works as before and `DATABASE_URL` stops with an error that
   says what to install.
 - **The database:** PostgreSQL 13 or newer, built with ICU (most are), UTF-8, and a user
@@ -1201,7 +1204,7 @@ ones change:
 | `scripts/build-site.js` | The docs site: this README, the Docs page, the changelog and the gallery as static pages (`npm run site`) |
 | `Dockerfile`, `.dockerignore` | The [Docker image](#docker): Debian 13 and Node 24, the PostgreSQL driver built in, data in `/data` |
 | `scripts/docker-smoke.sh` | Checks a built image on SQLite and PostgreSQL before it's published (`scripts/docker-smoke.sh IMAGE`) |
-| `.github/workflows/` | `test.yml`: `npm test` on Node 24 on every pull request and push to `main`, on SQLite and again on PostgreSQL; `pages.yml`: the docs site, on every push to `main`; `latest.yml`: moves the `latest` tag to each release; `docker.yml`: builds, checks and publishes the Docker image for each release; `dependabot-auto-merge.yml`: merges Dependabot's patch and minor updates once `test.yml` passes |
+| `.github/workflows/` | `test.yml`: `npm test` on Node 24 on every pull request and push to `main`, on SQLite and again on PostgreSQL; `pages.yml`: the docs site, on every push to `main`; `latest.yml`: moves the `latest` tag to each release; `docker.yml`: builds, checks and publishes the Docker image for each release; `actions.yml`: checks the workflows against `actions.lock` and runs zizmor, on every pull request and push to `main`; `dependabot-auto-merge.yml`: merges Dependabot's npm and Actions patch and minor updates once the required checks pass (`test.yml`'s Node 24, and `actions.yml`'s Actions lock and zizmor), while majors and the Docker base image wait for a person |
 | `.github/dependabot.yml` | Weekly Dependabot updates for npm, GitHub Actions and the Docker base image, one pull request each, for versions at least 7 days old |
 | `CHANGELOG.md` | What each release changed |
 | `~/.html-server/` | Your data (`artifacts.db`), the CLI's login (`credentials.json`), backups and the sync log. Not in the repo |
@@ -1264,7 +1267,9 @@ Dependabot's weekly update of the actions updates the lock file too.
 Releases are git tags, `vX.Y.Z`, following semantic versioning; [`CHANGELOG.md`](CHANGELOG.md)
 says what each one changed, and `html-server --version` says which one you're on. Install a
 specific release with `npm install -g github:lawwu/html-server#vX.Y.Z`, or the newest with
-`#latest`; without the `#…` you get the latest `main`.
+`#latest` (what the install commands in this README use); without the `#…` you get the
+latest `main`, which takes Dependabot's automatic updates as soon as they merge, before any
+release.
 
 ### Stability
 

@@ -75,7 +75,7 @@ export function loadDriver() {
   } catch (e) {
     throw new Error('PostgreSQL needs the pg-native package, which builds against libpq: install libpq '
       + '(e.g. `brew install libpq` or `apt-get install libpq-dev`) and a C toolchain, then reinstall html-server; '
-      + 'npm 11 and newer build it only when allowed: `npm install -g github:lawwu/html-server --allow-scripts=libpq`.'
+      + 'npm 11 and newer build it only when allowed: `npm install -g github:lawwu/html-server#latest --allow-scripts=libpq`.'
       + ` (${e.code || e.message})`);
   }
 }
