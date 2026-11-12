@@ -12,7 +12,7 @@ import {
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { cliPackage } from './package.js';
 import { SESSION_COOKIE, clearLoginCookie, clearSessionCookie, finishLogin, logoutUrl, sessionCookie, startLogin } from './sso.js';
-import { VIEWS, aboutMarkdown, accountPage, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
+import { VIEWS, aboutMarkdown, accountPage, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, personSection, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
 import { ASSET_RE, renderMarkdown, safeDecode } from './markdown.js';
 import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
@@ -41,6 +41,10 @@ export const ROUTES = [
   ['GET', '/api/stats/usage', 'usageData', 'admin',
     'API usage, last 30 days (`?days=365`, or `?days=all`): calls by kind of client (MCP, CLI, browser, other HTTP), over time, the most used MCP tools and CLI commands, the busiest routes, errors. Details are kept 90 days, daily totals for good'],
   ['GET', '/stats/usage', 'usage', 'admin', null], // the same, as the section /stats shows admins
+  ['GET', '/api/stats/usage/people/(?<name>[^/]+)', 'personData', 'admin',
+    'One user\'s activity over the same `?days=`: API calls by kind of client, errors, the MCP tools and CLI commands they used most,'
+    + ' and the pages they viewed while signed in, most recent first (viewers are recorded only with `html-server config track-people on`)'],
+  ['GET', '/stats/usage/people/(?<name>[^/]+)', 'person', 'admin', null], // the same, as /stats shows it
   ['GET', '/graph', 'graph', 'anyone*',
     'Your pages and the links between them, as an interactive graph. `?page=<name>` (and `&depth=2`) for one page\'s neighbourhood'],
   ['GET', '/api/graph', 'graphData', 'anyone*',
@@ -673,6 +677,8 @@ const handlers = {
   },
   usageData(c) { c.user({ admin: true }); c.json(200, c.store.usage({ days: c.usageDays() })); },
   usage(c) { c.user({ admin: true }); c.html(usageSection(c.store.usage({ days: c.usageDays() }))); },
+  personData(c, { name }) { const u = c.user({ admin: true }); c.json(200, c.store.personActivity(name, { days: c.usageDays() }, u.id)); },
+  person(c, { name }) { const u = c.user({ admin: true }); c.html(personSection(c.store.personActivity(name, { days: c.usageDays() }, u.id))); },
   graph(c) { c.html(graphPage(c.store.graph(c.viewerId(), c.graphScope()), { explorer: c.explorer() })); },
   graphData(c) { c.json(200, c.store.graph(c.viewerId(), c.graphScope())); },
   examples(c) {
@@ -727,8 +733,11 @@ const handlers = {
     c.page(c.decorate(r, { current: `/pages/${S}`, history: `/history/${S}` }, slug));
   },
   renderShare(c, { share }) {
+    // Who's viewing, for the People stats only: a share link works without signing in, so a bad token doesn't stop it.
+    let viewer = null;
+    try { viewer = c.viewerId(); } catch { /* not signed in */ }
+    const r = c.store.renderShare(share, c.int('v'), c.preview() ? null : c.visit(), viewer);
     // A share link may be a private page, whose history needs a sign-in: no history link.
-    const r = c.store.renderShare(share, c.int('v'), c.preview() ? null : c.visit());
     c.page(c.decorate(r, { current: `/v/${encodeURIComponent(share)}` }));
   },
   // Always the shell: the script loads the page with the viewer's saved token, so
@@ -923,7 +932,7 @@ const handlers = {
     const s = sso();
     if (!s) return c.html(accountPage({ sso: null }));
     const u = c.user();
-    c.html(accountPage({ user: u, sso: s, server: c.origin(), cli: !!cliPackage(), users: u.is_admin ? c.store.listUsers() : null }));
+    c.html(accountPage({ user: u, sso: s, server: c.origin(), cli: !!cliPackage(), users: u.is_admin ? c.store.listUsers() : null, trackPeople: c.store.trackPeople }));
   },
 
   /** Back from GitHub: who signed in, checked against the link, then the token, once. */

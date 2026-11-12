@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { ACTIVE, PURGED, TRASHED } from '../src/lifecycle.js';
+import { accountPage } from '../src/pages.js';
 import { ROUTES, makeServer } from '../src/server.js';
 import { SKILLS, SKILLS_REPO, examples } from '../src/examples.js';
 import { normalizeTag } from '../src/store.js';
@@ -802,6 +803,91 @@ test('API usage: each /api call recorded by kind of client, shown to admins only
   assert.equal(all.series.reduce((n, p) => n + p.mcp + p.cli + p.browser + p.http, 0), all.totals.calls); // nothing counted twice
   const recent = (await req('GET', '/api/stats/usage?days=30', { token: admin }))[1];
   assert.ok(!recent.routes.some((r) => r.route === '/api/old')); // outside the last 30 days
+});
+
+test('People: who made API calls and, with track-people on, who viewed which pages; for admins only', async () => {
+  const pal = store.createUser('people-pal');
+  const palId = store.one("SELECT id FROM users WHERE name = 'people-pal'").id;
+  const [, page] = await put('read-me.html', '<title>Read me</title><p>hello</p>');
+  await put('pal-private.html', '<title>Pal private</title><p>mine</p>', pal, '?visibility=private');
+  const viewers = () => store.all('SELECT viewer_id FROM views ORDER BY at').map((r) => r.viewer_id);
+
+  // Off (the default): views stay anonymous, as before.
+  assert.equal(store.trackPeople, false);
+  await req('GET', '/read-me.html', { token: pal });
+  assert.deepEqual(viewers(), [null]);
+  assert.equal((await req('GET', '/api/stats/usage', { token: admin }))[1].track_people, false);
+
+  store.setTrackPeople('on');
+  await req('GET', '/read-me.html', { token: pal });
+  await req('GET', '/pal-private.html', { token: pal });
+  await req('GET', page.share_url, { token: pal }); // a share link knows who's signed in too
+  assert.equal((await req('GET', page.share_url, { token: 'ak_not-a-token' }))[0], 200); // and still opens with a bad token
+  await req('GET', '/read-me.html'); // not signed in: anonymous, as ever
+  await req('GET', '/read-me.html', { token: pal, ua: 'curl/8.7' }); // tools still aren't views
+  assert.deepEqual(viewers(), [null, palId, palId, palId, null, null]);
+  await fetch(`${base}/api/tags`, { headers: { authorization: `Bearer ${pal}`, 'x-html-server-client': 'cli/tags' } });
+
+  const u = (await req('GET', '/api/stats/usage', { token: admin }))[1];
+  assert.equal(u.track_people, true);
+  const p = u.people.find((x) => x.name === 'people-pal');
+  assert.deepEqual([p.views, p.pages, p.cli, p.admin], [3, 2, 1, false]);
+  assert.ok(p.calls >= 1 && p.last_seen > 0);
+  assert.ok(u.people.some((x) => x.name === 'admin' && x.admin)); // the admin's own calls
+  assert.ok(u.users_total >= 2);
+
+  const [s, one] = await req('GET', '/api/stats/usage/people/people-pal', { token: admin });
+  assert.equal(s, 200);
+  assert.deepEqual(one.pages.map((x) => [x.title, x.views]), [['Read me', 2]]);
+  assert.deepEqual(one.hidden, { pages: 1, views: 1 }); // their private page: counted, not named to the admin
+  assert.ok(one.tools.some((t) => t.client === 'cli' && t.name === 'tags'));
+  assert.equal((await req('GET', '/api/stats/usage/people/nobody-here', { token: admin }))[0], 404);
+  assert.equal((await req('GET', '/api/stats/usage/people/people-pal'))[0], 401);
+  assert.equal((await req('GET', '/api/stats/usage/people/people-pal', { token: pal }))[0], 403);
+
+  const frag = (await req('GET', '/stats/usage', { token: admin }))[1];
+  assert.match(frag, /<figure class="chart people" id="people">/);
+  assert.match(frag, /data-person="people-pal"/);
+  const panel = (await req('GET', '/stats/usage/people/people-pal?days=all', { token: admin }))[1];
+  assert.match(panel, /<h3>people-pal<\/h3>/);
+  assert.match(panel, /<a href="\/pages\/read-me.html">Read me<\/a>/);
+  assert.doesNotMatch(panel, /Pal private/);
+
+  // Past the detailed rows' 90 days, each person's calls are kept as daily totals, while tracking is on.
+  const old = Date.now() / 1000 - 200 * 86400;
+  const insert = (at) => store.run('INSERT INTO api_calls (at, client, name, method, route, status, user_id) VALUES (?,?,?,?,?,?,?)',
+    at, 'mcp', 'get_page', 'GET', '/api/artifacts/<slug>', 404, palId);
+  insert(old);
+  store.rollUpApiCalls(Date.now() / 1000 - 90 * 86400);
+  assert.deepEqual({ ...store.one('SELECT calls, errors FROM api_calls_user_daily WHERE user_id = ?', palId) }, { calls: 1, errors: 1 });
+  const all = (await req('GET', '/api/stats/usage/people/people-pal?days=all', { token: admin }))[1];
+  assert.equal(all.totals.mcp, 1);
+  assert.ok(all.tools.some((t) => t.client === 'mcp' && t.name === 'get_page'));
+  store.setTrackPeople('off');
+  insert(old + 60);
+  store.rollUpApiCalls(Date.now() / 1000 - 90 * 86400);
+  assert.equal(store.one('SELECT SUM(calls) AS n FROM api_calls_user_daily').n, 1); // off: folded without the person, as before
+  assert.throws(() => store.setTrackPeople('maybe'), /on or off/);
+  const account = (trackPeople) => accountPage({ user: { name: 'pal', is_admin: 0 }, sso: {}, server: base, trackPeople });
+  assert.match(account(true), /records which pages you view while signed in/); // users are told
+  assert.doesNotMatch(account(false), /records which pages you view/);
+
+  // Deleting a user leaves their views anonymous and drops their daily totals.
+  await req('DELETE', '/api/users/people-pal', { token: admin });
+  assert.ok(viewers().every((v) => v == null));
+  assert.equal(store.one('SELECT COUNT(*) AS n FROM api_calls_user_daily').n, 0);
+});
+
+test('older databases gain the People columns and table on startup', async () => {
+  await put('seen.html', '<p>x</p>');
+  await req('GET', '/seen.html');
+  store.db.exec('DROP INDEX views_by_viewer');
+  store.db.exec('ALTER TABLE views DROP COLUMN viewer_id'); // what a 0.17 database looks like
+  store.db.exec('DROP TABLE api_calls_user_daily');
+  store.close();
+  store = db.open();
+  assert.deepEqual(store.all('SELECT viewer_id FROM views').map((r) => r.viewer_id), [null]); // existing views: nobody
+  assert.equal(store.one('SELECT COUNT(*) AS n FROM api_calls_user_daily').n, 0);
 });
 
 test('home shows the page count; header links to GitHub with the version', async () => {

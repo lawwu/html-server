@@ -39,6 +39,7 @@ export const TABLES = [
   { name: 'views', key: ['artifact_id', 'at', 'n', 'visitor:text', 'via:text'] }, // no key of its own: every column
   { name: 'api_calls', key: ['id'] },
   { name: 'api_calls_daily', key: ['day:text', 'client:text', 'name:text', 'method:text', 'route:text'] },
+  { name: 'api_calls_user_daily', key: ['day:text', 'user_id', 'client:text', 'name:text'] },
   { name: 'comments', key: ['id'] }, // by id, so a reply comes after the comment it answers
   { name: 'tags', key: ['artifact_id', 'tag:text'] },
   { name: 'aliases', key: ['artifact_id', 'alias:text'] },
@@ -46,12 +47,12 @@ export const TABLES = [
   // Which files each page's owner let it show, history included: who may see a private
   // file. Not worked out again from the pages, since an editor's mention isn't a grant.
   { name: 'asset_grants', key: ['artifact_id', 'name:text'] },
-  { name: 'meta', key: ['key:text'], where: "key IN ('visitor_secret', 'usernames', 'editing')" },
+  { name: 'meta', key: ['key:text'], where: "key IN ('visitor_secret', 'usernames', 'editing', 'track_people')" },
 ];
 /** Rebuilt from the pages, whatever markers the source has (the search index's table too). */
 const DERIVED = ['links', 'link_targets', 'link_names', 'asset_refs', 'artifacts_fts'];
 /** Settings someone chose: a destination with either already has a configuration of its own. */
-const SETTINGS = ['usernames', 'editing'];
+const SETTINGS = ['usernames', 'editing', 'track_people'];
 /** What visitors and API calls leave behind: the only rows an unused destination may hold. */
 const TELEMETRY = ['views', 'api_calls', 'api_calls_daily'];
 /** Tables with an identity id, whose sequence must move past the imported ids. */

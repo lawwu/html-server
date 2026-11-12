@@ -221,6 +221,9 @@ test('config editing, history, and put --base', async () => {
   assert.match((await cli(['config', 'editing', 'open'], h)).out, /editing: +open/);
   assert.match((await cli(['config'], h)).out, /editing: +open/);
   assert.match((await cli(['config', 'editing', 'wiki'], h)).err, /editing must be one of owner, open/);
+  assert.match((await cli(['config'], h)).out, /track-people: off/);
+  assert.match((await cli(['config', 'track-people', 'on'], h)).out, /track-people: on \(admins see who viewed/);
+  assert.match((await cli(['config', 'track-people', 'yes'], h)).err, /track-people must be on or off/);
 
   const env = { HTML_SERVER_TOKEN: store.createUser('eve') };
   const page = join(dir, 'hist.html');

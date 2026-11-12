@@ -34,7 +34,8 @@ function makeSource(file) {
   s.setEditing('open');
   const c = s.addComment(b, 'plan.html', 'Porto too?');
   s.addComment(a, 'plan.html', 'Yes', null, c.id);
-  s.countView(s.find('plan.html'), 2, ['1.2.3.4', 'Mozilla/5.0'], 'url');
+  s.setTrackPeople('on');
+  s.countView(s.find('plan.html'), 2, ['1.2.3.4', 'Mozilla/5.0'], 'url', b); // bob, signed in
   s.recordApiCall({ client: 'cli', name: 'put', method: 'PUT', route: '/api/artifacts/<slug>', status: 200, userId: a });
   s.rollUpApiCalls(Date.now() / 1000 + 10); // into the daily totals
   s.recordApiCall({ client: 'mcp', name: 'search', method: 'GET', route: '/api/search', status: 500, userId: b });
@@ -62,7 +63,7 @@ test('a preview checks both sides and imports nothing', { skip: live }, () => {
   const before = fileSha(source);
   const r = importSqlite(source, dest);
   assert.deepEqual([r.applied, r.problems], [false, []]);
-  assert.match(r.report[0], /^source: users 2, artifacts 5, page_addresses 1, moves 1, versions 6, views 1, api_calls 1, api_calls_daily 1, comments 2, tags 1, aliases 1, assets 1, asset_grants 1, meta 2$/);
+  assert.match(r.report[0], /^source: users 2, artifacts 5, page_addresses 1, moves 1, versions 6, views 1, api_calls 1, api_calls_daily 1, api_calls_user_daily 1, comments 2, tags 1, aliases 1, assets 1, asset_grants 1, meta 3$/);
   assert.deepEqual(destinationState(dest), { content: {}, settings: [], telemetry: {} });
   assert.equal(fileSha(source), before); // the source is only ever read
 });
@@ -79,7 +80,8 @@ test('--apply keeps everything: users and tokens, ids, addresses, history, bytes
     for (const sql of ['SELECT id, slug, title, owner_id, visibility, state, share_id, latest_version, pinned_at, name_key, created_at FROM artifacts ORDER BY id',
       'SELECT id, name, token_hash, is_admin FROM users ORDER BY id', 'SELECT path, artifact_id FROM page_addresses',
       'SELECT artifact_id, n, sha256, note, author_id FROM versions ORDER BY artifact_id, n', 'SELECT id, parent_id, body FROM comments ORDER BY id',
-      "SELECT key, value FROM meta WHERE key IN ('visitor_secret', 'editing') ORDER BY key",
+      "SELECT key, value FROM meta WHERE key IN ('visitor_secret', 'editing', 'track_people') ORDER BY key",
+      'SELECT artifact_id, viewer_id FROM views', 'SELECT day, user_id, client, name, calls, errors FROM api_calls_user_daily',
       'SELECT artifact_id, name FROM asset_grants ORDER BY artifact_id, name']) {
       assert.deepEqual(rows(dest, sql), rows(src, sql), sql);
     }

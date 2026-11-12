@@ -8,6 +8,16 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **People, in the admins' usage stats.** `/stats` shows admins each signed-in user's API
+  calls (by kind of client), errors, pages viewed and when they were last seen; a name opens
+  their activity, with the pages they viewed and the MCP tools and CLI commands they used
+  most (`GET /api/stats/usage/people/NAME`). Who viewed which pages is recorded only after
+  `html-server config track-people on` (off unless turned on): a view made while signed in
+  then keeps its viewer, for as long as the view is kept, and each person's API calls are
+  kept as daily totals past the 90 days of details. Anonymous visitors stay anonymous, and
+  the Account page tells users when it's on. The database gains a `views.viewer_id` column
+  and an `api_calls_user_daily` table on startup; nothing existing changes, and 0.17 runs
+  on the upgraded database unchanged. `import-sqlite` copies both, and the setting.
 - **Under the hood: the workflows' actions are locked.** Each workflow names exact action
   versions, and `.github/workflows/actions.lock` (GitHub's gh-actions-lock) records each
   one's commit, actions they use in turn included; CI fails if a workflow and the lock file

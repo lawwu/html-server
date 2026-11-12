@@ -332,7 +332,7 @@ details[open] > summary > .chev { rotate: 90deg; }
 .stats .lede { margin: 0; color: var(--mute); font-size: 1rem; }
 .section-label { display: flex; align-items: center; gap: .5rem; font: 600 .78rem/1 var(--head-font); text-transform: uppercase;
   letter-spacing: .08em; color: var(--mute); margin: 2.2rem 0 .8rem; }
-.section-label .badge { text-transform: none; letter-spacing: 0; font: 600 11px/1 var(--body-font); color: var(--accent);
+.section-label .badge, .people-table .badge, .person-head .badge { text-transform: none; letter-spacing: 0; font: 600 11px/1 var(--body-font); color: var(--accent);
   background: var(--accent-soft); padding: .25rem .5rem; border-radius: 999px; }
 
 /* headline cards: the number large, its label above, a note or change below, a trend line along the bottom */
@@ -419,6 +419,25 @@ details[open] > summary > .chev { rotate: 90deg; }
 .routes-table code { font-size: 11.5px; background: none; padding: 0; }
 .routes-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .err-count { color: #b4442c; font-weight: 600; }
+/* People: each signed-in user's activity; a name opens theirs below the table */
+.people-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.people-table th, .people-table td { text-align: left; padding: .4rem .45rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.people-table thead th { font-weight: 600; color: var(--mute); font-size: 11.5px; }
+.people-table tbody th { font-weight: 400; }
+.people-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.people-table .when { color: var(--mute); font-variant-numeric: tabular-nums; }
+.person-link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.person-link:hover, .person-link[aria-expanded="true"] { color: var(--accent-hover); }
+.mix { display: flex; align-items: center; gap: .5rem; min-width: 11rem; }
+.mix-track { flex: 1; height: .6rem; background: color-mix(in srgb, var(--fg) 5%, transparent); border-radius: 0 4px 4px 0; }
+.mix-bar { display: flex; height: 100%; gap: 2px; border-radius: 0 4px 4px 0; overflow: hidden; }
+.mix-bar i { width: auto; height: 100%; border-radius: 0; min-width: 2px; }
+.mix-n { color: var(--mute); font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+.person-detail { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.person-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .8rem; margin-bottom: .6rem; }
+.person-head h3 { margin: 0; font-size: 1.05rem; }
+.person-head .person-close { margin-left: auto; }
+@media (max-width: 600px) { .mix { min-width: 6.5rem; } .people-table th, .people-table td { padding: .4rem .3rem; } }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .err-count { color: #ef7d62; } }
 :root[data-theme="dark"] .err-count { color: #ef7d62; }
 .foot-note { margin-top: 2rem; }
