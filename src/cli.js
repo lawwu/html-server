@@ -366,6 +366,12 @@ const clientCommands = {
    * working. Safe to re-run: a file identical to the page's latest version is
    * skipped, and a changed one becomes a new version.
    */
+  async visibility([name, to, ...extra]) {
+    if (!name || !['public', 'private'].includes(to) || extra.length) fail('usage: visibility NAME public|private');
+    const a = await api('POST', `/api/artifacts/${enc(name)}/visibility?to=${to}`, { auth: 'required' });
+    console.log(`${a.slug} → ${a.visibility}: ${SERVER}${a.url}`);
+    if (a.visibility === 'private') console.log(`share link: ${SERVER}${a.share_url}`);
+  },
   async mv([from, to]) {
     if (!from || !to) fail('usage: mv FROM TO (a full page path, or a folder ending in /)');
     if (to.endsWith('/')) to += from.split('/').at(-1);
