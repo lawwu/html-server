@@ -38,6 +38,14 @@ Use a running server:
   put FILE [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]
                                         upload an .html page, .md note or .ipynb notebook; it lives at /pages/<file name>.
                                         --base N: refuse if someone added a version after vN
+  get NAME [--output FILE] [--version N] [--json]
+                                        download exact source; output files must not already exist
+  trash ls | trash restore NAME        list your trash or recover a page without adding a version
+  share NAME [--rotate]                 retrieve a share link; --rotate revokes the old one (owner only)
+  assets ls | assets put FILE [--name NAME] | assets rm NAME
+                                        manage uploaded images and PDFs (rm deletes permanently)
+  comments ls NAME | comments resolve ID | comments reopen ID
+                                        read comments or change resolution (author or page owner)
   history NAME                          every version, with date, author and note
   visibility NAME public|private        change a page's visibility without uploading a version (owner only)
                                         making it private revokes old share links
@@ -64,6 +72,8 @@ Use a running server:
   whoami
   claim-link NAME                       (admin or claims-only) a one-time link that shows NAME a new token in their browser;
                                         makes the user if needed. For CI: README, "Tokens from a GitHub workflow"
+  --json                                structured output for get, trash, share, assets, comments,
+                                        ls, find, search, history, tags, diff, views and whoami
   --version                             print the version
 
 Data lives in ${homeDir} (HTML_SERVER_HOME moves it), or in PostgreSQL when

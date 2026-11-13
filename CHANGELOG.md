@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- CLI and MCP now support trash recovery, share-link retrieval/rotation, asset management and comment resolution. The CLI also downloads versioned source and provides consistent `--json` output for remote read commands.
+
 - Change existing page visibility without re-uploading content: `html-server visibility NAME public|private` and MCP `set_page_visibility`. Owner-only access and share-link revocation use the existing server behavior.
 
 - Browser sign-in, folder sync and page delivery now have dedicated modules. Browser
