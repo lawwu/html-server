@@ -123,7 +123,10 @@ test('SSO in Chromium: a token saved before single sign-on never gets in the way
   await page.evaluate(() => localStorage.setItem('artifact_token', 'ak_replaced-long-ago'));
   idp.st.next = { sub: 'c-1', email: 'carol@example.com', email_verified: true };
   await page.goto(`${base}/review/discuss.md`);
-  await page.waitForURL(`${base}/review/discuss.md`);
+  // Force the fast-load ordering that used to fail in CI: the review has already
+  // selected its version and updated the address before we check where sign-in landed.
+  await page.waitForFunction(() => new URLSearchParams(location.search).get('v') === '1');
+  await page.waitForURL((url) => url.origin === base && url.pathname === '/review/discuss.md');
   await page.locator('#who', { hasText: 'Signed in as carol' }).waitFor(); // was "Saved token was rejected."
   assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), null); // forgotten: the session is the sign-in
   // Commenting, replying and resolving with no token at all.
@@ -137,4 +140,48 @@ test('SSO in Chromium: a token saved before single sign-on never gets in the way
   assert.equal(store.one("SELECT COUNT(*) AS n FROM comments c JOIN users u ON u.id = c.author_id WHERE u.name = 'carol' AND c.resolved_at IS NOT NULL").n, 1);
   assert.deepEqual(errors, []);
   await context.close();
+});
+
+test('SSO: note and notebook scripts never receive another viewer\'s private previews, navigation or assets', async (t) => {
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const page = await context.newPage();
+  page.setDefaultTimeout(8000);
+  idp.st.next = { sub: 'privacy-viewer', email: 'privacy-viewer@example.com', email_verified: true };
+  await page.goto(`${base}/account`);
+  await page.getByRole('heading', { name: 'Your account', exact: true }).waitFor();
+  const viewer = store.one("SELECT id FROM users WHERE name = 'privacy-viewer'").id;
+  const owner = store.userForToken(author).id;
+  store.putVersion(viewer, 'viewer-secret.md', Buffer.from('# PRIVATE_TITLE_CANARY\n\nPRIVATE_PREVIEW_CANARY\n\n[[untrusted-note]]'), { visibility: 'private' });
+  const privateAsset = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><text>PRIVATE_ASSET_CANARY</text></svg>');
+  const allowedAsset = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><text>PAGE_ASSET_CANARY</text></svg>');
+  store.putAsset(viewer, 'viewer-secret.svg', privateAsset);
+  store.putAsset(owner, 'page-allowed.svg', allowedAsset);
+  store.putVersion(owner, 'public-linked.md', Buffer.from('# Public linked\n\nPUBLIC_PREVIEW_CANARY'));
+  const markdown = '# Untrusted\n\n[[viewer-secret]] [[public-linked]]\n\n![[viewer-secret.svg]] ![[page-allowed.svg]]';
+  const script = "<script>addEventListener('DOMContentLoaded', () => { window.authorRead = document.documentElement.outerHTML; });</script>";
+  store.putVersion(owner, 'untrusted-note.md', Buffer.from(`${markdown}\n\n${script}`));
+  store.putVersion(owner, 'untrusted-note.md', Buffer.from(`${markdown}\n\n${script}\n\nSecond version.`));
+  store.putVersion(owner, 'untrusted-notebook.ipynb', Buffer.from(JSON.stringify({ nbformat: 4, cells: [
+    { cell_type: 'markdown', source: markdown },
+    { cell_type: 'code', source: '', outputs: [{ output_type: 'display_data', data: { 'text/html': script } }] },
+  ] })));
+  const sharedAsset = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><text>SHARED_ASSET_CANARY</text></svg>');
+  store.putAsset(owner, 'shared-only.svg', sharedAsset);
+  const shared = store.putVersion(owner, 'untrusted-private.md', Buffer.from(`${markdown}\n\n![[shared-only.svg]]\n\n${script}`), { visibility: 'private' });
+  for (const path of ['/pages/untrusted-note.md', '/pages/untrusted-note.md?v=1', '/pages/untrusted-note.md?preview=1',
+    '/pages/untrusted-note.md?embed=1', '/pages/untrusted-notebook.ipynb', shared.share_url]) {
+    await page.goto(base + path);
+    await page.waitForFunction(() => typeof window.authorRead === 'string');
+    const seen = await page.evaluate(() => window.authorRead);
+    for (const secret of ['PRIVATE_TITLE_CANARY', 'PRIVATE_PREVIEW_CANARY', privateAsset.toString('base64')]) {
+      assert.ok(!seen.includes(secret), `${path} exposed ${secret}`);
+    }
+    assert.ok(seen.includes(allowedAsset.toString('base64')), `${path} still shows its authorized asset`);
+    if (path === shared.share_url) assert.ok(seen.includes(sharedAsset.toString('base64')), 'the share link still grants its private asset');
+    if (!path.includes('preview=1')) assert.ok(seen.includes('PUBLIC_PREVIEW_CANARY'), `${path} keeps public hover previews`);
+  }
+  // The viewer's private explorer remains available in the site's trusted pages.
+  await page.goto(base);
+  assert.equal(await page.getByRole('link', { name: 'PRIVATE_TITLE_CANARY', exact: true }).count() > 0, true);
 });

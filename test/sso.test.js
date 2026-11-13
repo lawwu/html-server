@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
-import { setPublicUrl, setSso } from '../src/config.js';
+import { setPublicUrl, setSso, sso } from '../src/config.js';
 import { makeServer } from '../src/server.js';
 import { forgetProvider } from '../src/sso.js';
 import { fakeProvider } from './fake-oidc.js';
@@ -114,6 +114,55 @@ test('SSO: signing in, back where you started, as an account made the first time
   assert.equal(home.status, 200);
   assert.match(await home.text(), /<body data-sso-user="ann-lee" /);
   assert.deepEqual(await (await get('/api/me', { ...OWN, cookie: session })).json(), { name: 'ann-lee', is_admin: false });
+});
+
+test('SSO: partial or blank configuration is refused without disabling an existing sign-in gate', async () => {
+  const configured = sso();
+  const required = ['OIDC_ISSUER', 'OIDC_CLIENT_ID', 'OIDC_CLIENT_SECRET'];
+  const complete = { OIDC_ISSUER: issuer, OIDC_CLIENT_ID: 'html-server', OIDC_CLIENT_SECRET: 'never-print-this-secret' };
+  for (const key of required) {
+    for (const value of [undefined, '', '   ']) {
+      const env = { ...complete, [key]: value };
+      if (value === undefined) delete env[key];
+      assert.throws(() => setSso(env), (e) => e.message.includes(key) && !e.message.includes(complete.OIDC_CLIENT_SECRET));
+      assert.equal(sso(), configured);
+      assert.equal((await get('/api/artifacts')).status, 401);
+    }
+  }
+  assert.throws(() => setSso({ OIDC_ISSUER: '' }), /OIDC_ISSUER/);
+  setSso({}); // only an absent configuration disables SSO
+  assert.equal(sso(), null);
+});
+
+test('SSO: usage attributes session requests and token rotation, but never rejected credentials', async () => {
+  const { session } = await signIn({ sub: 'usage-person', email: 'usage-person@example.com' });
+  const user = store.one("SELECT id FROM users WHERE name = 'usage-person'");
+  store.run('DELETE FROM api_calls');
+  const last = () => ({ ...store.one('SELECT user_id, status, client FROM api_calls ORDER BY id DESC LIMIT 1') });
+  assert.equal((await get('/api/me', { ...OWN, cookie: session })).status, 200);
+  assert.deepEqual(last(), { user_id: user.id, status: 200, client: 'browser' });
+  // A valid identity denied admin access still owns that error in the People stats.
+  assert.equal((await get('/api/users', { ...OWN, cookie: session })).status, 403);
+  assert.equal(last().user_id, user.id);
+  const token = store.resetToken('usage-person');
+  assert.equal((await post('/api/me/token', { Authorization: `Bearer ${token}` })).status, 200);
+  assert.equal(last().user_id, user.id); // authentication happened before the token was replaced
+  for (const headers of [
+    { ...OWN, cookie: session, Authorization: `Bearer ${token}` }, // invalid token takes precedence
+    { ...OWN, cookie: session, Origin: 'null' }, // a sandboxed page
+    { ...OWN, cookie: session, 'Sec-Fetch-Site': 'cross-site' },
+  ]) {
+    assert.equal((await get('/api/me', headers)).status, 401);
+    assert.equal(last().user_id, null);
+  }
+  const stale = store.resetToken('usage-person');
+  store.run('UPDATE users SET last_sso_at = ? WHERE id = ?', Date.now() / 1000 - 31 * 86400, user.id);
+  assert.equal((await get('/api/me', { Authorization: `Bearer ${stale}` })).status, 401);
+  assert.equal(last().user_id, null);
+  const person = store.personActivity('usage-person');
+  assert.equal(person.totals.calls, 3);
+  assert.equal(person.totals.browser, 2);
+  assert.equal(person.totals.errors, 1);
 });
 
 test('SSO: the account page makes your one API token; it works for the CLI, and stops after 30 idle days', async () => {

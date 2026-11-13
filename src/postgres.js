@@ -382,19 +382,28 @@ export class PostgresDatabase {
 
   /** fn() in a transaction; inside another one, in a savepoint, so it can fail alone. */
   transaction(fn) {
-    const sp = this.depth ? `sp${this.depth}` : null;
+    const depth = this.depth;
+    const sp = depth ? `sp${depth}` : null;
     this.raw(sp ? `SAVEPOINT ${sp}` : 'BEGIN');
     this.depth++;
     try {
       const out = fn();
-      this.depth--;
       this.raw(sp ? `RELEASE SAVEPOINT ${sp}` : 'COMMIT');
       return out;
     } catch (e) {
-      this.depth--;
       // A lost connection has rolled back already (the database does that), and says so in e.
-      if (this.client && !this.closed) this.raw(sp ? `ROLLBACK TO SAVEPOINT ${sp}` : 'ROLLBACK');
+      if (this.client && !this.closed) {
+        try { this.raw(sp ? `ROLLBACK TO SAVEPOINT ${sp}` : 'ROLLBACK'); }
+        catch {
+          // Preserve the original error, and never reuse a connection whose transaction
+          // could not be cleaned up. An outer transaction must unwind before reconnecting.
+          if (this.client) release(this.client).catch(() => {});
+          this.client = null;
+        }
+      }
       throw e;
+    } finally {
+      this.depth = depth; // once, even if COMMIT, RELEASE or ROLLBACK itself failed
     }
   }
 

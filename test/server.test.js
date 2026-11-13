@@ -1370,6 +1370,31 @@ test('assets are served only to those who may see them', async () => {
   assert.equal((await req('GET', '/api/assets'))[0], 401);
 });
 
+test('rendering an untrusted note never lends it the viewer\'s private data, even with a bearer token', async () => {
+  const owner = store.userForToken(store.createUser('note-author')).id;
+  const viewer = store.userForToken(admin).id;
+  store.putVersion(viewer, 'secret.md', Buffer.from('# Private title canary\n\nPrivate preview canary\n\n[[untrusted]]'), { visibility: 'private' });
+  const secret = Buffer.from('<svg>Private asset canary</svg>');
+  const allowed = Buffer.from('<svg>Authorized page asset</svg>');
+  store.putAsset(viewer, 'secret.svg', secret);
+  store.putAsset(owner, 'allowed.svg', allowed);
+  const source = Buffer.from('# Untrusted\n\n[[secret]] ![[secret.svg]] ![[allowed.svg]]');
+  const shared = store.putVersion(owner, 'untrusted.md', source, { visibility: 'private' });
+  store.putVersion(owner, 'untrusted.md', Buffer.concat([source, Buffer.from('\n\nVersion two')]));
+  const leaked = /Private title canary|Private preview canary/;
+  for (const token of [undefined, admin]) {
+    for (const path of [shared.share_url, shared.share_url + '?v=1', shared.share_url + '?preview=1']) {
+      const [status, body] = await req('GET', path, { token });
+      assert.equal(status, 200);
+      assert.doesNotMatch(body, leaked);
+      assert.ok(!body.includes(secret.toString('base64')), 'no viewer-owned asset is inlined');
+      assert.ok(body.includes(allowed.toString('base64')), 'the page keeps its authorized private asset');
+    }
+  }
+  // Trusted site navigation still shows the viewer their own private pages.
+  assert.match((await req('GET', '/', { token: admin }))[1], /Private title canary/);
+});
+
 test('responses: nosniff on text, Vary always, favicon.ico and robots.txt answered without a lookup', async () => {
   await put('page.html', '<p>tiny</p>');
   for (const path of ['/api/tags', '/pages/page.html', '/docs.md', '/_static/style.css']) {

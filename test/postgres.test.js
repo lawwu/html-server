@@ -138,6 +138,61 @@ test('a lost connection: the next query connects again; a read that found it gon
   }
 });
 
+test('transaction completion failures preserve nesting, the original error and connection recovery', async () => {
+  const clients = [], calls = [];
+  let fail = null;
+  class Faulty {
+    constructor() {
+      clients.push(this);
+      this.down = false;
+      this.pq = { transactionStatus: () => (this.down ? 4 : 0), resultErrorFields: () => ({}) };
+    }
+    connectSync() {}
+    querySync(sql) {
+      calls.push(sql);
+      if (this.down) throw new Error('connection lost');
+      if (fail?.sql === sql) {
+        const failure = fail;
+        fail = failure.next ?? null;
+        this.down = !!failure.disconnect;
+        throw new Error(failure.message);
+      }
+      return /to_regprocedure/.test(sql) ? [{ x: true }] : [];
+    }
+    end(cb) { setImmediate(cb); }
+  }
+  const db = PostgresDatabase.open('postgres://test/transactions', { Client: Faulty, types: { getTypeParser: () => String } });
+  try {
+    for (const disconnect of [false, true]) {
+      fail = { sql: 'COMMIT', message: 'commit failed', disconnect };
+      assert.throws(() => db.transaction(() => db.raw('UPDATE items SET x = 1')), /commit failed/);
+      assert.equal(db.depth, 0);
+      // The next transaction must start afresh, reconnecting if needed; never retry the uncertain commit.
+      const at = calls.length;
+      db.transaction(() => db.raw('UPDATE items SET x = 2'));
+      assert.ok(calls.slice(at).includes('BEGIN'));
+      assert.ok(!calls.slice(at).some((sql) => /SAVEPOINT/.test(sql)));
+      assert.equal(db.depth, 0);
+    }
+    db.transaction(() => {
+      fail = { sql: 'RELEASE SAVEPOINT sp1', message: 'release failed' };
+      assert.throws(() => db.transaction(() => db.raw('UPDATE items SET x = 3')), /release failed/);
+      assert.equal(db.depth, 1);
+      db.transaction(() => db.raw('UPDATE items SET x = 4'));
+    });
+    assert.equal(db.depth, 0);
+    // A failed rollback must neither mask the original error nor leave a dirty connection reusable.
+    fail = { sql: 'COMMIT', message: 'original commit failure', next: { sql: 'ROLLBACK', message: 'rollback failed' } };
+    const before = clients.length;
+    assert.throws(() => db.transaction(() => {}), /original commit failure/);
+    assert.equal(db.depth, 0);
+    db.transaction(() => db.raw('UPDATE items SET x = 5'));
+    assert.equal(clients.length, before + 1);
+  } finally {
+    await db.close();
+  }
+});
+
 // --- against a real PostgreSQL -----------------------------------------------------------
 let dir, db, store;
 before(async () => {
@@ -175,6 +230,14 @@ test('nested transactions are savepoints: an inner failure rolls back only itsel
   assert.deepEqual(['outer', 'inner', 'after'].map((k) => store.setting(k) ?? null), ['1', null, '1']);
   assert.throws(() => store.tx(() => { store.setSetting('rolled', '1'); throw new Error('outer fails'); }));
   assert.equal(store.setting('rolled'), undefined);
+});
+
+test('a deferred constraint failing at COMMIT rolls back and the next transaction succeeds', { skip: live }, () => {
+  store.db.raw('CREATE TEMP TABLE commit_guard (id INTEGER UNIQUE DEFERRABLE INITIALLY DEFERRED)');
+  assert.throws(() => store.tx(() => store.db.raw('INSERT INTO commit_guard VALUES (1), (1)')), /duplicate key/);
+  assert.deepEqual(store.db.raw('SELECT COUNT(*) AS n FROM commit_guard'), [{ n: 0 }]);
+  store.tx(() => store.db.raw('INSERT INTO commit_guard VALUES (2)'));
+  assert.deepEqual(store.db.raw('SELECT id FROM commit_guard'), [{ id: 2 }]);
 });
 
 test('local days follow Node\'s time zone, even when it changes', { skip: live }, () => {

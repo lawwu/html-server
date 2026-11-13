@@ -23,9 +23,10 @@ let dir, home, db, server, url, store, serverDb, homeDb;
  * Run the CLI; resolves { code, out, err }. Asynchronous on purpose: the server
  * under test runs in this process, so a blocking spawnSync would deadlock it.
  */
-function cli(args, env = {}) {
+function cli(args, env = {}, { timeout } = {}) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [CLI, ...args], {
+      timeout,
       env: { ...process.env, ...GIT_ENV, ...homeDb.env, HTML_SERVER_HOME: home, HTML_SERVER_URL: url, HTML_SERVER_TOKEN: '', ...env },
     });
     let out = '', err = '';
@@ -385,6 +386,47 @@ test('sync --prune finds every page from the folder, past the 500 one request li
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /1 new, 510 trashed/);
   assert.equal(store.one("SELECT COUNT(*) AS n FROM artifacts WHERE source = ? AND state = 'active'", folder).n, 1);
+});
+
+test('sync refuses colliding asset names before uploading, moving or pruning anything, including dry runs', async () => {
+  const token = store.createUser('asset-collision-sync');
+  const env = { HTML_SERVER_TOKEN: token };
+  const owner = store.userForToken(token).id;
+  const root = join(dir, 'asset-collisions');
+  for (const part of ['a', 'b']) mkdirSync(join(root, part), { recursive: true });
+  store.putVersion(owner, 'collision-kept.md', Buffer.from('# Keep me'), { source: root, path: 'gone.md' });
+  store.putVersion(owner, 'a-note.md', Buffer.from('# Before migration'), { source: root, path: 'a/note.md' });
+  const original = Buffer.from('original asset');
+  store.putAsset(owner, 'collision-chart.png', original);
+  writeFileSync(join(root, '0-new.md'), '# New page');
+  writeFileSync(join(root, 'a', 'note.md'), '# New note');
+  writeFileSync(join(root, 'a', 'collision-chart.png'), 'first image');
+  // Case and spaces are folded before upload, so these collide too.
+  for (const second of ['collision-chart.png', 'COLLISION-CHART.PNG', 'collision chart.png']) {
+    const path = join(root, 'b', second);
+    writeFileSync(path, 'second image');
+    for (const args of [[], ['--dry-run']]) {
+      const r = await cli(['sync', root, '--prune', '--migrate-paths', ...args], env);
+      assert.equal(r.code, 1, r.out);
+      assert.match(r.err, /asset.*collision|same asset name/i);
+      assert.ok(r.err.includes('a/collision-chart.png') && r.err.includes(`b/${second}`), r.err);
+      assert.equal(store.find('0-new.md'), undefined);
+      assert.equal(store.one('SELECT 1 FROM artifacts WHERE slug = ?', 'a/note.md'), undefined);
+      assert.deepEqual([store.find('a-note.md').slug, store.find('a-note.md').latest_version], ['a-note.md', 1]); // no migration or update
+      assert.equal(store.find('collision-kept.md').state, 'active');
+      assert.deepEqual(Buffer.from(store.asset('collision-chart.png').data), original);
+    }
+    rmSync(path);
+  }
+});
+
+test('serve refuses partial SSO configuration before opening a database or listening', async () => {
+  const fresh = join(dir, 'incomplete-sso');
+  const r = await cli(['serve', '--port', '0'], { HTML_SERVER_HOME: fresh, OIDC_ISSUER: 'https://id.example', OIDC_CLIENT_ID: 'client', OIDC_CLIENT_SECRET: '' }, { timeout: 10000 });
+  assert.equal(r.code, 1);
+  assert.match(r.err, /OIDC_CLIENT_SECRET/);
+  assert.doesNotMatch(r.err, /first run:|html-server .* on http|\n\s+at /);
+  assert.equal(existsSync(fresh), false);
 });
 
 test('sync: a file renamed in case only renames its page, rather than making a second one', async () => {
