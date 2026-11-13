@@ -162,3 +162,26 @@ test('MCP rejects invalid argument types before publishing or modifying anything
   const valid = data(await call('publish_page', { name: 'boolean-false.html', html: '<p>Private</p>', public: false }));
   assert.equal(valid.visibility, 'private');
 });
+
+test('set_page_visibility publishes without new content and can revoke public access', async () => {
+  const name = 'visibility/mcp.md';
+  const made = data(await call('publish_page', { name, markdown: '# Visibility' }));
+  const { tools } = (await rpc('tools/list')).result;
+  assert.ok(tools.some((t) => t.name === 'set_page_visibility'));
+  assert.equal((await fetch(made.url)).status, 404);
+  const changed = data(await call('set_page_visibility', { name, visibility: 'public' }));
+  assert.equal(changed.visibility, 'public');
+  assert.equal((await fetch(changed.url)).status, 200);
+  assert.equal(data(await call('page_history', { name })).versions.length, 1);
+  const other = store.userForToken(store.createUser('visibility-other')).id;
+  store.putVersion(other, 'other-visibility.md', Buffer.from('# Other'));
+  assert.equal((await call('set_page_visibility', { name: 'other-visibility.md', visibility: 'private' })).isError, true);
+  assert.equal((await call('set_page_visibility', { name, visibility: 'invalid' })).isError, true);
+  const hidden = data(await call('set_page_visibility', { name, visibility: 'private' }));
+  assert.equal(hidden.visibility, 'private');
+  assert.equal((await fetch(changed.url)).status, 404);
+  assert.equal((await fetch(made.share_url)).status, 404);
+  assert.equal((await fetch(hidden.share_url)).status, 200);
+  assert.equal(data(await call('set_page_visibility', { name, visibility: 'private' })).share_url, hidden.share_url);
+  assert.equal(data(await call('page_history', { name })).versions.length, 1);
+});
