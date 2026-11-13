@@ -1098,6 +1098,40 @@ link with `POST /api/artifacts/<name>/share`. After upgrading from an older vers
 links for private pages that were previously public, since their metadata may have exposed
 the old capability.
 
+## Manage pages from the CLI and MCP
+
+```sh
+html-server trash ls --json
+html-server trash restore research/report.html
+html-server share research/report.html
+html-server share research/report.html --rotate
+html-server get research/report.html --output report.html --version 1
+html-server assets ls --json
+html-server assets put chart.png
+html-server assets rm chart.png
+html-server comments ls research/report.html --json
+html-server comments resolve 42
+html-server comments reopen 42
+```
+
+Downloads preserve source content and refuse to overwrite an existing file. Trash
+recovery does not create a version. Rotating a share link invalidates the previous
+link; deleting an asset is permanent and breaks references to it. Server permissions
+apply to every operation.
+
+`--json` emits a single JSON value on stdout for `get`, `trash`, `share`, `assets`,
+`comments`, `ls`, `find`, `search`, `history`, `tags`, `diff`, `views`, and `whoami`.
+Errors go to stderr with a nonzero exit. `get --json` returns `{name, version, source}`;
+`diff --json` returns `{name, diff}`. With `get --output FILE --json`, the source is
+also written to the file. `views` already uses JSON by default.
+
+MCP exposes `list_trash`, `restore_page`, `trash_page`, `get_share_link`,
+`rotate_share_link`, `list_assets`, `upload_asset`, `delete_asset`, `resolve_comment`
+and `reopen_comment`. Use the existing `get_page` and `list_comments` to read source
+and discussions. `upload_asset` takes a file name and standard base64 bytes, so the
+MCP server does not need access to the client's filesystem. MCP results are already
+structured; no JSON flag is needed.
+
 ## Change page visibility
 
 Make an existing private page public without uploading it again:
