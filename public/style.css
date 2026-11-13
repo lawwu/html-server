@@ -72,7 +72,6 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
   border-bottom: 1px solid var(--line); background: var(--bg); }
 .brand { font: 700 1.3rem/1.2 var(--head-font); color: var(--fg); white-space: nowrap; }
 .brand:hover { color: var(--fg); }
-.topbar .gh { margin-left: -.6rem; }
 .top-tools { display: flex; align-items: center; gap: .6rem; margin-left: auto; }
 .top-tools .side-search { width: 15rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -93,10 +92,6 @@ button { cursor: pointer; } button:hover { border-color: var(--mute); } button:d
   :root[data-sidebar="hidden"] .page > .sidebar.left { display: none; }
 }
 @media (max-width: 800px) { .sidebar-toggle { display: none; } }
-.gh { display: inline-flex; align-items: center; gap: .3rem; color: var(--mute); font: 400 12px/1 var(--body-font);
-  padding: .3rem .5rem; border: 1px solid var(--line); border-radius: 999px; }
-.gh svg { width: 14px; height: 14px; fill: currentColor; }
-.gh:hover { color: var(--fg); border-color: var(--mute); }
 .side-search { position: relative; }
 .side-search svg { position: absolute; left: .7rem; top: 50%; translate: 0 -50%; width: 16px; height: 16px; fill: none;
   stroke: var(--mute); stroke-width: 2; stroke-linecap: round; pointer-events: none; }
@@ -419,6 +414,13 @@ details[open] > summary > .chev { rotate: 90deg; }
 .routes-table code { font-size: 11.5px; background: none; padding: 0; }
 .routes-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .err-count { color: #b4442c; font-weight: 600; }
+/* Previous / Next under the cards on the home page and in folders */
+.pager { display: flex; align-items: center; justify-content: center; gap: 1.2rem; margin: 1.6rem 0 .4rem; font-size: 14px; }
+.pager a, .pager .off { padding: .4rem .8rem; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; }
+.pager a { color: var(--fg); }
+.pager a:hover { border-color: var(--accent); color: var(--accent); }
+.pager .off { color: var(--mute); opacity: .5; }
+.pager .where { color: var(--mute); font-variant-numeric: tabular-nums; }
 /* People: each signed-in user's activity; a name opens theirs below the table */
 .people-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .people-table th, .people-table td { text-align: left; padding: .4rem .45rem; border-bottom: 1px solid var(--line); white-space: nowrap; }

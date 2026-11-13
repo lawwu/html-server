@@ -191,9 +191,11 @@ extension (`/research/report` opens `research/report.html`), and a top-level nam
 leave it off. `/research/` is an automatic contents page with subfolders, search,
 sorting, and grid/list views. It shows direct children by default; **Include
 subfolders** shows descendants, and searches always include them. Folder names also
-become links in the explorer and breadcrumbs. The home page still shows all pages. A
-listing shows up to 500 cards; the line above them counts every page or match you can
-see, and says when only the first 500 are shown.
+become links in the explorer and breadcrumbs. The home page still shows all pages. The
+home page and folders show 48 cards at a time, featured pages first, with **Previous** and
+**Next** under them (`?page=2`); those keep the search, tag, order and layout, and a new
+search or order starts again at page 1. The line above the cards counts every page or match
+you can see, and says which page this is.
 
 Use **Move…** on a page (through its review screen), or **Select → Move…** for a
 selection. The dialog previews destination addresses and lets you choose or type a

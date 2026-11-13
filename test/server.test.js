@@ -452,12 +452,14 @@ test('pages with the words as typed rank before pages found through a typo', asy
   assert.deepEqual(slugs((await req('GET', '/api/artifacts?q=grape'))[1]), ['b.html', 'a.html']);
 });
 
-test('the home page writes snippets for its first cards only, and a one-letter search none', async () => {
-  const { CARD_SNIPPETS } = await import('../src/config.js');
-  for (let i = 0; i < CARD_SNIPPETS + 2; i++) await put(`p${i}.html`, `<title>Page ${i}</title><p>common words</p>`);
-  const [, frag] = await req('GET', '/?q=common&fragment=1');
-  assert.equal((frag.match(/<article /g) || []).length, CARD_SNIPPETS + 2);
-  assert.equal((frag.match(/<mark>common<\/mark>/g) || []).length, CARD_SNIPPETS);
+test('every card on a page of the home page has its snippet, and a one-letter search none', async () => {
+  const { PAGE_SIZE } = await import('../src/config.js');
+  for (let i = 0; i < PAGE_SIZE + 2; i++) await put(`p${i}.html`, `<title>Page ${i}</title><p>common words</p>`);
+  for (const [page, n] of [[1, PAGE_SIZE], [2, 2]]) {
+    const [, frag] = await req('GET', `/?q=common&fragment=1&page=${page}`);
+    assert.equal((frag.match(/<article /g) || []).length, n);
+    assert.equal((frag.match(/<mark>common<\/mark>/g) || []).length, n);
+  }
   assert.ok((await req('GET', '/api/search?q=common&limit=60'))[1].results.every((r) => r.snippet)); // the API: all of them
   assert.ok((await req('GET', '/api/search?q=c'))[1].results.every((r) => r.snippet === null));
 });
@@ -543,13 +545,14 @@ test('an old version carries a badge linking to the current version and history'
   assert.doesNotMatch(shared, /data-history/); // share links may be private: no history link
 });
 
-test('footer and docs link to the GitHub release that is running; uploaded pages get neither', async () => {
+test('footer and docs link to the GitHub release that is running, not the repository; uploaded pages get neither', async () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   const release = `https://github.com/lawwu/html-server/releases/tag/v${pkg.version}`;
   for (const path of ['/', '/gallery', '/api', '/review/x']) {
     const [, page] = await req('GET', path);
     assert.match(page, new RegExp(`<footer class="site-foot"><a href="${release}">HTML Server v${pkg.version.replace(/\./g, '\\.')}</a>`), path);
-    assert.match(page, /<a href="https:\/\/github.com\/lawwu\/html-server">Source on GitHub<\/a>/, path);
+    assert.doesNotMatch(page, /Source on GitHub/, path);
+    assert.match(page, /· <a href="\/docs">Docs<\/a><\/footer>/, path);
   }
   const [, docs] = await req('GET', '/api');
   assert.match(docs, new RegExp(`<a href="${release}">HTML Server v`));
@@ -899,7 +902,7 @@ test('home shows the page count; header links to GitHub with the version', async
   assert.match(page, /<p id="count" class="meta">2 pages · 1 featured<\/p>/);
   assert.match(page, /<div class="cards" data-count="2 pages · 1 featured">/); // what live search shows when the box is cleared
   assert.match((await req('GET', '/?q=one'))[1], /<p id="count"[^>]*>1 match<\/p>/);
-  assert.match(page, new RegExp(`<a class="gh" href="https://github.com/lawwu/html-server/releases/tag/v${pkg.version}" target="_top"[^>]*><svg[^]*?</svg><span>v${pkg.version.replace(/\./g, '\\.')}</span></a>`));
+  assert.doesNotMatch(page, /class="gh"|github\.com\/lawwu\/html-server"/); // no repository link in the top bar (the footer names the release)
   assert.match((await req('GET', '/gallery'))[1], /<p id="count" class="meta">34 example pages<\/p>/);
   // The featured essay, then the three maps of content, lead the gallery and its filters.
   assert.deepEqual(examples().slice(0, 4).map((e) => e.category), ['featured', 'moc', 'moc', 'moc']);
@@ -1820,26 +1823,46 @@ test('a page in a folder needs its extension, so its name never reads as one of 
   assert.equal((await move([{ from: 'legacy/notes', to: 'legacy/notes.html' }]))[0], 200);
 });
 
-test('listings count all the pages and matches the viewer can see, and say when they show only the first 500', async () => {
+test('the home page and folders show 48 cards at a time, with Previous and Next that keep the search and order', async () => {
   const id = store.userForToken(admin).id;
   for (let i = 1; i <= 502; i++) store.putVersion(id, `reports/r${String(i).padStart(3, '0')}.html`, Buffer.from(`<title>Report ${i}</title><p>quarterly figures</p>`));
   await put('reports/private.html', '<title>Private report</title><p>quarterly figures</p>', admin, '?visibility=private');
   await put('other.html', '<title>Other</title><p>quarterly figures</p>');
   const line = (html) => html.match(/<p id="count" class="meta">([^<]*)<\/p>/)[1];
   const cards = (html) => (html.match(/<article class="card/g) || []).length;
+  const slugsOn = (html) => [...html.matchAll(/<article class="card[^"]*" data-slug="([^"]+)"/g)].map((m) => m[1]);
+  const pager = (html) => html.match(/<nav class="pager"[^]*?<\/nav>/)?.[0] ?? '';
+
   let [, html] = await req('GET', '/reports/');
-  assert.deepEqual([line(html), cards(html)], ['502 pages · showing the first 500', 500]);
-  [, html] = await req('GET', '/reports/?q=quarterly');
-  assert.deepEqual([line(html), cards(html)], ['502 matches · showing the first 500', 500]);
-  [, html] = await req('GET', '/?q=quarterly');
-  assert.equal(line(html), '503 matches · showing the first 500');
-  assert.equal(line((await req('GET', '/'))[1]), '503 pages · showing the first 500');
-  assert.equal(line((await req('GET', '/?q=Other'))[1]), '1 match');
-  // Live search swaps in the cards with their line, from the folder it was typed in.
-  assert.match((await req('GET', '/reports/?q=quarterly&fragment=1'))[1], /^<div class="cards" data-count="502 matches · showing the first 500">/);
-  assert.match((await req('GET', '/reports/?q=Report+7&fragment=1'))[1], /data-count="\d+ match(es)?"/);
+  assert.deepEqual([line(html), cards(html)], ['502 pages · page 1 of 11', 48]);
+  assert.match(pager(html), /<span class="off" aria-hidden="true">← Previous<\/span><span class="where" aria-current="page">Page 1 of 11<\/span><a href="\/reports\/\?page=2" rel="next">Next →<\/a>/);
+  const first = slugsOn(html);
+  [, html] = await req('GET', '/reports/?page=2');
+  assert.equal(line(html), '502 pages · page 2 of 11');
+  assert.match(pager(html), /<a href="\/reports\/" rel="prev">← Previous<\/a>[^]*href="\/reports\/\?page=3"/); // page 1 has no ?page=
+  assert.equal(slugsOn(html).filter((x) => first.includes(x)).length, 0); // the next 48, none repeated
+  [, html] = await req('GET', '/reports/?page=11');
+  assert.deepEqual([cards(html), /<span class="off" aria-hidden="true">Next →<\/span>/.test(pager(html))], [502 - 480, true]);
+  [, html] = await req('GET', '/reports/?page=12');
+  assert.match(html, /<p class="empty"[^>]*>Nothing on this page.<\/p><nav class="pager"/); // past the end: the way back
+  assert.equal((await req('GET', '/reports/?page=0'))[0], 400);
+  assert.equal((await req('GET', '/?page=two'))[0], 400);
+
+  // Searching and sorting page too, and the links keep both.
+  [, html] = await req('GET', '/reports/?q=quarterly&sort=title&page=2');
+  assert.equal(line(html), '502 matches · page 2 of 11');
+  assert.match(pager(html), /href="\/reports\/\?q=quarterly&amp;sort=title" rel="prev"[^]*href="\/reports\/\?q=quarterly&amp;sort=title&amp;page=3" rel="next"/);
+  assert.equal(line((await req('GET', '/?q=quarterly'))[1]), '503 matches · page 1 of 11');
+  assert.equal(line((await req('GET', '/'))[1]), '503 pages · page 1 of 11');
+  html = (await req('GET', '/?q=Other'))[1];
+  assert.deepEqual([line(html), pager(html)], ['1 match', '']); // one page: no pager
+  // Live search swaps in the cards with their line and pager, from the folder it was typed in.
+  html = (await req('GET', '/reports/?q=quarterly&fragment=1'))[1];
+  assert.match(html, /^<div class="cards" data-count="502 matches · page 1 of 11">/);
+  assert.match(pager(html), /href="\/reports\/\?q=quarterly&amp;page=2"/); // never ?fragment=
+  assert.match((await req('GET', '/reports/?q=Report+7&fragment=1'))[1], /data-count="\d+ match(es)?/);
   assert.match((await req('GET', '/?q=zebra&fragment=1'))[1], /^<p class="empty" data-count="0 matches">No matches.<\/p>$/);
-  assert.equal(line((await req('GET', '/reports/', { token: admin }))[1]), '503 pages · showing the first 500'); // your private page too
+  assert.equal(line((await req('GET', '/reports/', { token: admin }))[1]), '503 pages · page 1 of 11'); // your private page too
 });
 
 test('the review page shows history in place, and fetches changes with the saved token, to show them sandboxed', async () => {
