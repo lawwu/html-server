@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.18.1 (2026-11-12)
+
 - **The home page and folders show 48 pages at a time.** Previous and Next under the cards
   (`?page=N`) keep the search, tag, order and layout; a new search or order starts again at
   page 1, and every card on show now has its snippet. Before, a listing drew up to 500 cards
