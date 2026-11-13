@@ -2,9 +2,9 @@
 // its handlers. The command line (serve, create-user, put, ls, ...) is src/cli.js.
 import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
-import { fileBytes, fileText } from './files.js';
+import { fileBytes } from './files.js';
 import {
-  CLI_FROM_GITHUB, CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, PAGE_SIZE, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  CLI_FROM_GITHUB, CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, PAGE_SIZE, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, renderCsp,
   githubSignIn,
   publicOrigin,
   sso,
@@ -12,13 +12,12 @@ import {
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { cliPackage } from './package.js';
 import { SESSION_COOKIE, clearLoginCookie, clearSessionCookie, finishLogin, logoutUrl, sessionCookie, startLogin } from './sso.js';
-import { VIEWS, aboutMarkdown, accountPage, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, pagerNav, personSection, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
-import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
-import { ASSET_RE, renderMarkdown, safeDecode } from './markdown.js';
-import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
-import { isNote, isNotebook, parseNotebook, renderNotebook } from './notebook.js';
-import { Store, pageMeta, summary } from './store.js';
+import { VIEWS, aboutMarkdown, accountPage, claimPage, claimProblemPage, claimedPage, countLabel, docsMarkdown, galleryPage, graphPage, markdownPage, pagerNav, personSection, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
+import { exampleCategories, findExamples } from './examples.js';
+import { encodePath, pageUrl, validatePath } from './paths.js';
+import { Store } from './store.js';
 import { TOOLS as MCP_TOOLS } from './mcp.js';
+import { PageDelivery } from './page-delivery.js';
 import { ApiError, unifiedDiff } from './text.js';
 
 const FILE = '(?<slug>[\\p{L}\\p{N}][\\p{L}\\p{N}\\p{M}_.-]*)'; // a page or asset name (see SLUG_RE)
@@ -216,98 +215,6 @@ async function githubUser(gh, code, redirectUri) {
     }).catch(() => {});
   }
 }
-const TOC_SCRIPT = fileText('public/toc.js');
-const VERSION_BADGE_SCRIPT = fileText('public/version-badge.js');
-const EMBED_SIZE_SCRIPT = fileText('public/embed-size.js').replace(/^(\/\/.*\n)+/, ''); // without its header comment
-const IN_PAGE_LINKS_SCRIPT = fileText('public/in-page-links.js').replace(/^(\/\/.*\n)+/, '');
-const IN_FRAME_SCRIPT = fileText('public/in-frame.js').replace(/^(\/\/.*\n)+/, '');
-
-/** Insert a script just before the page's last </body> (or at the end). Display-time only. */
-function injectScript(html, attrs, code) {
-  // A </script> inside the script would end it early; ours have none, but be safe.
-  const tag = `<script ${attrs}>${code.replace(/<\/script/gi, '<\\/script')}</script>`;
-  const at = html.search(/<\/body\s*>(?![\s\S]*<\/body\s*>)/i);
-  return at === -1 ? html + tag : html.slice(0, at) + tag + html.slice(at);
-}
-
-/** Add the contents sidebar to a page with enough headings (see TOC_MIN_HEADINGS). */
-export function withToc(doc) {
-  const html = doc.toString('utf8');
-  if ((html.match(/<h[23][\s>]/gi) || []).length < TOC_MIN_HEADINGS) return doc;
-  if (/<meta\b[^>]*name\s*=\s*["']?toc["']?[^>]*content\s*=\s*["']?off/i.test(html)) return doc;
-  return Buffer.from(injectScript(html, 'data-artifact-toc-script', TOC_SCRIPT));
-}
-
-/**
- * An HTML page inside the site's frame (?embed=1): opt it in to responsive iframes
- * (Chrome's frame-sizing: content-height; the meta tag has to be in the page as served,
- * it can't be added later) and add the script that keeps the frame sized everywhere else
- * (public/embed-size.js). A page that says <meta name="html-server-frame" content="window">
- * isn't opted in: it stays at window height.
- */
-export function withEmbedSizing(doc) {
-  let html = doc.toString('utf8');
-  if (!/<meta\b[^>]*name\s*=\s*["']?html-server-frame["']?[^>]*content\s*=\s*["']?window/i.test(html)) {
-    html = inHead(html, '<meta name="responsive-embedded-sizing" content="allow-origins=*">');
-  }
-  return Buffer.from(injectScript(html, 'data-html-server-embed', EMBED_SIZE_SCRIPT));
-}
-
-/**
- * A page shown away from where it was written (moved since, or a share link): a <base> at
- * its written address, so its relative links reach the pages it was written next to (an
- * old address redirects to where that page is now). A page with a <base> of its own keeps
- * it: null.
- */
-export function withBase(doc, href) {
-  const html = doc.toString('utf8');
-  return /<base\b/i.test(html) ? null : Buffer.from(inHead(html, `<base href="${href}">`));
-}
-
-/**
- * With single sign-on, a page's own requests carry no sign-in (it's sandboxed, so the browser
- * sends no cookie with them): its links to this server's files (/assets/NAME) go by the page's
- * share link (?from=), as a note's do, which is what lets them load. Only addresses on this
- * server, so a share id never goes to another site; one that has a query of its own is left.
- */
-export function withAssetLinks(doc, shareId) {
-  const html = doc.toString('utf8');
-  const from = `from=${encodeURIComponent(shareId)}`;
-  let changed = false;
-  const out = html.replace(/(?<=["'(\s=,])\/assets\/[^"'\s?#)<>,]+/g, (m, at, all) => {
-    if (all[at + m.length] === '?' || !ASSET_RE.test(safeDecode(m))) return m;
-    changed = true;
-    return `${m}?${from}`;
-  });
-  return changed ? Buffer.from(out) : doc;
-}
-
-/** Keep links to a place on the page (#section) on the page: public/in-page-links.js. */
-export function withInPageLinks(doc) {
-  return Buffer.from(injectScript(doc.toString('utf8'), 'data-html-server-links', IN_PAGE_LINKS_SCRIPT));
-}
-
-/** In the site's frame, ⌘K opens the site's search and links the page follows open in the tab: public/in-frame.js. */
-export function withInFrame(doc) {
-  return Buffer.from(injectScript(doc.toString('utf8'), 'data-html-server-in-frame', IN_FRAME_SCRIPT));
-}
-
-/** A tag at the start of the <head>; with none, after the doctype, which must stay first (anything before it means quirks mode). */
-function inHead(html, tag) {
-  if (/<head\b[^>]*>/i.test(html)) return html.replace(/<head\b[^>]*>/i, (m) => m + tag);
-  const doctype = html.match(/^(\uFEFF?\s*(?:<!--[^]*?-->\s*)*)<!doctype\b[^>]*>/i);
-  return doctype ? html.slice(0, doctype[0].length) + tag + html.slice(doctype[0].length) : tag + html;
-}
-
-/** On an old version, a small badge: "v2 of 6", with links to the current version and the history. */
-export function withVersionBadge(doc, { n, latest, current, history }) {
-  const a = (k, v) => (v == null ? '' : ` data-${k}="${String(v).replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`)}"`);
-  const attrs = `data-artifact-version-badge${a('n', n)}${a('latest', latest)}${a('current', current)}${a('history', history)}`;
-  return Buffer.from(injectScript(doc.toString('utf8'), attrs, VERSION_BADGE_SCRIPT));
-}
-
-const PREVIEW_NOTES = 40; // notes linked from one page that get a rendered preview
-const PREVIEW_HTML_CHARS = 6000; // how much of each (the card shows the start)
 const COMPRESSIBLE = /^(text\/|application\/json|image\/svg)/;
 const STATIC_TYPES = { css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', svg: 'image/svg+xml' };
 
@@ -340,9 +247,23 @@ class Ctx {
   }
   text(body) { this.send(200, 'text/plain; charset=utf-8', body); }
 
-  /** An artifact (or anything showing its content): sandboxed so its scripts can't reach the API. */
-  page(body) {
-    this.send(200, 'text/html; charset=utf-8', body, { 'Content-Security-Policy': this.preview() ? PREVIEW_CSP : this.csp, 'X-Content-Type-Options': 'nosniff' });
+  /** Adapt a complete delivery result to HTTP; only trusted site pages get SSO identity. */
+  deliver(kind, key) {
+    const cookie = this.req.headers.cookie || '';
+    const delivery = new PageDelivery(this.store, {
+      query: this.url.search, document: this.req.headers['sec-fetch-dest'] === 'document',
+      viewer: () => this.viewerId(), visit: this.visit(), sso: !!sso(),
+      theme: cookie.match(/(?:^|;\s*)theme=(dark|light)/)?.[1],
+      sidebar: cookie.match(/(?:^|;\s*)sidebar=(hidden)(?:;|$)/)?.[1],
+    });
+    const result = delivery[kind](key);
+    if (result.kind === 'site') return this.html(result.body);
+    if (result.kind === 'redirect') return this.send(302, 'text/plain', '', {
+      Location: asciiLocation(result.location), ...(result.noStore ? { 'Cache-Control': 'no-store' } : {}),
+    });
+    this.send(200, 'text/html; charset=utf-8', result.body, {
+      'Content-Security-Policy': result.preview ? PREVIEW_CSP : this.csp, 'X-Content-Type-Options': 'nosniff',
+    });
   }
 
   /** ?page=<name>[&depth=n]: a local graph around one page (depth 1-3, default 1). */
@@ -379,145 +300,6 @@ class Ctx {
     const n = this.int('page') ?? 1;
     if (!Number.isInteger(n) || n < 1 || n > 1e6) throw new ApiError(400, 'page must be a page number, from 1');
     return n;
-  }
-
-  /**
-   * A Markdown note as a page: wikilinks resolved against public pages
-   * (missing ones shown as such), and "Linked from" backlinks. Title and tags come from
-   * the version being shown, so an old version reads as it did.
-   */
-  note(page, source, n) {
-    // The caller already authorized opening this page. Its scripts can read everything
-    // in this document, including navigation and preview JSON: never add private data
-    // from the viewer's account. The page's own authorized assets still resolve below.
-    const viewer = null;
-    const text = source.toString('utf8');
-    const basePath = this.store.versionBase(page, n);
-    const meta = pageMeta(page.slug, text, { path: basePath });
-    const nb = isNotebook(page.slug) ? parseNotebook(text) : null;
-    const opts = { ...this.resolvers(viewer, { page }), title: meta.title, path: basePath };
-    const html = nb ? renderNotebook(nb, opts) : renderMarkdown(text, opts);
-    const backlinks = this.store.backlinks(page, viewer);
-    const linked = [...html.matchAll(/href="\/(?:pages\/)?([^"?#]+)/g)].map((m) => safeDecode(m[1])).concat(backlinks.map((b) => b.slug));
-    return Buffer.from(notePage({
-      slug: page.slug, chrome: !this.preview(), latest: page.latest_version,
-      title: meta.title, description: meta.description, tags: meta.tags, version: n,
-      updated: n === page.latest_version ? page.updated_at : null,
-      html, backlinks, previews: this.preview() ? {} : this.previews(linked, viewer), source: text,
-      copyLabel: nb ? 'Copy notebook' : 'Copy markdown',
-      extra: nb ? [nb.kernel, `${nb.cells.filter((c) => c.type === 'code').length} code cells`].filter(Boolean).join(' · ') : '',
-      theme: (this.req.headers.cookie || '').match(/(?:^|;\s*)theme=(dark|light)/)?.[1],
-      sidebar: (this.req.headers.cookie || '').match(/(?:^|;\s*)sidebar=(hidden)(?:;|$)/)?.[1],
-      path: page.slug.includes('/') || this.store.one('SELECT 1 FROM moves WHERE artifact_id = ? LIMIT 1', page.id) ? page.slug : page.path, explorer: this.preview() ? [] : this.store.explorer(viewer),
-      graph: this.preview() ? null : this.store.graph(viewer, { views: false }),
-    }));
-  }
-
-  /**
-   * How note `page` finds what it links to: `resolve` turns a link's name into the page this
-   * viewer gets (the store's one resolver; null: drawn as "not written yet"); `asset` finds
-   * an image or PDF that the note may show them: the note owner's own, or one that's readable
-   * anyway (Store.canReadAsset). Images go in as data: URIs (a sandboxed note may not load
-   * files) unless big, or `inline` is off (hover previews, which link to them instead). A
-   * private note's links to files carry its share id, which is what lets them load.
-   */
-  resolvers(viewer, { inline = true, page } = {}) {
-    return {
-      resolve: (name) => {
-        const a = this.store.linkTarget(name, viewer);
-        return a ? { exists: true, url: pageUrl(a.slug) } : null;
-      },
-      asset: (name) => {
-        const a = this.store.asset(name);
-        if (!a || !this.store.canReadAsset(a, null, { via: page?.share_id })) return null;
-        // With SSO a note's own requests carry no sign-in (it's sandboxed), so its files go by the page's link too.
-        const url = `/assets/${encodeURIComponent(a.name)}${page && (page.visibility !== 'public' || sso()) ? `?from=${encodeURIComponent(page.share_id)}` : ''}`;
-        const small = inline && a.mime.startsWith('image/') && a.size <= MAX_INLINE_BYTES;
-        return { mime: a.mime, url, src: small ? `data:${a.mime};base64,${Buffer.from(a.data).toString('base64')}` : url };
-      },
-    };
-  }
-
-  /**
-   * Hover previews for the pages a page links to: title, tags and opening text for every
-   * page, and for notes the start of the note itself, rendered (Quartz shows the page).
-   * The browser cleans that HTML before showing it (public/popover.js).
-   */
-  previews(slugs, viewer) {
-    const out = this.store.previews(slugs, viewer);
-    for (const slug of Object.keys(out).filter(isNote).slice(0, PREVIEW_NOTES)) {
-      // Each note's preview is rendered once per change to the site, not on every page that links to it.
-      const html = this.store.cached(`preview:${viewer ?? ''}:${slug}`, () => {
-        try {
-          const a = this.store.readable(slug, viewer);
-          const text = this.store.version(a, a.latest_version).toString('utf8');
-          const opts = { ...this.resolvers(viewer, { inline: false, page: a }), title: out[slug].title, path: a.path };
-          const full = isNotebook(slug) ? renderNotebook(parseNotebook(text), opts) : renderMarkdown(text, opts);
-          return full.length > PREVIEW_HTML_CHARS ? full.slice(0, full.lastIndexOf('>', PREVIEW_HTML_CHARS) + 1) : full;
-        } catch { return null; } // text preview only
-      });
-      if (html != null) out[slug].html = html;
-    }
-    return out;
-  }
-
-  /**
-   * An HTML page opened directly in a browser tab gets the site's frame around it (see
-   * frame). Everything else gets the page itself: the frame's own iframe, gallery
-   * previews and the review page (all iframe loads), curl and other clients (which send
-   * no Sec-Fetch-Dest), and ?raw=1.
-   */
-  wantsFrame() {
-    return this.req.headers['sec-fetch-dest'] === 'document' && !this.query.get('raw') && !this.query.get('embed') && !this.preview();
-  }
-
-  /**
-   * The frame: the sidebar and explorer, the page's title, tags and links, the page
-   * itself in an iframe (where it stays sandboxed and keeps its own design), then its
-   * local graph and backlinks. The view is counted when the iframe loads the page.
-   */
-  frame(a) {
-    const viewer = this.viewerId();
-    const n = this.int('v') ?? a.latest_version;
-    this.store.version(a, n); // 404 for a version that doesn't exist
-    const backlinks = this.store.backlinks(a, viewer);
-    this.html(htmlFramePage({
-      page: summary(a, viewer), n, backlinks,
-      explorer: this.store.explorer(viewer), graph: this.store.graph(viewer, { views: false }),
-      previews: this.previews(backlinks.map((b) => b.slug), viewer),
-    }));
-  }
-
-  /** ?preview=1: a gallery-card thumbnail. Not a view, and no sidebar or badge drawn over it. */
-  preview() { return !!this.query.get('preview'); }
-
-  /**
-   * What we add to a page at display time: the contents sidebar, and on an old version a
-   * badge. `at`: the path the page was asked for (/pages/<at> or /<at>); none for a share link.
-   */
-  decorate({ body, n, latest, page }, links, at = null) {
-    const note = page && isNote(page.slug);
-    let based = false;
-    if (note) body = this.note(page, body, n);
-    else if (page) {
-      // Relative links go where they went when this version was written. Shown from
-      // another folder (moved since, or a share link), the page gets a <base> there.
-      const written = this.store.versionBase(page, n);
-      if (at == null || parentPath(at).toLowerCase() !== parentPath(written).toLowerCase()) {
-        const doc = withBase(body, `/pages/${encodePath(written)}${n < latest ? `?v=${n}` : ''}`);
-        if (doc) { body = doc; based = true; }
-      }
-      if (sso()) body = withAssetLinks(body, page.share_id);
-    }
-    if (this.preview()) return body;
-    // In the site's frame the title bar shows the version, and a floating contents box
-    // would be pinned to the top of a frame as tall as the page: just size it.
-    if (this.query.get('embed')) return withInFrame(withInPageLinks(note ? body : withEmbedSizing(body)));
-    // Notes carry their contents in the right sidebar already.
-    let doc = note || this.query.get('toc') === '0' ? body : withToc(body);
-    if (based) doc = withInPageLinks(doc);
-    if (n < latest) doc = withVersionBadge(doc, { n, latest, ...links });
-    return doc;
   }
 
   /** The page that shows a claimed token, once, with how to use it here. */
@@ -715,14 +497,7 @@ const handlers = {
     c.listing(found, { q, category, section: 'gallery', total: q ? findExamples({ category }).length : found.length, found: found.length },
       () => ({ categories: exampleCategories() }));
   },
-  example(c, { file }) {
-    const body = exampleHtml(file);
-    if (!body) throw new ApiError(404, 'no such example');
-    // As with a page: a browser tab gets the site's frame, and the frame's iframe the example sized to fit.
-    if (c.wantsFrame()) return c.html(exampleFramePage(examples().find((e) => e.slug === file), { explorer: c.explorer() }));
-    if (c.query.get('embed') && !c.preview()) return c.page(withInFrame(withInPageLinks(withEmbedSizing(body))));
-    c.page(c.preview() || c.query.get('toc') === '0' ? body : withToc(body));
-  },
+  example(c, { file }) { c.deliver('example', file); },
   docs(c) { c.html(markdownPage({ title: 'Docs', md: c.docs(), active: 'docs', sourceUrl: '/docs.md', explorer: c.explorer() })); },
   docsSource(c) { c.send(200, 'text/markdown; charset=utf-8', c.docs()); },
   about(c) { c.html(markdownPage({ title: 'About', md: aboutMarkdown(), active: 'about', sourceUrl: '/about.md', explorer: c.explorer() })); },
@@ -739,42 +514,13 @@ const handlers = {
     try { body = fileBytes(`public/${file}`); } catch { throw new ApiError(404, 'not found'); }
     c.send(200, type, body, { 'Cache-Control': 'no-cache' });
   },
-  render(c, { slug }) {
-    if (!isPagePath(slug)) throw new ApiError(404, 'no such page'); // /research/report finds research/report.html
-    const exact = c.store.find(slug, { exact: true });
-    if (!exact) {
-      try { c.store.folder(slug, c.viewerId()); return c.send(302, 'text/plain', '', { Location: `/${encodePath(slug)}/${c.url.search}` }); }
-      catch (e) { if (e.status !== 404) throw e; }
-    }
-    const a = c.store.readable(slug, c.viewerId());
-    const old = c.store.oldAddress(slug);
-    if (old?.artifact_id === a.id && a.state === ACTIVE) {
-      return c.send(302, 'text/plain', '', { Location: pageLocation(a.slug) + c.url.search, 'Cache-Control': 'no-store' });
-    }
-    if (c.wantsFrame()) {
-      const a = c.store.readable(slug, c.viewerId());
-      if (a.state === 'active' && !isNote(a.slug)) return c.frame(a);
-    }
-    const r = c.store.render(slug, c.int('v'), c.viewerId(), c.preview() ? null : c.visit());
-    const S = encodePath(r.slug);
-    c.page(c.decorate(r, { current: `/pages/${S}`, history: `/history/${S}` }, slug));
-  },
-  renderShare(c, { share }) {
-    // Who's viewing, for the People stats only: a share link works without signing in, so a bad token doesn't stop it.
-    let viewer = null;
-    try { viewer = c.viewerId(); } catch { /* not signed in */ }
-    const r = c.store.renderShare(share, c.int('v'), c.preview() ? null : c.visit(), viewer);
-    // A share link may be a private page, whose history needs a sign-in: no history link.
-    c.page(c.decorate(r, { current: `/v/${encodeURIComponent(share)}` }));
-  },
+  render(c, { slug }) { c.deliver('named', slug); },
+  renderShare(c, { share }) { c.deliver('shared', share); },
   // Always the shell: the script loads the page with the viewer's saved token, so
   // private pages work and missing ones show "not found" in place.
   review(c, { slug }) { c.html(reviewPage(slug)); },
-  history(c, { slug }) { c.html(historyPage(c.store.describe(slug, c.viewerId()), { explorer: c.explorer() })); },
-  reviewChanges(c, { slug }) {
-    const [from, to, a, b] = c.store.diff(slug, c.viewerId(), c.int('from'), c.int('to'), c.query.get('of') || 'text');
-    c.page(diffPage(from, to, a, b, { back: c.query.get('back') ? `/history/${encodePath(slug)}` : null }));
-  },
+  history(c, { slug }) { c.deliver('history', slug); },
+  reviewChanges(c, { slug }) { c.deliver('changes', slug); },
   list(c) {
     const viewer = c.viewerId();
     const state = c.query.get('state') || ACTIVE;

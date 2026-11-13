@@ -1100,6 +1100,15 @@ the old capability.
 
 ## Design notes
 
+- **Three deep modules keep callers small.** `public/signin.js` owns browser credentials,
+  session precedence, authenticated requests and cached identity; the top bar and forms
+  use it independently. `src/sync.js` owns folder discovery, reconciliation, dry runs
+  and failure-aware pruning, behind a page/asset interface implemented by
+  `src/sync-remote.js`; the CLI handles arguments, output and Git hook installation.
+  `src/page-delivery.js` owns display modes, version rendering, surrounding content and
+  asset resolution. It returns a trusted site page, sandboxed document or redirect;
+  the HTTP layer applies the matching response headers. Store still owns authorization,
+  version creation and atomic moves. Shared domain terms are in [GLOSSARY.md](GLOSSARY.md).
 - **Lifecycle state machine.** A page is `active`, `trashed` or `purged`. Creating versions and changing lifecycle state
   go through `transition(state, event)`, a lookup in one table, and any pair missing from
   it returns a 409 naming the allowed events, so a trashed page can't take new versions and
@@ -1216,6 +1225,7 @@ ones change:
 | --- | --- |
 | `src/cli.js` | The `html-server` command (`html-server --help`); its usage text is in `src/usage.js` |
 | `src/server.js` | HTTP routes (the table that also generates the Docs page) and their handlers |
+| `src/page-delivery.js` | Display modes, version rendering, asset resolution and the boundary between trusted site pages and sandboxed documents |
 | `src/store.js` | All database access, with the schema and its in-place upgrades |
 | `src/postgres.js` | Optional PostgreSQL storage: the store's SQL translated, PostgreSQL's full-text search, connection settings |
 | `src/import-sqlite.js` | `html-server import-sqlite`: a SQLite database moved into PostgreSQL, checked table by table |
@@ -1225,6 +1235,8 @@ ones change:
 | `src/highlight.js` | Syntax highlighting for code in notes and notebooks |
 | `src/mcp.js` | The MCP server and its tools |
 | `src/client.js` | How the CLI and MCP reach a server: saved login, one request helper |
+| `src/sync.js`, `src/sync-remote.js` | Folder reconciliation and its HTTP adapter; structured results/events keep output and exit status in the CLI |
+| `public/signin.js`, `public/session.js` | Shared browser sign-in and its top bar presentation |
 | `src/text.js` | HTML to text, fuzzy matching (the same similarity measure as Python's difflib), search queries, line diffs |
 | `src/lifecycle.js` | The active → trashed → purged state machine |
 | `src/files.js` | Reads the package's own files: from disk under Node, from the deploy bundle on Cloudflare |

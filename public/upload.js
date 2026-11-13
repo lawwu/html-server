@@ -2,10 +2,9 @@
 // requests as `html-server put` (PUT /api/artifacts/<name>) and, for images and PDFs, as
 // `curl -T diagram.png …/api/assets/`, signed in with the token this site's other forms
 // save. This module runs only in trusted site UI, never inside uploaded content.
+import { browserSignIn } from './signin.js';
 const PAGE_RE = /\.(html?|md|markdown|ipynb)$/i; // config.js PAGE_EXT_RE
 const ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|pdf)$/i; // config.js ASSET_TYPES
-const KEY = 'artifact_token';
-const SSO = () => !!document.body.dataset.ssoUser; // signed in through single sign-on: the cookie is enough
 const encodePath = (p) => p.split('/').map(encodeURIComponent).join('/');
 
 /** A file name the server takes (config.js SLUG_RE): spaces become dashes, other characters go. */
@@ -27,6 +26,7 @@ let current = null; // the open dialog's add(), so files dropped while it's open
  * published anything (to redraw the cards behind it).
  */
 export function openUpload({ files = [], folder = '', onUploaded = () => {} } = {}) {
+  const auth = browserSignIn();
   if (current) return current(files);
   const dialog = document.createElement('dialog');
   dialog.className = 'move-dialog upload-dialog';
@@ -57,8 +57,8 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
   let busy = false;
 
   form.elements.folder.value = folder;
-  try { tokenInput.value = localStorage.getItem(KEY) || ''; } catch { /* this visit only */ }
-  signin.hidden = !!tokenInput.value || SSO();
+  tokenInput.value = auth.token;
+  signin.hidden = auth.signedIn;
 
   const say = (text, isError = false) => { status.textContent = text; status.classList.toggle('err', isError); };
   const pending = () => rows.filter((r) => r.state === 'ready');
@@ -110,7 +110,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
     } else {
       path = `/api/assets/${encodeURIComponent(name)}`;
     }
-    const r = await fetch(path, { method: 'PUT', body: row.file, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const r = await auth.request(path, { method: 'PUT', body: row.file, token });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(data.error || `${r.status} ${r.statusText}`), { status: r.status });
     return data;
@@ -139,7 +139,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const token = tokenInput.value.trim();
-    if (!token && !SSO()) { signin.hidden = false; tokenInput.focus(); return say('Paste your sign-in token first.', true); }
+    if (!token && !auth.session) { signin.hidden = false; tokenInput.focus(); return say('Paste your sign-in token first.', true); }
     busy = true; sync(); say('Uploading…');
     let ok = 0, failed = 0;
     for (const row of pending()) {
@@ -148,8 +148,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
       try {
         done(row, await send(row, token));
         ok++;
-        if (token) try { localStorage.setItem(KEY, token); } catch { /* this visit only */ }
-        document.querySelectorAll('[data-session]').forEach((p) => { p.hidden = false; }); // the top bar's Sign out
+        if (token) auth.save(token);
       } catch (err) {
         failed++;
         row.out.className = 'upload-out err';
@@ -178,7 +177,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
   add(files);
   if (!rows.length) dialog.querySelector('[data-choose]').focus();
 
-  fetch('/api/folders', { headers: tokenInput.value ? { Authorization: `Bearer ${tokenInput.value}` } : {} })
+  auth.request('/api/folders', { token: tokenInput.value })
     .then((r) => (r.ok ? r.json() : []))
     .then((names) => dialog.querySelector('datalist').append(...names.map((value) => Object.assign(document.createElement('option'), { value }))))
     .catch(() => { /* typing a new folder still works */ });

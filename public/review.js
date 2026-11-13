@@ -2,6 +2,8 @@
 // The commenting token lives in this origin's localStorage; artifacts can't read
 // it because they render sandboxed (opaque origin).
 import { openMove } from './move.js';
+import { browserSignIn } from './signin.js';
+const auth = browserSignIn();
 const SLUG = document.body.dataset.slug;
 const S = encodeURIComponent(SLUG); // for the API
 const P = SLUG.split('/').map(encodeURIComponent).join('/'); // for links: research/report.html
@@ -10,24 +12,20 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const when = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 const kb = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
 
-let token = '';
-try { token = localStorage.getItem('artifact_token') || ''; } catch { /* storage blocked: guest */ }
-const SSO = !!document.body.dataset.ssoUser; // signed in through single sign-on: the session cookie is the sign-in
-const signedIn = () => !!token || SSO;
+const signedIn = () => auth.signedIn;
 let meta, cur, showingDiff = false, diffAsked = '';
 
 async function api(path, opts = {}) {
-  const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(opts.body ? { 'Content-Type': 'application/json' } : {}) };
-  const r = await fetch(path, { ...opts, headers });
+  const r = await auth.request(path, { ...opts, headers: opts.body ? { 'Content-Type': 'application/json' } : {} });
   const data = r.headers.get('Content-Type')?.includes('json') ? await r.json() : null;
   if (!r.ok) throw new Error(data?.error || r.statusText);
   return data;
 }
 
 async function whoami() {
-  if (!token && !document.body.dataset.ssoUser) { $('who').textContent = 'Reading as a guest.'; return; } // SSO: the cookie signs in
+  if (!auth.signedIn) { $('who').textContent = 'Reading as a guest.'; return; }
   try {
-    const me = await api('/api/me');
+    const me = await api('/api/me'); // verify access here; the top bar may use a cached name
     $('who').textContent = `Signed in as ${me.name}`; // Sign out is in the top bar
     $('signin').hidden = true;
   } catch { $('who').textContent = 'Saved token was rejected.'; }
@@ -68,7 +66,7 @@ async function showDiff({ from = cur - 1, to = cur, source = false } = {}) {
   const say = (msg) => `<p style="font:14px/1.5 system-ui,sans-serif;padding:1rem">${esc(msg)}</p>`;
   let html;
   try {
-    const r = await fetch(`/review/${P}/changes?from=${from}&to=${to}${source ? '&of=source' : ''}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const r = await auth.request(`/review/${P}/changes?from=${from}&to=${to}${source ? '&of=source' : ''}`);
     html = r.ok ? await r.text() : say((await r.json().catch(() => null))?.error || r.statusText);
   } catch (e) { html = say(e.message); }
   if (showingDiff && diffAsked === ask) setFrame({ html }); // unless the page or other changes were asked for since
@@ -164,8 +162,7 @@ $('restore').onclick = () => act(async () => {
   await load(m.latest_version);
 });
 $('save').onclick = () => {
-  token = $('tok').value.trim();
-  try { localStorage.setItem('artifact_token', token); } catch { /* this session only */ }
+  auth.save($('tok').value);
   whoami();
   load(cur);
 };
