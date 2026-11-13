@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.18.2 (2026-11-12)
+
 - **Security: notes and notebooks no longer receive the viewer's unrelated private data.**
   Their scripts could read private navigation, graph data, hover previews and inline assets
   added to the document for a signed-in viewer. Surrounding content is now public only;
