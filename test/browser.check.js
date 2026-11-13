@@ -92,7 +92,7 @@ test('frame navigation ignores spoofed sources, unsafe protocols, and messages w
 
 test('search contains keyboard focus, restores it, and activates a result', async () => {
   await page.goto(base + '/docs');
-  const invoker = page.locator('a.gh'); await invoker.focus();
+  const invoker = page.locator('a.brand'); await invoker.focus();
   await page.keyboard.press('Control+k');
   for (const key of ['Tab', 'Shift+Tab', 'Tab']) {
     await page.keyboard.press(key);

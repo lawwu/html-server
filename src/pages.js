@@ -31,9 +31,9 @@ export const categoryLabel = (c) => CATEGORY_LABELS[c] || c.replace(/-/g, ' ').r
 let STATIC_SITE = false;
 export const setStaticSite = (on) => { STATIC_SITE = !!on; };
 
-/** On every page the server draws itself (never on uploaded pages): which version is running, and where it lives. */
+/** On every page the server draws itself (never on uploaded pages): which version is running (its release notes), and the docs. */
 export const footer = () => `<footer class="site-foot"><a href="${RELEASE_URL}">HTML Server v${esc(VERSION)}</a>
-  · <a href="${REPO_URL}">Source on GitHub</a> · <a href="/docs">Docs</a></footer>`;
+  · <a href="/docs">Docs</a></footer>`;
 
 // The viewer's choices: light or dark (else the system's), and whether the sidebar is hidden.
 // Each switch saves its choice in this site's storage and in a cookie; notes are sandboxed and
@@ -110,7 +110,6 @@ const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('ch') ? 'es' : 's'}`;
 
 // GitHub's mark (Octicons, MIT), linking to the release that's running.
-const GITHUB_MARK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
 
 const ICONS = {
   search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
@@ -137,7 +136,6 @@ export function topBar(active, { sidebar = true } = {}) {
   aria-label="Hide the sidebar" title="Hide the sidebar">${ICONS.sidebar}</button>` : '<span class="icon-btn sidebar-toggle toggle-slot" aria-hidden="true"></span>'; // its room, so the name stays put
   const find = search ? `<form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>` : '';
   return `<header class="topbar">${hide}<a class="brand" href="/" target="_top">HTML Server</a>
-<a class="gh" href="${RELEASE_URL}" target="_top" title="HTML Server v${esc(VERSION)} on GitHub">${GITHUB_MARK}<span>v${esc(VERSION)}</span></a>
 <nav class="site-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}${item('/about', 'About', 'about')}</ul></nav>
 <div class="top-tools">${find}${theme}${STATIC_SITE ? '' : SESSION_LINE}</div></header>`;
 }
@@ -222,13 +220,25 @@ export function galleryCards(items, q, { base = '/' } = {}) {
  * reorder the cards without moving them (a preview moved in the document reloads).
  * `count`, the line above the cards (countLabel), travels with them for live search.
  */
-export function resultsBody(items, q, { base = '/', count } = {}) {
+export function resultsBody(items, q, { base = '/', count, pager = '', page = 1 } = {}) {
   const c = count ? ` data-count="${esc(count)}"` : '';
-  if (!items.length) return `<p class="empty"${c}>${q ? 'No matches.' : 'Nothing here yet.'}</p>`;
+  if (!items.length) return `<p class="empty"${c}>${q ? 'No matches.' : page > 1 ? 'Nothing on this page.' : 'Nothing here yet.'}</p>${pager}`;
   const pinned = !q && base === '/' ? items.filter((i) => i.pinned) : [];
-  if (!pinned.length) return `<div class="cards"${c}>${galleryCards(items, q, { base })}</div>`;
+  if (!pinned.length) return `<div class="cards"${c}>${galleryCards(items, q, { base })}</div>${pager}`;
   return `<div class="cards"${c}><h2 class="section-title" data-section="featured">${PIN}Featured</h2>${galleryCards(pinned, q, { base })}
-<h2 class="section-title" data-section="all">All pages</h2>${galleryCards(items.filter((i) => !i.pinned), q, { base })}</div>`;
+<h2 class="section-title" data-section="all">All pages</h2>${galleryCards(items.filter((i) => !i.pinned), q, { base })}</div>${pager}`;
+}
+
+/**
+ * Previous and Next under the cards, and which page this is ("Page 2 of 7"), when there's
+ * more than one. `href(n)`: the address of page n, with the search, tag and order kept.
+ */
+export function pagerNav(page, pages, href) {
+  if (pages <= 1) return '';
+  const step = (n, label, rel) => (n >= 1 && n <= pages
+    ? `<a href="${esc(href(n))}" rel="${rel}">${label}</a>` : `<span class="off" aria-hidden="true">${label}</span>`);
+  return `<nav class="pager" aria-label="Pages">${step(page - 1, '← Previous', 'prev')}`
+    + `<span class="where" aria-current="page">Page ${page} of ${pages}</span>${step(page + 1, 'Next →', 'next')}</nav>`;
 }
 
 export const VIEWS = ['grid', 'list'];
@@ -242,12 +252,12 @@ function totalLabel(total, items, section) {
 
 /**
  * The line above the cards: "18 pages · 2 featured", or searching, "3 matches". `total` and
- * `found` are counted (all the pages, all the matches); when the cards stop short of them
- * (a listing shows at most LIST_LIMIT), it says how many are shown.
+ * `found` are counted (all the pages, all the matches); past one page of cards (PAGE_SIZE),
+ * it says which page this is.
  */
-export function countLabel(items, { q = '', total = items.length, found = items.length, section = 'pages' } = {}) {
+export function countLabel(items, { q = '', total = items.length, found = items.length, section = 'pages', page = 1, pages = 1 } = {}) {
   const label = q ? plural(found, 'match') : totalLabel(total, items, section);
-  return items.length < (q ? found : total) ? `${label} · showing the first ${items.length}` : label;
+  return pages > 1 ? `${label} · page ${page} of ${pages}` : label;
 }
 
 /**
@@ -273,7 +283,7 @@ function sortControl({ q, category, view, sort, base = '/', recursive = false })
  * /gallery ("gallery"). Category chips, search, sorting (your pages), grid/list and previews.
  */
 export function galleryPage(items, { q = '', category = '', categories = [], view = 'grid', section = 'pages', total = items.length,
-  found = items.length, explorer = null, sort = '', base: customBase, folder = '', folders = [], recursive = false }) {
+  found = items.length, explorer = null, sort = '', base: customBase, folder = '', folders = [], recursive = false, page = 1, pages = 1, pager = '' }) {
   const base = customBase || (section === 'gallery' ? '/gallery' : '/');
   // Links keep the other settings, so the page works fully without JS.
   const link = (over) => {
@@ -305,8 +315,8 @@ ${folder ? `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(folder + 
 ${folders.length ? `<nav class="folder-list" aria-label="Subfolders">${folders.map((f) => `<a href="/${encodePath(f.path)}/">▸ ${esc(f.name)}</a>`).join('')}</nav>` : ''}
 <p><a href="${esc(link({ recursive: recursive ? '' : '1' }))}">${recursive ? 'Show direct contents' : 'Include subfolders'}</a>${q ? ' · Search includes subfolders' : ''}</p>` : ''}
 ${intro}${controls}
-<p id="count" class="meta">${esc(countLabel(items, { q, total, found, section }))}</p>
-<section id="results" class="${view}">${resultsBody(items, q, { base, count: countLabel(items, { q, total, found, section }) })}</section>
+<p id="count" class="meta">${esc(countLabel(items, { q, total, found, section, page, pages }))}</p>
+<section id="results" class="${view}">${resultsBody(items, q, { base, page, pager, count: countLabel(items, { q, total, found, section, page, pages }) })}</section>
 ${section === 'pages' ? `<div id="bulk" class="bulk" hidden role="region" aria-label="Selected pages">
   <span id="bulk-count">0 selected</span>
   <input id="bulk-tag" placeholder="tag, e.g. trips" autocomplete="off" aria-label="Tag">

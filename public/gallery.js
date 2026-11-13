@@ -21,6 +21,8 @@ let ctl, timer;
 // The chosen sort; '' means the default (best match while searching, else recently updated).
 let sort = url.get('sort') || '';
 const sortFor = (q) => (sort === 'relevance' && !q ? '' : sort); // best match means nothing without a query
+// Which page of cards is on show (Previous and Next are plain links); a new search or order starts again at 1.
+let page = url.get('page') || '';
 
 const pref = () => { try { return localStorage.getItem(PREF); } catch { return null; } };
 // A view in the URL wins (it's a shared link); otherwise use this browser's last choice.
@@ -34,6 +36,7 @@ function stateParams(q = box.value.trim()) {
   if (category) p.set('category', category);
   if (view !== 'grid') p.set('view', view);
   if (sortFor(q)) p.set('sort', sortFor(q));
+  if (page) p.set('page', page);
   return p;
 }
 
@@ -65,6 +68,7 @@ function fragmentUrl(q = box.value.trim()) {
   if (q) p.set('q', q);
   if (category) p.set('category', category);
   if (sortFor(q)) p.set('sort', sortFor(q));
+  if (page) p.set('page', page);
   return `${BASE}?${p}`;
 }
 
@@ -107,15 +111,19 @@ function show(html) {
   });
   for (const el of grid.children) if (!seen.has(el)) el.hidden = true;
   results.querySelector(':scope > .empty')?.remove();
+  results.querySelector(':scope > .pager')?.remove();
   const empty = next.content.querySelector('.empty');
   if (empty) results.append(empty);
+  const pager = next.content.querySelector('.pager');
+  if (pager) results.append(pager);
   const n = cardCount;
   return [...next.content.children].find((el) => el.dataset.count != null)?.dataset.count ?? `${n} match${n === 1 ? '' : 'es'}`;
 }
 
 /** Show the cards for what's typed; `fresh` after a change to the pages themselves. */
-async function search({ fresh = false } = {}) {
+async function search({ fresh = false, keepPage = false } = {}) {
   const q = box.value.trim();
+  if (!keepPage) page = '';
   syncSort(q);
   syncUrl();
   ctl?.abort();
@@ -138,7 +146,7 @@ async function search({ fresh = false } = {}) {
 
 remember(fragmentUrl(), results.innerHTML); // what's on show now
 // Cached results show at once; otherwise wait for a pause in typing, but only a short one.
-box.addEventListener('input', () => { clearTimeout(timer); if (cache.has(fragmentUrl())) search(); else timer = setTimeout(search, 60); });
+box.addEventListener('input', () => { clearTimeout(timer); page = ''; if (cache.has(fragmentUrl())) search(); else timer = setTimeout(search, 60); });
 box.form.addEventListener('submit', (e) => { e.preventDefault(); search(); });
 for (const t of toggles) t.addEventListener('click', (e) => { e.preventDefault(); setView(t.dataset.view); });
 // Keep the typed query and the layout when switching category. A click that opens a tab or
@@ -170,7 +178,7 @@ sortSel?.form.addEventListener('submit', (e) => e.preventDefault());
 if (sortSel && !url.get('sort')) {
   let saved = null;
   try { saved = localStorage.getItem(SORT_PREF); } catch { /* none */ }
-  if (saved && saved !== 'relevance' && [...sortSel.options].some((o) => o.value === saved)) { sort = saved; search(); }
+  if (saved && saved !== 'relevance' && [...sortSel.options].some((o) => o.value === saved)) { sort = saved; search({ keepPage: true }); }
 }
 
 // --- select mode: tag, untag, feature or unfeature many pages at once ---------------
@@ -262,7 +270,7 @@ if (selectBtn && bulk) {
         say(`${act === 'pin' ? 'Featured' : 'Unfeatured'} ${pages.length - failures.length} of ${pages.length}.`);
       }
       if (failures.length) say(`${msg.textContent} Not changed: ${failures.join('; ')}`, true);
-      await search({ fresh: true }); // redraw with the new tags or featured order
+      await search({ fresh: true, keepPage: true }); // redraw with the new tags or featured order
     } catch (err) {
       if (err.status === 401) { token = ''; return askToken(); }
       say(err.message, true);

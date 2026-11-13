@@ -199,8 +199,10 @@ export const SEARCH_WEIGHTS = { title: 10, name: 5, body: 1 };
 // its first cards only (the others show their description), so broad searches stay quick.
 export const SNIPPET_WORDS = 12;
 export const CARD_SNIPPETS = 48;
-// The most pages one listing shows (the home page, a folder, a search of either) and one
-// /api/artifacts request returns. A listing with more says how many there are in all.
+// How many cards the home page and a folder show at a time; Previous and Next (?page=N) for
+// the rest. The same as CARD_SNIPPETS, so every card on show has its snippet.
+export const PAGE_SIZE = 48;
+// The most pages one /api/artifacts request returns (`?offset=` for the next ones).
 export const LIST_LIMIT = 500;
 // Text a page writes with JavaScript (a board's tickets, a quiz's questions, a chart's
 // messages) is searchable too, up to this much of it per page.

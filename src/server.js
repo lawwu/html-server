@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { fileBytes, fileText } from './files.js';
 import {
-  CLI_FROM_GITHUB, CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
+  CLI_FROM_GITHUB, CARD_SNIPPETS, LIST_LIMIT, MAX_BODY_BYTES, PAGE_SIZE, MAX_INLINE_BYTES, POPULAR_MAX_WEEKS, POPULAR_WEEKS, PREVIEW_CSP, RENDER_CSP, TOC_MIN_HEADINGS, renderCsp,
   githubSignIn,
   publicOrigin,
   sso,
@@ -12,7 +12,7 @@ import {
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { cliPackage } from './package.js';
 import { SESSION_COOKIE, clearLoginCookie, clearSessionCookie, finishLogin, logoutUrl, sessionCookie, startLogin } from './sso.js';
-import { VIEWS, aboutMarkdown, accountPage, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, resultsBody, personSection, reviewPage, statsPage, usageSection } from './pages.js';
+import { VIEWS, aboutMarkdown, accountPage, claimPage, claimProblemPage, claimedPage, countLabel, diffPage, docsMarkdown, exampleFramePage, galleryPage, graphPage, historyPage, htmlFramePage, markdownPage, notePage, pagerNav, personSection, resultsBody, reviewPage, statsPage, usageSection } from './pages.js';
 import { exampleCategories, exampleHtml, examples, findExamples } from './examples.js';
 import { ASSET_RE, renderMarkdown, safeDecode } from './markdown.js';
 import { encodePath, isPagePath, pageUrl, parentPath, validatePath } from './paths.js';
@@ -359,9 +359,26 @@ class Ctx {
    */
   listing(items, opts, page = () => ({})) {
     const base = opts.base || (opts.section === 'gallery' ? '/gallery' : '/');
-    if (this.query.get('fragment')) return this.html(resultsBody(items, opts.q, { base, count: countLabel(items, opts) }));
+    // Previous and Next keep everything else in the address (search, tag, order, layout).
+    if (opts.pages > 1) {
+      const keep = new URLSearchParams(this.query);
+      keep.delete('fragment');
+      opts.pager = pagerNav(opts.page, opts.pages, (n) => {
+        const p = new URLSearchParams(keep);
+        if (n > 1) p.set('page', String(n)); else p.delete('page');
+        return `${base}${p.size ? `?${p}` : ''}`;
+      });
+    }
+    if (this.query.get('fragment')) return this.html(resultsBody(items, opts.q, { base, page: opts.page, pager: opts.pager, count: countLabel(items, opts) }));
     const view = VIEWS.includes(this.query.get('view')) ? this.query.get('view') : 'grid';
     this.html(galleryPage(items, { ...opts, ...page(), view, explorer: this.explorer() }));
+  }
+
+  /** ?page= for the home page and folders: which PAGE_SIZE cards to show (1, the first, unless given). */
+  pageNumber() {
+    const n = this.int('page') ?? 1;
+    if (!Number.isInteger(n) || n < 1 || n > 1e6) throw new ApiError(400, 'page must be a page number, from 1');
+    return n;
   }
 
   /**
@@ -633,10 +650,13 @@ const handlers = {
     const q = (c.query.get('q') || '').trim();
     const category = c.query.get('category') || '';
     const sort = c.query.get('sort') || '';
-    const items = c.store.list(null, { q: q || undefined, category: category || undefined, sort: sort || undefined, limit: LIST_LIMIT, snippets: CARD_SNIPPETS });
-    // Counted, not the cards: a listing stops at LIST_LIMIT.
+    const page = c.pageNumber();
+    const items = c.store.list(null, { q: q || undefined, category: category || undefined, sort: sort || undefined,
+      limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, snippets: CARD_SNIPPETS });
+    // Counted, not the cards: a listing shows one page of them.
     const total = c.store.count(null, { category: category || undefined });
-    c.listing(items, { q, category, sort, section: 'pages', total, found: q ? c.store.count(null, { q, category: category || undefined }) : total },
+    const found = q ? c.store.count(null, { q, category: category || undefined }) : total;
+    c.listing(items, { q, category, sort, section: 'pages', total, found, page, pages: Math.ceil(found / PAGE_SIZE) },
       () => ({ categories: c.store.categories(null) }));
   },
   folders(c) {
@@ -654,11 +674,13 @@ const handlers = {
     const q = (c.query.get('q') || '').trim(), sort = c.query.get('sort') || '';
     const recursive = !!q || c.query.get('recursive') === '1';
     const category = c.query.get('category') || '';
-    const opts = { folder, recursive, q, sort: sort || undefined, category, limit: LIST_LIMIT };
+    const page = c.pageNumber();
+    const opts = { folder, recursive, q, sort: sort || undefined, category, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE };
     const items = c.store.list(viewer, opts);
     const total = c.store.count(viewer, { folder, recursive, category });
+    const found = q ? c.store.count(viewer, { folder, recursive, category, q }) : total;
     c.listing(items, { q, sort, category, section: 'pages', base: `/${encodePath(folder)}/`, folder, folders,
-      recursive, total, found: q ? c.store.count(viewer, { folder, recursive, category, q }) : total });
+      recursive, total, found, page, pages: Math.ceil(found / PAGE_SIZE) });
   },
   async movePages(c) {
     const user = c.user();

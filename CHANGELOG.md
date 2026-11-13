@@ -8,6 +8,13 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **The home page and folders show 48 pages at a time.** Previous and Next under the cards
+  (`?page=N`) keep the search, tag, order and layout; a new search or order starts again at
+  page 1, and every card on show now has its snippet. Before, a listing drew up to 500 cards
+  at once, and only the first 48 had snippets. `/api/artifacts` is unchanged.
+- **No GitHub links in the site's frame.** The top bar's version badge (with the GitHub
+  mark) and the footer's "Source on GitHub" are gone; the footer still names the running
+  version, linked to its release notes, and `/about` and `/docs` still say where the code is.
 ## 0.18.0 (2026-11-12)
 
 - **People, in the admins' usage stats.** `/stats` shows admins each signed-in user's API
