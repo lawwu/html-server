@@ -123,14 +123,13 @@ const serverCommands = {
         + ' Only use it if you trust every page on this server.');
     }
     if (sandboxAllow.length) console.error(`pages are served with: ${csp}`);
+    try { setSso(process.env); setPublicUrl(process.env); } catch (e) { fail(e.message); }
     const store = await openStore(opts);
     const where = await describeStore(opts);
     bootstrap(store, opts);
     setGitHubSignIn(process.env);
     if (githubSignIn()) console.error('claim links: GitHub sign-in (GITHUB_CLIENT_ID is set)');
-    setSso(process.env);
     if (sso()) console.error(`single sign-on: ${sso().issuer} (every page and API call needs a sign-in or a token)`);
-    try { setPublicUrl(process.env); } catch (e) { fail(e.message); }
     if (publicOrigin()) console.error(`public address: ${publicOrigin()}`);
     const { makeServer } = await import('./server.js');
     makeServer(store, { sandboxAllow }).listen(Number(opts.port), opts.host, () =>
@@ -481,6 +480,17 @@ const clientCommands = {
     })(root);
     if (!files.length && !opts.prune) fail(`no notes, pages or images under ${root}`);
 
+    // Assets share one namespace even when their source files live in different
+    // folders. Check the exact upload names before any upload, move or prune.
+    const assetName = (file) => basename(file).trim().replace(/\s+/g, '-');
+    const assetFiles = new Map();
+    for (const file of files.filter((f) => ASSET_RE.test(f))) {
+      const name = assetName(file), key = name.toLowerCase();
+      const previous = assetFiles.get(key);
+      if (previous) fail(`asset name collision: ${previous.slice(root.length + 1)} and ${file.slice(root.length + 1)} use the same asset name (${name}); rename one before syncing`);
+      assetFiles.set(key, file);
+    }
+
     let inGit = false;
     try { inGit = execFileSync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() === 'true'; } catch { /* not git */ }
     const commitNote = (rel) => {
@@ -520,7 +530,7 @@ const clientCommands = {
       const sha = createHash('sha256').update(body).digest('hex');
       try {
         if (ASSET_RE.test(file)) { // images and PDFs: by file name, replaced when changed
-          const name = basename(file).trim().replace(/\s+/g, '-');
+          const name = assetName(file);
           if (known.get(name.toLowerCase()) === sha) { count.unchanged++; continue; }
           const isNew = !known.has(name.toLowerCase());
           if (opts['dry-run']) { count[isNew ? 'new' : 'updated']++; say(isNew ? 'would add' : 'would update', rel, ` → /assets/${name}`); continue; }

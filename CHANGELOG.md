@@ -8,6 +8,28 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- **Security: notes and notebooks no longer receive the viewer's unrelated private data.**
+  Their scripts could read private navigation, graph data, hover previews and inline assets
+  added to the document for a signed-in viewer. Surrounding content is now public only;
+  assets must be authorized for the page itself or already public. Private notes and share
+  links still show their own content and authorized assets.
+- **Security: incomplete single sign-on configuration refuses startup.** Setting only some
+  of the three required OIDC credentials, or leaving one blank, no longer silently turns
+  sign-in off. The error names missing settings without printing secrets, before opening
+  the database or creating the first admin.
+- **PostgreSQL recovers after a failed commit.** Transaction depth is restored once even
+  when commit or savepoint release fails. A rollback failure preserves the original error
+  and discards the connection, so the next transaction can start cleanly.
+- **Sync refuses duplicate asset names before changing the server.** Images or PDFs in
+  different folders that map to one upload name no longer silently overwrite each other.
+  Case and whitespace normalization are checked too, including in dry runs.
+- **People usage stats count authenticated browser sessions and token rotation.** The
+  request keeps the identity it actually authenticated, including permission errors;
+  rejected or expired credentials are not attributed to a user.
+- **The browser sign-in test tolerates the review's version query.** It verifies the
+  destination path after the review has added `?v=1`, making the former CI race reproducible
+  and testing the fix without relying on timing.
+
 ## 0.18.1 (2026-11-12)
 
 - **The home page and folders show 48 pages at a time.** Previous and Next under the cards

@@ -69,9 +69,15 @@ export const SSO_SESSION_HOURS = 12; // a browser session; the provider's own se
 export const SSO_TOKEN_IDLE_DAYS = 30; // an SSO user's API token stops working after this long without signing in (0: never)
 let SSO = null;
 export function setSso(env = {}) {
+  const required = ['OIDC_ISSUER', 'OIDC_CLIENT_ID', 'OIDC_CLIENT_SECRET'];
+  const configured = required.some((key) => env[key] != null);
+  const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim());
+  // A partial deployment must never silently turn the sign-in gate off. Validate
+  // before replacing SSO, so a rejected reconfiguration preserves the existing gate.
+  if (configured && missing.length) throw new Error(`incomplete single sign-on configuration: set ${missing.join(', ')}, or unset all three OIDC credentials to disable it`);
   const list = (v) => String(v ?? '').split(/[\s,]+/).filter(Boolean);
   const num = (v, fallback) => (v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : fallback);
-  SSO = env.OIDC_ISSUER && env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET ? {
+  SSO = configured ? {
     issuer: env.OIDC_ISSUER, clientId: env.OIDC_CLIENT_ID, clientSecret: env.OIDC_CLIENT_SECRET,
     redirectUri: env.OIDC_REDIRECT_URI || '', // default: this server's /api/oidc/callback, as the browser reached it
     postLogoutRedirectUri: env.OIDC_POST_LOGOUT_REDIRECT_URI || '', // default: this server's /

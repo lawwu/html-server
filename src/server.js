@@ -382,12 +382,15 @@ class Ctx {
   }
 
   /**
-   * A Markdown note as a page: wikilinks resolved against pages this viewer can see
+   * A Markdown note as a page: wikilinks resolved against public pages
    * (missing ones shown as such), and "Linked from" backlinks. Title and tags come from
    * the version being shown, so an old version reads as it did.
    */
   note(page, source, n) {
-    const viewer = this.viewerId();
+    // The caller already authorized opening this page. Its scripts can read everything
+    // in this document, including navigation and preview JSON: never add private data
+    // from the viewer's account. The page's own authorized assets still resolve below.
+    const viewer = null;
     const text = source.toString('utf8');
     const basePath = this.store.versionBase(page, n);
     const meta = pageMeta(page.slug, text, { path: basePath });
@@ -426,7 +429,7 @@ class Ctx {
       },
       asset: (name) => {
         const a = this.store.asset(name);
-        if (!a || !this.store.canReadAsset(a, viewer, { via: page?.share_id })) return null;
+        if (!a || !this.store.canReadAsset(a, null, { via: page?.share_id })) return null;
         // With SSO a note's own requests carry no sign-in (it's sandboxed), so its files go by the page's link too.
         const url = `/assets/${encodeURIComponent(a.name)}${page && (page.visibility !== 'public' || sso()) ? `?from=${encodeURIComponent(page.share_id)}` : ''}`;
         const small = inline && a.mime.startsWith('image/') && a.size <= MAX_INLINE_BYTES;
@@ -599,6 +602,7 @@ class Ctx {
       u = this.sessionUser();
       if (!u) throw new ApiError(401, sso() ? 'sign in, or send a bearer token' : 'missing bearer token');
     }
+    this.actorId = u.id; // keep the authenticated identity even if a handler rotates its token
     if (u.claims_only && !claims) throw new ApiError(403, 'this token can only make claim links');
     if (admin && !u.is_admin) throw new ApiError(403, 'admin only');
     return u;
@@ -628,6 +632,7 @@ class Ctx {
     // Its public address, or the one this request came to (an admin on the machine itself).
     if (!read && h.origin !== this.origin() && h.origin !== this.requestOrigin()) return null;
     this.session = this.store.sessionUser(id);
+    if (this.session && !h.authorization) this.actorId = this.session.id;
     return this.session;
   }
   /**
@@ -1128,10 +1133,8 @@ function recordApiCall(store, req, c) {
     const label = CLIENT_LABEL_RE.exec(req.headers['x-html-server-client'] || '');
     // Browsers send Sec-Fetch-Site on every request; curl, scripts and Node's fetch don't.
     const client = label ? label[1].toLowerCase() : req.headers['sec-fetch-site'] ? 'browser' : 'http';
-    const auth = req.headers.authorization || '';
-    const userId = auth.startsWith('Bearer ') ? store.userForToken(auth.slice(7).trim())?.id ?? null : null;
     store.recordApiCall({ client, name: label ? label[2] : '', method: c.head ? 'HEAD' : req.method,
-      route: c.route?.label ?? '(no route)', status: c.status ?? 500, userId });
+      route: c.route?.label ?? '(no route)', status: c.status ?? 500, userId: c.actorId ?? null });
   } catch (e) {
     console.error('usage stats: not recorded:', e.message);
   }

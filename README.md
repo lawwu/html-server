@@ -348,6 +348,10 @@ html-server sync ~/github/my-garden --install-hook   # re-sync on every git comm
   pages keep their old addresses until you run `sync DIR --migrate-paths`; the old URLs
   then redirect. A folder's `index.md` remains a regular note in the listing, and
   `[[features]]` links to `features/index.md`, as it did when sync named it `features.md`.
+- **Assets need unique file names across the folder.** `a/chart.png` and `b/chart.png`
+  both publish as `chart.png`. Sync refuses such collisions before uploading, moving or
+  pruning anything, including in `--dry-run`; it names both files so you can rename one.
+  Names differing only in case or in spaces replaced by dashes also collide.
 - **`[[Wikilinks]]` resolve the way Quartz does:** `[[Backlinks]]` finds the note named
   Backlinks wherever it lives (the shortest path wins if several do), `[[plugins/Backlinks]]`
   goes exactly there, `aliases` work, and `[[tags/plugin/emitter]]` goes to that tag.
@@ -714,6 +718,8 @@ server:
 
 `serve` says `single sign-on: <issuer>` when it's on. In Docker, put these in the `--env-file`;
 on Cloudflare, set them as the Worker's secrets.
+If any of the three required settings is present, all three must be nonblank; otherwise
+startup fails with the missing setting names. Unset all three to disable single sign-on.
 
 **Microsoft Entra ID, step by step:**
 
@@ -1163,6 +1169,12 @@ Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-po
 - **The page runs in an opaque origin.** Its scripts, forms, `alert()`/`confirm()` and
   popups work, but it can't read this site's cookies or local storage (where a reviewer's
   token is saved) or call the API as the viewer, and pages can't reach each other.
+- **Notes and notebooks receive public surrounding content.** Their navigation, graph,
+  backlinks and hover previews exclude the viewer's private pages, since scripts in the
+  document could read them. Embedded assets require access through the page itself or a
+  public page, regardless of who is viewing. A private note opened with permission or its
+  share link keeps its own content and authorized assets. Your private navigation remains
+  available on trusted site pages such as the home page.
 - **Links it opens in a new tab are not sandboxed** (`allow-popups-to-escape-sandbox`).
   A link with `target="_blank"` or a `window.open()` gets an ordinary tab, so sites like
   Jira or Google Docs load fully. Without it the new tab inherited the sandbox and such
