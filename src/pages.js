@@ -41,29 +41,10 @@ export const footer = () => `<footer class="site-foot"><a href="${RELEASE_URL}">
 // and `sidebar`). Runs in <head> so the page never flashes the other way.
 export const PREFS_HEAD = `<script>try{const r=document.documentElement,t=localStorage.getItem('theme');if(t)r.dataset.theme=t;
 if(localStorage.getItem('sidebar')==='hidden')r.dataset.sidebar='hidden'}catch{}</script>`;
-// Who this browser is signed in as, and Sign out: the top bar's line, shown only where the
-// page can read the saved token. A sandboxed note can't (its storage throws), so there it
-// stays hidden. The name is fetched once per token and kept beside it, so pages don't each
-// call /api/me. Sign out forgets both. The token itself lives with the forms that ask for
-// it (gallery, upload, review). Signed in through single sign-on, the session is the sign-in:
-// a token saved in this browser before is forgotten, so a stale one can't stand in its way
-// (a token always wins over the session, and the site's scripts send any they find).
+// session.js activates this line on trusted site pages. Sandboxed notes leave it
+// hidden; credential selection and storage belong to signin.js.
 const SESSION_LINE = '<span class="session" data-session hidden><span class="sr-only" data-session-as></span><span data-session-who>Signed in</span> · '
   + '<a href="/account" data-session-account hidden>Account</a><span data-session-account hidden> · </span><button type="button" class="link-btn" data-sign-out>Sign out</button></span>';
-const SESSION_SCRIPT = `document.addEventListener('click',(e)=>{if(!e.target.closest('[data-sign-out]'))return;
-try{localStorage.removeItem('artifact_token');localStorage.removeItem('artifact_user')}catch{}
-if(document.body.dataset.ssoUser){const f=document.createElement('form');f.method='post';f.action='/api/oidc/logout';document.body.append(f);f.submit();return}
-location.reload()});
-if(document.body.dataset.ssoUser){try{localStorage.removeItem('artifact_token');localStorage.removeItem('artifact_user')}catch{}}
-document.querySelectorAll('[data-session]').forEach((p)=>{const sso=document.body.dataset.ssoUser;
-if(sso){p.hidden=false;p.querySelector('[data-session-as]').textContent='Signed in as ';const w=p.querySelector('[data-session-who]');w.textContent=sso;w.title='Signed in as '+sso;
-p.querySelectorAll('[data-session-account]').forEach((a)=>{a.hidden=false});return}
-let t='';try{t=localStorage.getItem('artifact_token')||''}catch{return}if(!t)return;
-const who=p.querySelector('[data-session-who]'),tail=t.slice(-8),show=(n)=>{p.querySelector('[data-session-as]').textContent='Signed in as ';who.textContent=n;who.title='Signed in as '+n};p.hidden=false;
-let saved=null;try{saved=JSON.parse(localStorage.getItem('artifact_user')||'null')}catch{}
-if(saved&&saved.tail===tail&&saved.name)return show(saved.name);
-fetch('/api/me',{headers:{Authorization:'Bearer '+t}}).then((r)=>{if(r.status===401){who.textContent='Token not accepted';who.title='This server no longer takes the saved token'}return r.ok?r.json():null})
-.then((me)=>{if(!me)return;show(me.name);try{localStorage.setItem('artifact_user',JSON.stringify({tail,name:me.name}))}catch{}}).catch(()=>{})});`;
 // The switches, and on a phone the explorer starts closed. The sidebar's button says which way it goes.
 const SIDEBAR_SCRIPT = `<script>document.querySelectorAll('[data-theme-toggle]').forEach((b)=>b.addEventListener('click',()=>{
 const r=document.documentElement,dark=(r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))==='dark';
@@ -75,7 +56,7 @@ label();b.addEventListener('click',()=>{const hide=r.dataset.sidebar!=='hidden';
 try{localStorage.setItem('sidebar',hide?'hidden':'shown')}catch{}
 try{document.cookie='sidebar='+(hide?'hidden':'shown')+'; path=/; max-age=31536000; samesite=lax'}catch{}})});
 if(matchMedia('(max-width: 800px)').matches)document.querySelectorAll('details.explorer').forEach((d)=>d.removeAttribute('open'));
-${SESSION_SCRIPT}</script>`;
+</script>`;
 
 // Search (⌘K) and hover previews: inlined, since a sandboxed note may not load scripts.
 // Modules, so each keeps its own scope.
@@ -104,7 +85,7 @@ const copyButton = (label = 'Copy markdown') => `<button type="button" class="co
 const shell = (title, body, { scripts = [], bodyAttrs = '', frame = true, search = frame } = {}) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>${PREFS_HEAD}<link rel="stylesheet" href="/_static/style.css"><link rel="stylesheet" href="/_static/note.css"></head>
-<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${SIDEBAR_SCRIPT}${search && !STATIC_SITE ? inlined().search : ''}${scripts.map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
+<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${SIDEBAR_SCRIPT}${search && !STATIC_SITE ? inlined().search : ''}${(STATIC_SITE ? scripts : ['session.js', ...scripts]).map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
 
 const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('ch') ? 'es' : 's'}`;
@@ -900,15 +881,16 @@ ${created ? '<p>Your account is new.</p>' : ''}
 <li><strong>The command line:</strong> install it with <code>${esc(cliInstall(server, cli))}</code> (Node.js 24 or newer), then run <code>html-server login</code>, give it <code>${esc(server)}</code>, and paste the token. MCP uses the same login.</li>
 <li><strong>Scripts:</strong> keep it in a secret store and send it as <code>Authorization: Bearer &lt;token&gt;</code>.</li>
 </ul>
-<script>(() => {
+<script type="module">import { browserSignIn } from '/_static/signin.js';
+(() => {
   const box = document.getElementById('claim-token'), done = document.getElementById('claim-done');
   document.getElementById('claim-copy').onclick = async (e) => {
     box.select();
     try { await navigator.clipboard.writeText(box.value); e.target.textContent = 'Copied'; } catch { document.execCommand('copy'); }
   };
   document.getElementById('claim-here').onclick = () => {
-    try { localStorage.setItem('artifact_token', box.value); localStorage.removeItem('artifact_user'); done.textContent = 'Signed in.'; }
-    catch { done.textContent = "This browser won't keep it; copy it instead."; }
+    const saved = browserSignIn().save(box.value);
+    done.textContent = saved ? 'Signed in.' : "This browser won't keep it; copy it instead.";
   };
 })();</script></main>`, { frame: false });
 }

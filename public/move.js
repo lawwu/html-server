@@ -1,5 +1,7 @@
 // This module runs only in trusted site UI, never inside uploaded content.
+import { browserSignIn } from './signin.js';
 export async function openMove(pages, onMoved) {
+  const auth = browserSignIn();
   if (document.querySelector('dialog.move-dialog')) return;
   const dialog = document.createElement('dialog');
   dialog.className = 'move-dialog';
@@ -15,8 +17,8 @@ export async function openMove(pages, onMoved) {
   const form = dialog.querySelector('form');
   const folder = form.elements.folder, filename = form.elements.filename;
   const tokenInput = form.elements.token, error = dialog.querySelector('.move-error');
-  try { tokenInput.value = localStorage.getItem('artifact_token') || ''; } catch { /* this visit only */ }
-  dialog.querySelector('.move-signin').hidden = !!tokenInput.value || !!document.body.dataset.ssoUser; // SSO: the cookie is enough
+  tokenInput.value = auth.token;
+  dialog.querySelector('.move-signin').hidden = auth.signedIn;
   if (pages.length === 1) {
     folder.value = pages[0].split('/').slice(0, -1).join('/');
     filename.value = pages[0].split('/').at(-1);
@@ -36,19 +38,19 @@ export async function openMove(pages, onMoved) {
     const button = form.querySelector('[type="submit"]'); button.disabled = true; error.textContent = '';
     try {
       const token = tokenInput.value.trim();
-      const r = await fetch('/api/moves', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ moves: moves() }) });
+      const r = await auth.request('/api/moves', { method: 'POST', token, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ moves: moves() }) });
       const data = await r.json();
       if (!r.ok) {
         if (r.status === 401) { dialog.querySelector('.move-signin').hidden = false; tokenInput.focus(); }
         throw new Error(data.error || 'Move failed');
       }
-      if (token) try { localStorage.setItem('artifact_token', token); } catch { /* this visit only */ }
+      if (token) auth.save(token);
       dialog.close(); onMoved(data.results);
     } catch (err) { error.textContent = err.message; }
     finally { button.disabled = false; }
   };
   try {
-    const r = await fetch('/api/folders', { headers: tokenInput.value ? { Authorization: `Bearer ${tokenInput.value}` } : {} });
+    const r = await auth.request('/api/folders', { token: tokenInput.value });
     if (r.ok) for (const name of await r.json()) {
       const opt = document.createElement('option'); opt.value = name; dialog.querySelector('datalist').append(opt);
     }

@@ -112,12 +112,17 @@ test('SSO in Chromium: sign in, upload without a token, and an uploaded page get
   await context.close();
 });
 
-test('SSO in Chromium: a token saved before single sign-on never gets in the way, and commenting needs only the session', async () => {
+test('SSO in Chromium: stale tokens never interfere with commenting, even without the top bar script', async () => {
   const context = await browser.newContext();
+  // Credential policy belongs to the shared sign-in module, not the top bar's
+  // execution order. Review must work even if the top bar never starts.
+  await context.route('**/_static/session.js', (route) => route.fulfill({ contentType: 'text/javascript', body: '' }));
   const page = await context.newPage();
   page.setDefaultTimeout(8000);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  const sentTokens = [];
+  page.on('request', (r) => { if (r.url().startsWith(`${base}/api/`) && r.headers().authorization) sentTokens.push(r.headers().authorization); });
   // A token this browser kept from before (the claim page's "Sign in here"), replaced since.
   await page.goto(`${base}/healthz`);
   await page.evaluate(() => localStorage.setItem('artifact_token', 'ak_replaced-long-ago'));
@@ -138,6 +143,7 @@ test('SSO in Chromium: a token saved before single sign-on never gets in the way
   await comment.getByRole('button', { name: 'Resolve' }).click();
   await page.locator('#list .c.done', { hasText: 'Looks good to me' }).waitFor();
   assert.equal(store.one("SELECT COUNT(*) AS n FROM comments c JOIN users u ON u.id = c.author_id WHERE u.name = 'carol' AND c.resolved_at IS NOT NULL").n, 1);
+  assert.deepEqual(sentTokens, []);
   assert.deepEqual(errors, []);
   await context.close();
 });

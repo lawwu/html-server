@@ -5,16 +5,15 @@
 // access to the machine). Client commands talk to a running server over HTTP.
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { createInterface } from 'node:readline/promises';
-import { basename, dirname, join, resolve as resolvePath } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { parse as parseYaml } from 'yaml';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
 import { VERSION, githubSignIn, publicOrigin, setGitHubSignIn, setPublicUrl, setSso, sso } from './config.js';
-import { encodePath, pageUrl } from './paths.js';
+import { encodePath } from './paths.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
 
@@ -453,161 +452,23 @@ const clientCommands = {
    * hooks so every commit and pull re-syncs in the background.
    */
   async sync([dir], opts) {
-    if (!dir || !existsSync(dir) || !statSync(dir).isDirectory()) fail('usage: sync DIR [--private] [--folder FOLDER] [--migrate-paths] [--prune] [--dry-run] [--install-hook]');
-    const { noteSlug, pageNameKey, parseFrontmatter, syncedSlug, ASSET_RE } = await import('./markdown.js');
-    const { parseNotebook } = await import('./notebook.js');
-    let root = resolvePath(dir);
-    const quartz = quartzConfig(root);
-    if (quartz) {
-      root = join(root, 'content');
-      console.log(`Quartz repo: syncing content/${quartz.ignore.length ? `, ignoring ${quartz.ignore.join(', ')}` : ''}`);
-    }
-    if (opts['install-hook']) return installHook(root, opts);
-    const ignored = (rel) => (quartz?.ignore ?? []).some((pat) => globMatch(pat, rel));
-
-    const files = [];
-    (function walk(d) {
-      for (const f of readdirSync(d).sort()) {
-        if (f.startsWith('.') || f === 'node_modules') continue; // .obsidian, .git, .trash, …
-        const p = join(d, f);
-        const rel = p.slice(root.length + 1);
-        if (ignored(rel)) continue;
-        const entry = lstatSync(p);
-        if (entry.isSymbolicLink()) { console.log(`skipped   ${rel} (symlink)`); continue; }
-        if (entry.isDirectory()) walk(p);
-        else if (/\.(md|markdown|html?|ipynb)$/i.test(f) || ASSET_RE.test(f)) files.push(p);
+    const { FolderSync, SyncError } = await import('./sync.js');
+    const { syncRemote } = await import('./sync-remote.js');
+    try {
+      const sync = new FolderSync(dir, { remote: syncRemote(api), onEvent: printSyncEvent });
+      if (opts['install-hook']) return installHook(sync.root, opts);
+      const { counts, flat, dryRun } = await sync.run({
+        private: opts.private, folder: opts.folder, prune: opts.prune,
+        dryRun: opts['dry-run'], migratePaths: opts['migrate-paths'],
+      });
+      console.log(`${dryRun ? '(dry run) ' : ''}${Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'nothing to do'}`);
+      if (flat.length) {
+        const one = flat.length === 1;
+        console.log(`${flat.length} ${one ? 'page has a flat address' : 'pages have flat addresses'} from before folders (${one ? '' : 'e.g. '}${flat[0][0]}, for ${flat[0][1]}): `
+          + `sync --migrate-paths moves ${one ? 'it' : 'them'}; old links keep working`);
       }
-    })(root);
-    if (!files.length && !opts.prune) fail(`no notes, pages or images under ${root}`);
-
-    // Assets share one namespace even when their source files live in different
-    // folders. Check the exact upload names before any upload, move or prune.
-    const assetName = (file) => basename(file).trim().replace(/\s+/g, '-');
-    const assetFiles = new Map();
-    for (const file of files.filter((f) => ASSET_RE.test(f))) {
-      const name = assetName(file), key = name.toLowerCase();
-      const previous = assetFiles.get(key);
-      if (previous) fail(`asset name collision: ${previous.slice(root.length + 1)} and ${file.slice(root.length + 1)} use the same asset name (${name}); rename one before syncing`);
-      assetFiles.set(key, file);
-    }
-
-    let inGit = false;
-    try { inGit = execFileSync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() === 'true'; } catch { /* not git */ }
-    const commitNote = (rel) => {
-      if (!inGit) return '';
-      try { return execFileSync('git', ['-C', root, 'log', '-1', '--format=%s', '--', rel], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return ''; }
-    };
-
-    // A source file keeps its published identity when a user moves it on the server.
-    const synced = [];
-    for (let offset = 0; ; offset += 500) {
-      const batch = await api('GET', `/api/artifacts?source=${enc(root)}&limit=500&offset=${offset}`, { auth: 'required' });
-      synced.push(...batch);
-      if (batch.length < 500) break;
-    }
-    const bySource = new Map(synced.filter((p) => p.source_path).map((p) => [p.source_path, p]));
-    // Synced before folders from another checkout or folder of this vault, a nested file's page
-    // has its flat name (source/legacy.md → source-legacy.md) and isn't among this folder's. It's
-    // this file's page if it was synced from this file's path, is yours to edit and isn't in
-    // the trash (like this folder's pages above); any other page by that name is another page.
-    const legacyPage = async (rel) => {
-      const flatName = syncedSlug(rel);
-      let p = null;
-      try { p = await api('GET', `/api/artifacts/${enc(flatName)}`, { auth: 'required' }); } catch (e) {
-        if (e.message !== 'no such artifact') throw e;
-      }
-      return p?.slug === flatName && p.source_path === rel && p.can_edit && p.state === 'active' ? p : null;
-    };
-    const count = { new: 0, updated: 0, renamed: 0, moved: 0, unchanged: 0, skipped: 0, failed: 0, trashed: 0 };
-    const say = (what, rel, extra = '') => console.log(`${what.padEnd(9)} ${rel}${extra}`);
-    const seen = new Map(); // page name (lowercase) → file, to catch two notes that would share a URL
-    const flat = []; // pages still at a flat address from before folders: [address, its file's path]
-    const known = new Map((await api('GET', '/api/assets', { auth: 'required' })).map((a) => [a.name.toLowerCase(), a.sha256])); // yours
-
-    for (const file of files) {
-      const rel = file.slice(root.length + 1);
-      const body = readFileSync(file);
-      const sha = createHash('sha256').update(body).digest('hex');
-      try {
-        if (ASSET_RE.test(file)) { // images and PDFs: by file name, replaced when changed
-          const name = assetName(file);
-          if (known.get(name.toLowerCase()) === sha) { count.unchanged++; continue; }
-          const isNew = !known.has(name.toLowerCase());
-          if (opts['dry-run']) { count[isNew ? 'new' : 'updated']++; say(isNew ? 'would add' : 'would update', rel, ` → /assets/${name}`); continue; }
-          await api('PUT', `/api/assets/${enc(name)}`, { body, auth: 'required' });
-          count[isNew ? 'new' : 'updated']++;
-          say(isNew ? 'new' : 'updated', rel);
-          continue;
-        }
-        if (/\.(md|markdown|ipynb)$/i.test(file)) { // drafts stay out, for notes and notebooks alike
-          const { data } = /\.ipynb$/i.test(file) ? (({ front, metadata }) => ({ data: { ...metadata, ...front } }))(parseNotebook(body.toString('utf8')))
-            : parseFrontmatter(body.toString('utf8'));
-          if (data.draft === true || data.publish === false) { count.skipped++; say('draft', rel); continue; }
-        }
-        const parts = rel.split('/');
-        const desired = [opts.folder?.replace(/^\/+|\/+$/g, ''), ...parts.map(noteSlug)].filter(Boolean).join('/');
-        const previous = bySource.get(rel) ?? (syncedSlug(rel).toLowerCase() !== desired.toLowerCase() ? await legacyPage(rel) : null);
-        let name = previous?.slug || desired;
-        if (previous && !opts['migrate-paths'] && !name.includes('/') && desired.includes('/')) flat.push([name, desired]);
-        if (previous && opts['migrate-paths'] && name !== desired) {
-          if (!opts['dry-run']) await api('POST', '/api/moves', { body: JSON.stringify({ moves: [{ from: name, to: desired }] }), auth: 'required', json: true });
-          count.moved++;
-          say(opts['dry-run'] ? 'would move' : 'moved', name, ` → ${desired}`);
-          name = desired;
-          if (!opts['dry-run']) previous.slug = desired;
-        }
-        const nameKey = pageNameKey(parts.map(noteSlug).join('/')); // an index note goes by its folder's name
-        if (seen.has(name.toLowerCase())) {
-          count.skipped++;
-          console.error(`skipped   ${rel}: same page name as ${seen.get(name.toLowerCase())} (${name}); rename one`);
-          continue;
-        }
-        seen.set(name.toLowerCase(), rel);
-        if (opts['dry-run'] && previous) seen.set(previous.slug.toLowerCase(), rel);
-        // Looking a page up forgives case, so compare the name it comes back with: the same
-        // name is this file's page; the same but for case is that page, its file renamed
-        // (Notes.md → notes.md), which the upload renames too rather than making a second page.
-        let page = null;
-        const at = opts['dry-run'] && previous ? previous.slug : name; // a dry run moves nothing: the page is still there
-        try { page = await api('GET', `/api/artifacts/${enc(at)}`); } catch (e) {
-          if (e.message !== 'no such artifact') throw e;
-        }
-        const renamed = page && page.slug !== at && page.slug.toLowerCase() === at.toLowerCase() ? page.slug : null;
-        if (page?.slug !== at && !renamed) page = null; // another page answering to the name isn't this file's
-        const latest = page?.versions.at(-1);
-        if (latest?.sha256 === sha && !renamed) { count.unchanged++; continue; }
-        const what = renamed ? 'renamed' : latest ? 'updated' : 'new';
-        if (opts['dry-run']) { count[what]++; say(renamed ? 'would rename' : latest ? 'would update' : 'would add', rel, ` → ${pageUrl(name)}`); continue; }
-        const q = new URLSearchParams({ note: commitNote(rel) || (renamed ? `renamed from ${renamed}` : latest ? 'synced' : 'imported'), source: root, name: nameKey, path: rel });
-        if (renamed) q.set('rename_from', renamed);
-        if (opts.private && !latest) q.set('visibility', 'private');
-        const a = await api('PUT', `/api/artifacts/${enc(name)}?${q}`, { body, auth: 'required' });
-        count[what]++;
-        say(what, rel, ` → ${SERVER}${a.url}${renamed ? ` (was ${renamed})` : ''}`);
-      } catch (e) {
-        count.failed++;
-        console.error(`failed    ${rel}: ${e.message}`);
-      }
-    }
-
-    if (opts.prune && count.failed === 0) { // pages synced from this folder whose file is gone → trash (restorable)
-      const mine = synced;
-      for (const p of mine) {
-        if (seen.has(p.slug.toLowerCase())) continue;
-        if (opts['dry-run']) { count.trashed++; say('would trash', p.slug); continue; }
-        try { await api('DELETE', `/api/artifacts/${enc(p.slug)}`, { auth: 'required' }); count.trashed++; say('trashed', p.slug, ' (its file is gone; restorable)'); } catch (e) {
-          count.failed++;
-          console.error(`failed    trashing ${p.slug}: ${e.message}`);
-        }
-      }
-    }
-    console.log(`${opts['dry-run'] ? '(dry run) ' : ''}${Object.entries(count).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'nothing to do'}`);
-    if (flat.length) {
-      const one = flat.length === 1;
-      console.log(`${flat.length} ${one ? 'page has a flat address' : 'pages have flat addresses'} from before folders (${one ? '' : 'e.g. '}${flat[0][0]}, for ${flat[0][1]}): `
-        + `sync --migrate-paths moves ${one ? 'it' : 'them'}; old links keep working`);
-    }
-    if (count.failed) process.exitCode = 1;
+      if (counts.failed) process.exitCode = 1;
+    } catch (e) { if (e instanceof SyncError) fail(e.message); throw e; }
   },
   async ls(args, opts) { printList(await api('GET', `/api/artifacts?limit=500${opts.folder ? `&folder=${enc(opts.folder)}` : ''}${opts.sort ? `&sort=${enc(opts.sort)}` : ''}`)); },
   async search(words, opts) {
@@ -667,39 +528,17 @@ const clientCommands = {
 };
 
 // --- sync helpers -----------------------------------------------------------------------
-/** A Quartz repo's settings, if DIR is one: { ignore: [patterns] } from quartz.config.yaml (or .ts), or null. */
-function quartzConfig(dir) {
-  if (!existsSync(join(dir, 'content')) || !statSync(join(dir, 'content')).isDirectory()) return null;
-  const cfg = ['quartz.config.yaml', 'quartz.config.yml', 'quartz.config.default.yaml', 'quartz.config.ts']
-    .map((f) => join(dir, f)).find((f) => existsSync(f));
-  if (!cfg) return null;
-  const text = readFileSync(cfg, 'utf8');
-  let ignore = [];
-  try {
-    if (cfg.endsWith('.ts')) {
-      // Never execute a vault's config. Accept only a literal list of quoted strings;
-      // expressions/spreads/unknown syntax must not silently discard privacy rules.
-      const code = text.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, (m, quoted) => quoted ?? ' ');
-      const literal = /(?:^|[,{])\s*(?:ignorePatterns|"ignorePatterns"|'ignorePatterns')\s*:\s*(\[(?:\s*(?:"[^"\\]*"|'[^'\\]*')\s*,?)*\s*\])\s*(?=[,}])/s.exec(code)?.[1];
-      if (!literal || [...code.matchAll(/\bignorePatterns\b/g)].length !== 1) throw new Error('ignorePatterns must be a single explicit literal list of quoted strings');
-      ignore = parseYaml(literal);
-    } else {
-      const config = parseYaml(text, { maxAliasCount: 100 });
-      if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('expected a YAML configuration object');
-      const settings = config.configuration ?? config;
-      if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('expected a configuration object');
-      ignore = Object.hasOwn(settings, 'ignorePatterns') ? settings.ignorePatterns : [];
-    }
-    if (!Array.isArray(ignore) || ignore.some((p) => typeof p !== 'string' || !p.trim())) throw new Error('ignorePatterns must be a list of nonempty strings');
-  } catch (e) { fail(`cannot read exclusions from ${cfg}: ${e.message}`); }
-  return { ignore };
-}
-
-/** Quartz-style ignore patterns: a bare name matches that folder or file anywhere; *, ** and ? glob. */
-function globMatch(pat, rel) {
-  if (!/[*?]/.test(pat)) return rel.split('/').includes(pat.replace(/\/$/, ''));
-  const re = pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\/?/g, '\0').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\0/g, '.*');
-  return new RegExp(`(^|/)${re}(/|$)`).test(rel);
+/** Translate workflow events into the CLI's existing output. */
+function printSyncEvent(e) {
+  if (e.type === 'quartz') return console.log(`Quartz repo: syncing content/${e.ignore.length ? `, ignoring ${e.ignore.join(', ')}` : ''}`);
+  if (e.type === 'symlink') return console.log(`skipped   ${e.path} (symlink)`);
+  if (e.type === 'duplicate') return console.error(`skipped   ${e.path}: same page name as ${e.previous} (${e.name}); rename one`);
+  if (e.type === 'failure') return console.error(`failed    ${e.trashing ? 'trashing ' : ''}${e.path}: ${e.error.message}`);
+  const planned = { new: 'would add', updated: 'would update', renamed: 'would rename', moved: 'would move', trashed: 'would trash' };
+  const what = e.dryRun ? planned[e.action] || e.action : e.action;
+  const extra = e.url ? ` → ${SERVER}${e.url}${e.renamedFrom ? ` (was ${e.renamedFrom})` : ''}`
+    : e.target ? ` → ${e.target}` : e.action === 'trashed' && !e.dryRun ? ' (its file is gone; restorable)' : '';
+  console.log(`${what.padEnd(9)} ${e.path}${extra}`);
 }
 
 /** Git hooks in the repo holding DIR, so each commit and pull re-syncs it (in the background). */

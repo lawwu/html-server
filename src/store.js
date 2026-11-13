@@ -1234,6 +1234,13 @@ export class Store {
     return this.one('SELECT base_path FROM versions WHERE artifact_id = ? AND n = ?', a.id, n || a.latest_version)?.base_path || a.slug;
   }
 
+  /** Navigation follows published folders after a move; legacy flat syncs keep their source tree. */
+  presentationPath(page) {
+    if (page.slug.includes('/')) return page.slug;
+    const moved = page.moved ?? this.one('SELECT 1 FROM moves WHERE artifact_id = ? LIMIT 1', page.id);
+    return moved ? page.slug : page.path;
+  }
+
   folder(folder, viewerId) {
     validatePath(folder, { folder: true });
     const prefix = folder ? `${folder}/` : '';
@@ -1469,7 +1476,7 @@ export class Store {
   explorer(viewerId) {
     return this.cached(`explorer:${viewerId ?? ''}`, () => this.all("SELECT a.slug, a.title, a.path, EXISTS (SELECT 1 FROM moves m WHERE m.artifact_id = a.id) AS moved FROM artifacts a WHERE a.state = 'active'"
       + " AND (a.visibility = 'public' OR a.owner_id = ?) ORDER BY lower(a.title)", viewerId ?? -1)
-      .map((r) => ({ slug: r.slug, title: r.title, path: r.moved || r.slug.includes('/') ? r.slug : r.path, url: pageUrl(r.slug) })));
+      .map((r) => ({ slug: r.slug, title: r.title, path: this.presentationPath(r), url: pageUrl(r.slug) })));
   }
 
   /** Categories in use among pages this viewer can see, with counts. */

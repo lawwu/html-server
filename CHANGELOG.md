@@ -8,6 +8,13 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- Browser sign-in, folder sync and page delivery now have dedicated modules. Browser
+  forms share credential selection and identity caching, so single sign-on works even
+  when the top bar script hasn't run. Sync decisions and failure-aware pruning can be
+  tested independently of HTTP; page delivery keeps trusted site chrome and sandboxed
+  documents explicit. Existing command output, page modes and database behavior are
+  preserved, with additional regression coverage for these boundaries.
+
 ## 0.18.2 (2026-11-12)
 
 - **Security: notes and notebooks no longer receive the viewer's unrelated private data.**

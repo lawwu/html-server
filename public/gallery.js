@@ -6,6 +6,7 @@
 // its page again, so new results never replace the cards on show: those stay where
 // they are, take the new highlights, and are reordered (CSS order) or hidden.
 import { openMove } from './move.js';
+import { browserSignIn } from './signin.js';
 import { acceptDrops, openUpload } from './upload.js';
 const box = document.getElementById('q');
 const results = document.getElementById('results');
@@ -189,8 +190,7 @@ if (selectBtn && bulk) {
   const picked = new Set();
   const msg = document.getElementById('bulk-msg');
   const tagBox = document.getElementById('bulk-tag');
-  let token = '';
-  try { token = localStorage.getItem('artifact_token') || ''; } catch { /* storage blocked */ }
+  const auth = browserSignIn();
 
   const say = (text, isError = false) => { msg.textContent = text; msg.classList.toggle('err', isError); };
   const sync = () => {
@@ -220,9 +220,9 @@ if (selectBtn && bulk) {
   new MutationObserver(sync).observe(results, { childList: true, subtree: true });
 
   async function call(method, path, body) {
-    const r = await fetch(path, {
+    const r = await auth.request(path, {
       method, body: body && JSON.stringify(body),
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: body ? { 'Content-Type': 'application/json' } : {},
     });
     const data = await r.json().catch(() => null);
     if (!r.ok) throw Object.assign(new Error(data?.error || r.statusText), { status: r.status });
@@ -238,9 +238,8 @@ if (selectBtn && bulk) {
     const [input, save] = [wrap.querySelector('input'), wrap.querySelector('button')];
     input.focus();
     save.onclick = () => {
-      token = input.value.trim();
-      try { localStorage.setItem('artifact_token', token); } catch { /* this visit only */ }
-      say(token ? 'Signed in. Try again.' : '');
+      auth.save(input.value);
+      say(auth.signedIn ? 'Signed in. Try again.' : '');
     };
   }
 
@@ -250,7 +249,7 @@ if (selectBtn && bulk) {
     if (act === 'done') return setSelecting(false);
     if (!picked.size) return say('Tick some pages first.', true);
     if (act === 'move') return openMove([...picked], () => location.reload());
-    if (!token && !document.body.dataset.ssoUser) return askToken(); // signed in through SSO: the cookie is enough
+    if (!auth.signedIn) return askToken();
     const pages = [...picked];
     try {
       let failures = [];

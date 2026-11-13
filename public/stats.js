@@ -1,5 +1,6 @@
 // /stats hover: every chart mark carries data-tip; show it in one floating tooltip
 // that follows the pointer (and keyboard focus, for the linked rows).
+import { browserSignIn } from './signin.js';
 const tip = document.getElementById('tip');
 const show = (mark, x, y) => {
   tip.textContent = mark.dataset.tip;
@@ -31,17 +32,16 @@ document.addEventListener('focusout', () => { tip.hidden = true; });
 const usageBody = document.getElementById('usage-body');
 const form = document.getElementById('usage-signin');
 const msg = document.getElementById('usage-msg');
-const KEY = 'artifact_token';
-const saved = () => { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } };
+const auth = browserSignIn();
+const saved = () => auth.token;
 
 async function loadUsage(token, { fromForm = false, days = new URLSearchParams(location.search).get('days') || '' } = {}) {
-  const sso = !!document.body.dataset.ssoUser; // signed in through single sign-on: the cookie is enough
-  if (!token && !sso) { form.hidden = false; return; }
+  if (!token && !auth.signedIn) { form.hidden = false; return; }
   let r;
-  try { r = await fetch(`/stats/usage${days ? `?days=${encodeURIComponent(days)}` : ''}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); }
+  try { r = await auth.request(`/stats/usage${days ? `?days=${encodeURIComponent(days)}` : ''}`, { token }); }
   catch { msg.textContent = 'Couldn’t reach the server.'; return; }
   if (r.ok) {
-    if (fromForm && token) { try { localStorage.setItem(KEY, token); } catch { /* this visit only */ } }
+    if (fromForm && token) auth.save(token);
     usageBody.innerHTML = await r.text();
     if (days) history.replaceState(null, '', `?days=${encodeURIComponent(days)}#usage`);
     return;
@@ -83,8 +83,7 @@ usageBody?.addEventListener('click', async (e) => {
   panel.hidden = false;
   panel.innerHTML = '<p class="meta">Loading…</p>';
   try {
-    const r = await fetch(`/stats/usage/people/${encodeURIComponent(link.dataset.person)}${days ? `?days=${encodeURIComponent(days)}` : ''}`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const r = await auth.request(`/stats/usage/people/${encodeURIComponent(link.dataset.person)}${days ? `?days=${encodeURIComponent(days)}` : ''}`, { token });
     panel.innerHTML = r.ok ? await r.text() : `<p class="meta">Couldn’t load it (HTTP ${r.status}).</p>`;
   } catch { panel.innerHTML = '<p class="meta">Couldn’t reach the server.</p>'; }
   panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
