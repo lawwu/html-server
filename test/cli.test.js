@@ -645,3 +645,71 @@ test('visibility changes access without a new version and enforces ownership', a
   assert.notEqual((await cli(['visibility', name, 'invalid'], env)).code, 0);
   assert.notEqual((await cli(['visibility'], env)).code, 0);
 });
+
+test('management commands: exact downloads, JSON reads, share rotation, assets, comments and trash recovery', async () => {
+  const token = store.createUser('management-cli');
+  const owner = store.userForToken(token).id;
+  const name = 'management/日本.md', source = '# 日本\r\n\r\nOriginal ✓\n';
+  store.putVersion(owner, name, Buffer.from(source), { visibility: 'private' });
+  store.putVersion(owner, name, Buffer.from('# Changed'));
+  const env = { HTML_SERVER_TOKEN: token };
+  const run = (args) => cli(args, env);
+  const json = async (args) => { const r = await run([...args, '--json']); assert.equal(r.code, 0, r.err); return JSON.parse(r.out); };
+  const output = join(dir, 'download.md');
+  assert.deepEqual(await json(['get', name, '--version', '1', '--output', output]), { name, version: 1, source });
+  assert.equal(readFileSync(output, 'utf8'), source);
+  assert.notEqual((await run(['get', name, '--output', output])).code, 0);
+  assert.equal(readFileSync(output, 'utf8'), source);
+  assert.notEqual((await run(['get', name, '--version', '0'])).code, 0);
+  assert.notEqual((await run(['get', name, '--version', '999'])).code, 0);
+  assert.equal((await run(['get', name, '--version=1'])).out, source);
+  assert.equal((await json(['get', name])).source, '# Changed');
+  assert.equal((await run(['--json', 'get', name, '--version', '1'])).code, 0);
+  assert.equal((await run(['get', name, '--version'])).code, 1);
+  for (const args of [['ls'], ['find', 'Changed'], ['search', 'Changed'], ['history', name], ['tags'], ['diff', name], ['views', name], ['whoami']]) await json(args);
+  const shared = await json(['share', name]);
+  assert.equal((await fetch(shared.share_url)).status, 200);
+  const rotated = await json(['share', name, '--rotate']);
+  assert.notEqual(shared.share_url, rotated.share_url);
+  assert.equal((await fetch(shared.share_url)).status, 404);
+  assert.equal((await fetch(rotated.share_url)).status, 200);
+  const file = join(dir, 'cli-asset.png'), bytes = Buffer.from([137, 80, 78, 71, 0, 255]);
+  writeFileSync(file, bytes);
+  await json(['assets', 'put', file]);
+  assert.ok((await json(['assets', 'ls'])).some((a) => a.name === 'cli-asset.png'));
+  assert.deepEqual(Buffer.from(store.asset('cli-asset.png').data), bytes);
+  const response = await fetch(`${url}/api/artifacts/${encodeURIComponent(name)}/comments`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ body: 'Review' }) });
+  const comment = await response.json();
+  await json(['comments', 'resolve', String(comment.id)]);
+  assert.ok((await json(['comments', 'ls', name]))[0].resolved_at);
+  await json(['comments', 'reopen', String(comment.id)]);
+  assert.equal((await json(['comments', 'ls', name]))[0].resolved_at, null);
+  assert.notEqual((await run(['comments', 'resolve', 'bad'])).code, 0);
+  const stranger = { HTML_SERVER_TOKEN: store.createUser('management-cli-other') };
+  for (const args of [['share', name], ['share', name, '--rotate'], ['assets', 'rm', 'cli-asset.png'], ['comments', 'resolve', String(comment.id)]]) assert.notEqual((await cli(args, stranger)).code, 0);
+  await json(['assets', 'rm', 'cli-asset.png']);
+  assert.equal(store.asset('cli-asset.png'), null);
+  assert.equal((await run(['rm', name])).code, 0);
+  assert.ok((await json(['trash', 'ls'])).some((p) => p.slug === name));
+  assert.notEqual((await cli(['trash', 'restore', name], stranger)).code, 0);
+  assert.equal((await json(['trash', 'restore', name])).state, 'active');
+  assert.equal(store.describe(name, owner).versions.length, 2);
+  assert.equal(store.describe(name, owner).visibility, 'private');
+  assert.deepEqual(await json(['trash', 'ls']), []);
+  for (const args of [['trash'], ['assets', 'ls', 'unexpected'], ['comments', 'unknown', '1'], ['share']]) assert.notEqual((await run(args)).code, 0);
+});
+
+test('trash ls includes every owned page beyond one API batch', async () => {
+  const token = store.createUser('trash-pagination');
+  const owner = store.userForToken(token).id;
+  for (let i = 0; i < 501; i++) {
+    const name = `trash-batch-${i}.html`;
+    store.putVersion(owner, name, Buffer.from('<p>Archived</p>'));
+    store.apply(owner, name, 'trash');
+  }
+  const r = await cli(['trash', 'ls', '--json'], { HTML_SERVER_TOKEN: token });
+  assert.equal(r.code, 0, r.err);
+  const pages = JSON.parse(r.out);
+  assert.equal(pages.length, 501);
+  assert.equal(new Set(pages.map((p) => p.slug)).size, 501);
+});

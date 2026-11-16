@@ -14,6 +14,7 @@ import { parseArgs } from 'node:util';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
 import { VERSION, githubSignIn, publicOrigin, setGitHubSignIn, setPublicUrl, setSso, sso } from './config.js';
 import { encodePath } from './paths.js';
+import { listTrash, restorePage, sharePage, readPage, listAssets, putAsset, deleteAsset, resolveComment } from './manage.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
 
@@ -343,7 +344,41 @@ function openInBrowser(url) {
   try { spawn(cmd, [url], { stdio: 'ignore', detached: true }).on('error', () => console.log(url)).unref(); } catch { console.log(url); }
 }
 
+const printJson = (value) => console.log(JSON.stringify(value, null, 2));
 const clientCommands = {
+  async trash([op, name, ...extra], opts) {
+    if (extra.length || !['ls', 'restore'].includes(op) || (op === 'ls' ? name : !name)) fail('usage: trash ls | trash restore NAME');
+    const result = op === 'ls' ? await listTrash() : await restorePage(name);
+    if (opts.json) return printJson(result);
+    if (op === 'ls') printList(result); else console.log(`${result.slug} → ${result.state}`);
+  },
+  async share([name, ...extra], opts) {
+    if (!name || extra.length) fail('usage: share NAME [--rotate] [--json]');
+    const result = await sharePage(name, opts.rotate);
+    if (opts.json) return printJson(result);
+    console.log(result.share_url);
+  },
+  async get([name, ...extra], opts) {
+    if (!name || extra.length) fail('usage: get NAME [--output FILE] [--version N] [--json]');
+    const result = await readPage(name, opts.version);
+    if (opts.output) writeFileSync(opts.output, result.source, { flag: 'wx', mode: 0o600 });
+    if (opts.json) return printJson(result);
+    if (!opts.output) process.stdout.write(result.source);
+  },
+  async assets([op, value, ...extra], opts) {
+    if (extra.length || !['ls', 'put', 'rm'].includes(op) || (op === 'ls' ? value : !value)) fail('usage: assets ls | assets put FILE [--name NAME] | assets rm NAME');
+    const result = op === 'ls' ? await listAssets() : op === 'put' ? await putAsset(opts.name || basename(value), readFileSync(value)) : await deleteAsset(value);
+    if (opts.json) return printJson(result);
+    if (op === 'ls') for (const a of result) console.log(`${a.name}  ${a.size} B`);
+    else console.log(op === 'put' ? `uploaded ${result.name}` : `deleted ${value}`);
+  },
+  async comments([op, value, ...extra], opts) {
+    if (extra.length || !value || !['ls', 'resolve', 'reopen'].includes(op)) fail('usage: comments ls NAME | comments resolve ID | comments reopen ID');
+    const result = op === 'ls' ? await api('GET', `/api/artifacts/${enc(value)}/comments`) : await resolveComment(value, op === 'reopen');
+    if (opts.json) return printJson(result);
+    if (op === 'ls') for (const c of result) console.log(`${c.id}  ${c.author}${c.resolved_at ? ' [resolved]' : ''}: ${c.body}`);
+    else console.log(`comment ${value} ${op === 'resolve' ? 'resolved' : 'reopened'}`);
+  },
   async put([file, note = ''], opts) {
     if (!file || !existsSync(file)) fail('usage: put FILE [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]');
     const name = [opts.folder?.replace(/^\/+|\/+$/g, ''), opts.name || basename(file)].filter(Boolean).join('/'); // upload to the base name, so out/page.html works
@@ -427,14 +462,16 @@ const clientCommands = {
     }
     if (failed) process.exitCode = 1;
   },
-  async tags() {
+  async tags(args, opts) {
     const tags = await api('GET', '/api/tags');
+    if (opts.json) return printJson(tags);
     if (!tags.length) return console.log('(no tags)');
     for (const t of tags) console.log(`${t.tag.padEnd(30)} ${t.count}`);
   },
-  async history([name]) {
+  async history([name], opts) {
     if (!name) fail('usage: history NAME');
     const a = await api('GET', `/api/artifacts/${enc(name)}`);
+    if (opts.json) return printJson(a);
     console.log(`${a.slug} — ${a.title} (owner: ${a.owner})`);
     for (const v of a.versions.slice().reverse()) {
       const when = new Date(v.created_at * 1000).toLocaleString('en-CA', { dateStyle: 'short', timeStyle: 'short' });
@@ -476,7 +513,7 @@ const clientCommands = {
       if (counts.failed) process.exitCode = 1;
     } catch (e) { if (e instanceof SyncError) fail(e.message); throw e; }
   },
-  async ls(args, opts) { printList(await api('GET', `/api/artifacts?limit=500${opts.folder ? `&folder=${enc(opts.folder)}` : ''}${opts.sort ? `&sort=${enc(opts.sort)}` : ''}`)); },
+  async ls(args, opts) { (opts.json ? printJson : printList)(await api('GET', `/api/artifacts?limit=500${opts.folder ? `&folder=${enc(opts.folder)}` : ''}${opts.sort ? `&sort=${enc(opts.sort)}` : ''}`)); },
   async search(words, opts) {
     if (!words.length) fail('usage: search WORDS... [--tag TAG] [--json]');
     const q = new URLSearchParams({ q: words.join(' ') });
@@ -493,9 +530,9 @@ const clientCommands = {
     }
     console.log(`${r.count} match${r.count === 1 ? '' : 'es'}`);
   },
-  async find(words) {
+  async find(words, opts) {
     if (!words.length) fail('usage: find WORDS...');
-    printList(await api('GET', `/api/artifacts?q=${enc(words.join(' '))}`));
+    (opts.json ? printJson : printList)(await api('GET', `/api/artifacts?q=${enc(words.join(' '))}`));
   },
   async open([name]) { if (!name) fail('usage: open NAME'); openInBrowser(`${SERVER}/pages/${encodePath(name)}`); },
   async review([name]) { if (!name) fail('usage: review NAME'); openInBrowser(`${SERVER}/review/${encodePath(name)}`); },
@@ -504,7 +541,9 @@ const clientCommands = {
     const q = new URLSearchParams();
     if (from && to) { q.set('from', from); q.set('to', to); }
     if (opts.source) q.set('of', 'source');
-    process.stdout.write((await api('GET', `/api/artifacts/${enc(name)}/diff${q.size ? `?${q}` : ''}`)) || '(no differences)\n');
+    const diff = await api('GET', `/api/artifacts/${enc(name)}/diff${q.size ? `?${q}` : ''}`);
+    if (opts.json) return printJson({ name, diff });
+    process.stdout.write(diff || '(no differences)\n');
   },
   async restore([name, n]) {
     if (!name || !/^\d+$/.test(n || '')) fail('usage: restore NAME N');
@@ -527,8 +566,9 @@ const clientCommands = {
     console.log(`${SERVER}${c.claim_path}`);
     console.error(`works once, until ${new Date(c.expires_at * 1000).toLocaleTimeString()}; it shows ${c.name} a new token, which replaces any old one`);
   },
-  async whoami() {
+  async whoami(args, opts) {
     const me = await api('GET', '/api/me', { auth: 'required' });
+    if (opts.json) return printJson({ ...me, server: SERVER });
     console.log(`${me.name}${me.is_admin ? ' (admin)' : ''} on ${SERVER}`);
   },
 };
@@ -580,45 +620,55 @@ export async function main(argv) {
     fail(`--sandbox-allow needs a permission, e.g. --sandbox-allow allow-downloads. Valid: ${SANDBOX_TOKENS.join(', ')}.`
       + ' (Links pages open in a new tab, such as Jira, already work without it.)');
   }
-  const { values: opts, positionals } = parseArgs({
-    args: argv,
-    allowPositionals: true,
-    options: {
-      db: { type: 'string' }, // DEFAULT_DB unless given: given, it can't go with DATABASE_URL
-      host: { type: 'string', default: DEFAULT_HOST },
-      'sandbox-allow': { type: 'string', multiple: true },
-      sort: { type: 'string' },
-      port: { type: 'string', default: String(DEFAULT_PORT) },
-      admin: { type: 'boolean', default: false },
-      'claims-only': { type: 'boolean', default: false },
-      save: { type: 'boolean', default: false },
-      private: { type: 'boolean', default: false },
-      purge: { type: 'boolean', default: false },
-      source: { type: 'boolean', default: false },
-      name: { type: 'string' },
-      folder: { type: 'string' },
-      'migrate-paths': { type: 'boolean', default: false },
-      base: { type: 'string' },
-      keep: { type: 'string' },
-      tag: { type: 'string' },
-      'dry-run': { type: 'boolean', default: false },
-      prune: { type: 'boolean', default: false },
-      'install-hook': { type: 'boolean', default: false },
-      apply: { type: 'boolean', default: false },
-      preview: { type: 'boolean', default: false },
-      'replace-telemetry': { type: 'boolean', default: false },
-      json: { type: 'boolean', default: false },
-      url: { type: 'string' },
-      token: { type: 'string' },
-      user: { type: 'string' },
-      help: { type: 'boolean', short: 'h', default: false },
-      version: { type: 'boolean', short: 'v', default: false },
-    },
-  });
+  const options = {
+    db: { type: 'string' }, // DEFAULT_DB unless given: given, it can't go with DATABASE_URL
+    host: { type: 'string', default: DEFAULT_HOST },
+    'sandbox-allow': { type: 'string', multiple: true },
+    sort: { type: 'string' },
+    port: { type: 'string', default: String(DEFAULT_PORT) },
+    admin: { type: 'boolean', default: false },
+    'claims-only': { type: 'boolean', default: false },
+    save: { type: 'boolean', default: false },
+    private: { type: 'boolean', default: false },
+    purge: { type: 'boolean', default: false },
+    source: { type: 'boolean', default: false },
+    name: { type: 'string' },
+    folder: { type: 'string' },
+    'migrate-paths': { type: 'boolean', default: false },
+    base: { type: 'string' },
+    keep: { type: 'string' },
+    tag: { type: 'string' },
+    'dry-run': { type: 'boolean', default: false },
+    prune: { type: 'boolean', default: false },
+    'install-hook': { type: 'boolean', default: false },
+    apply: { type: 'boolean', default: false },
+    preview: { type: 'boolean', default: false },
+    'replace-telemetry': { type: 'boolean', default: false },
+    output: { type: 'string' },
+    rotate: { type: 'boolean', default: false },
+    json: { type: 'boolean', default: false },
+    url: { type: 'string' },
+    token: { type: 'string' },
+    user: { type: 'string' },
+    help: { type: 'boolean', short: 'h', default: false },
+    version: { type: 'boolean', short: 'v', default: false },
+  };
+  // Read the command while respecting preceding global option values. Only get
+  // interprets --version/-v as a source version; elsewhere it prints our version.
+  let command;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--') { command = argv[i + 1]; break; }
+    if (!arg.startsWith('-')) { command = arg; break; }
+    const key = arg.replace(/^-+/, '').split('=')[0];
+    if (options[key]?.type === 'string' && !arg.includes('=')) i++;
+  }
+  if (command === 'get') options.version = { type: 'string', short: 'v' };
+  const { values: opts, positionals } = parseArgs({ args: argv, allowPositionals: true, options });
   opts.dbGiven = opts.db != null;
   opts.db ??= DEFAULT_DB;
   const [cmd, ...args] = positionals;
-  if (opts.version || cmd === 'version') return console.log(VERSION);
+  if ((opts.version && cmd !== 'get') || cmd === 'version') return console.log(VERSION);
   const run = serverCommands[cmd] || deployCommands[cmd] || accountCommands[cmd] || mcpCommands[cmd] || clientCommands[cmd];
   if (cmd === 'help' && args[0]) return console.log(commandHelp(args[0]));
   if (run && opts.help) return console.log(commandHelp(cmd));

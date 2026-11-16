@@ -8,7 +8,8 @@
 // public: true, so a model can't put something in a public gallery by accident. A new
 // version of an existing page keeps that page's visibility.
 import { SERVER, api, withClient } from './client.js';
-import { VERSION } from './config.js';
+import { listTrash, restorePage, sharePage, listAssets, putAsset, deleteAsset, resolveComment } from './manage.js';
+import { MAX_ASSET_BYTES, VERSION } from './config.js';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']; // newest first
 const MAX_SOURCE_CHARS = 200_000; // get_page truncates past this, so one call can't flood the context
@@ -20,6 +21,83 @@ const exactPageArg = { type: 'string', description: 'The page\'s exact name, as 
 
 /** Each tool: JSON Schema for its arguments, and a handler returning text (or an object, sent as JSON). */
 export const TOOLS = [
+  {
+    name: 'list_trash',
+    description: 'List all pages in your trash, including pages beyond the first result batch.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    annotations: { readOnlyHint: true },
+    async run() { return listTrash(); },
+  },
+  {
+    name: 'restore_page',
+    description: 'Recover a page from trash without adding a version. Owner only.',
+    inputSchema: { type: 'object', properties: { name: exactPageArg }, required: ['name'] },
+    annotations: { destructiveHint: false },
+    async run({ name }) { return restorePage(name); },
+  },
+  {
+    name: 'trash_page',
+    description: 'Move a page to the trash (recoverable with restore_page). Owner only.',
+    inputSchema: { type: 'object', properties: { name: exactPageArg }, required: ['name'] },
+    annotations: { destructiveHint: true },
+    async run({ name }) { return api('DELETE', `/api/artifacts/${enc(name)}`, { auth: 'required' }); },
+  },
+  {
+    name: 'get_share_link',
+    description: 'Retrieve the current share link without changing it. Owner only; anyone allowed into the deployment with this link can read the page.',
+    inputSchema: { type: 'object', properties: { name: exactPageArg }, required: ['name'] },
+    annotations: { readOnlyHint: true },
+    async run({ name }) { return sharePage(name, false); },
+  },
+  {
+    name: 'rotate_share_link',
+    description: 'Revoke the previous share link and return a new one. Owner only; anyone allowed into the deployment with this link can read the page.',
+    inputSchema: { type: 'object', properties: { name: exactPageArg }, required: ['name'] },
+    annotations: { destructiveHint: true, idempotentHint: false },
+    async run({ name }) { return sharePage(name, true); },
+  },
+  {
+    name: 'list_assets',
+    description: 'List your uploaded images and PDFs; admins see all assets.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    annotations: { readOnlyHint: true },
+    async run() { return listAssets(); },
+  },
+  {
+    name: 'upload_asset',
+    description: 'Upload or replace an image or PDF using standard base64-encoded bytes (maximum 10 MB decoded). Existing assets can only be replaced by their owner.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' }, base64: { type: 'string' } }, required: ['name', 'base64'] },
+    annotations: { destructiveHint: true, idempotentHint: true },
+    async run({ name, base64 }) {
+      if (!base64 || base64.length > Math.ceil(MAX_ASSET_BYTES / 3) * 4 || /[^A-Za-z0-9+/=]/.test(base64)) throw new Error('give standard base64-encoded asset bytes, up to 10 MB');
+      const bytes = Buffer.from(base64, 'base64');
+      if (bytes.toString('base64') !== base64) throw new Error('give standard base64-encoded asset bytes');
+      if (bytes.length > MAX_ASSET_BYTES) throw new Error('asset exceeds 10 MB');
+      return putAsset(name, bytes);
+    },
+  },
+  {
+    name: 'delete_asset',
+    description: 'Delete an uploaded asset permanently. Existing page references to it will stop loading. Owner only.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+    annotations: { destructiveHint: true },
+    async run({ name }) { return deleteAsset(name); },
+  },
+  {
+    name: 'resolve_comment',
+    description: 'Resolve a comment. Only its author or the page owner may do this.',
+    inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    annotations: { destructiveHint: false, idempotentHint: true },
+    async run({ id }) { return resolveComment(id, false); },
+  },
+  {
+    name: 'reopen_comment',
+    description: 'Reopen a comment. Only its author or the page owner may do this.',
+    inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+    annotations: { destructiveHint: false, idempotentHint: true },
+    async run({ id }) { return resolveComment(id, true); },
+  },
+
   {
     name: 'set_page_visibility',
     title: 'Change page visibility',
