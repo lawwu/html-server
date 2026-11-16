@@ -8,16 +8,37 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
-- CLI and MCP now support trash recovery, share-link retrieval/rotation, asset management and comment resolution. The CLI also downloads versioned source and provides consistent `--json` output for remote read commands.
+## 0.19.0 (2026-11-15)
 
-- Change existing page visibility without re-uploading content: `html-server visibility NAME public|private` and MCP `set_page_visibility`. Owner-only access and share-link revocation use the existing server behavior.
-
-- Browser sign-in, folder sync and page delivery now have dedicated modules. Browser
+- **Manage pages from the CLI and MCP.** Recover pages from trash, retrieve or rotate
+  share links, manage assets, and resolve or reopen comments. The CLI also downloads
+  source from a selected version and offers consistent `--json` output for remote read
+  commands. Downloads refuse to overwrite existing files, and server permissions still
+  govern every operation.
+- **Change page visibility without uploading another version.** Use
+  `html-server visibility NAME public|private` or MCP `set_page_visibility`.
+  Owner-only access and share-link revocation use the existing server behavior;
+  content and version history stay unchanged.
+- **Browser reads follow the viewer's latest choice.** Search, gallery results,
+  review versions and comparisons, and usage details ignore obsolete responses, even
+  when cancellation arrives too late to stop the request. Failed version or usage
+  changes recover from cancelled loading screens, and abandoned sign-in clears its
+  accessibility busy state.
+- **Pending writes reject duplicate submissions.** Upload, move, bulk changes,
+  comments and restores capture their inputs and guard against overlapping actions.
+  Uploads keep successful results and retry only queued or failed files. Upload and
+  move dialogs stay open while writes are pending; writes are never automatically
+  aborted or retried.
+- **Browser sign-in, folder sync and page delivery have dedicated modules.** Browser
   forms share credential selection and identity caching, so single sign-on works even
   when the top bar script hasn't run. Sync decisions and failure-aware pruning can be
   tested independently of HTTP; page delivery keeps trusted site chrome and sandboxed
   documents explicit. Existing command output, page modes and database behavior are
-  preserved, with additional regression coverage for these boundaries.
+  preserved, with additional regression coverage for these boundaries. The workflow
+  inventory in [STATE-MACHINES.md](STATE-MACHINES.md) records states, guards and recovery
+  rules for developers and agents.
+
+No database migration or intended breaking API change is required for this release.
 
 ## 0.18.2 (2026-11-12)
 
