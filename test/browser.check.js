@@ -20,6 +20,8 @@ before(async () => {
   const put = (name, body, opts) => store.putVersion(owner, name, Buffer.from(body), opts);
   put('alpha.md', '# Alpha\n\n[[beta]]\n\n## One\nText\n\n## Two\nMore');
   put('beta.md', '# Beta\n\nAnother note');
+  put('versions.md', '# Version one');
+  put('versions.md', '# Version two');
   put('private.md', '# Private\n\nPrivate content', { visibility: 'private' });
   put('no-gesture.html', '<title>No gesture</title><script>setTimeout(() => parent.postMessage({htmlServer: "go", href: location.origin + "/docs"}, "*"), 50)</script><p>No gesture</p>');
   put('links.html', '<title>Links</title><a id="local" href="/pages/beta.md">Beta</a>');
@@ -138,6 +140,283 @@ const drop = (files) => page.evaluate((files) => {
   document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
   return overlay && !document.body.classList.contains('dropping');
 }, files);
+
+// Deliver reads out of order, deliberately ignoring AbortSignal. A cancelled
+// transport alone is insufficient: its response/body may already have arrived.
+const deferReads = (prefixes) => page.addInitScript((prefixes) => {
+  const send = window.fetch;
+  window.testReads = [];
+  window.fetch = (path, options) => {
+    if (!prefixes.some((p) => String(path).startsWith(p))) return send(path, options);
+    return new Promise((resolve, reject) => window.testReads.push({ path,
+      respond(body, status = 200) { resolve(new Response(body, { status, headers: { 'Content-Type': String(path).startsWith('/api/') ? 'application/json' : 'text/html' } })); },
+      fail() { reject(new Error('offline')); },
+    }));
+  };
+}, prefixes);
+
+test('gallery keeps the latest results when older reads fail, and recovers from a current failure', async () => {
+  await deferReads(['/?fragment=1']);
+  await page.goto(base + '/');
+  await page.locator('#q').fill('Alpha');
+  await page.waitForFunction(() => testReads.length === 1);
+  await page.locator('#q').fill('Beta');
+  await page.waitForFunction(() => testReads.length === 2);
+  await page.evaluate(() => testReads[1].respond('<div data-count="Beta results"></div><div class="cards"></div>'));
+  await page.getByText('Beta results', { exact: true }).waitFor();
+  await page.evaluate(() => testReads[0].fail());
+  assert.equal(await page.locator('#count').textContent(), 'Beta results');
+  await page.locator('#q').fill('Gamma');
+  await page.waitForFunction(() => testReads.length === 3);
+  await page.evaluate(() => testReads[2].fail());
+  await page.getByText('Search failed. Try again.', { exact: true }).waitFor();
+  await page.locator('#q').press('Enter');
+  await page.waitForFunction(() => testReads.length === 4);
+  await page.evaluate(() => testReads[3].respond('<div data-count="Recovered"></div><div class="cards"></div>'));
+  await page.getByText('Recovered', { exact: true }).waitFor();
+  assert.equal(await page.locator('#results').getAttribute('aria-busy'), 'false');
+});
+
+test('closing and reopening search invalidates old results, including the same query', async () => {
+  await deferReads(['/api/search?']);
+  await page.goto(base + '/docs');
+  await page.keyboard.press('Control+k');
+  await page.locator('.search-modal input').fill('Beta');
+  await page.waitForFunction(() => testReads.length === 1);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+k');
+  await page.locator('.search-modal input').fill('Beta');
+  await page.waitForFunction(() => testReads.length === 2);
+  await page.evaluate(() => testReads[1].respond(JSON.stringify({ results: [{ title: 'Current Beta', url: '/pages/beta.md' }] })));
+  await page.getByText('Current Beta', { exact: true }).waitFor();
+  await page.evaluate(() => testReads[0].respond(JSON.stringify({ results: [{ title: 'Obsolete Beta', url: '/pages/alpha.md' }] })));
+  assert.equal(await page.locator('.search-results').textContent(), 'Current Beta');
+  await page.keyboard.press('Enter');
+  await page.waitForURL(base + '/pages/beta.md');
+});
+
+test('upload freezes a batch, refuses repeated submission and closing, and queues dropped files', async () => {
+  await page.addInitScript((t) => { if (window === window.top) localStorage.setItem('artifact_token', t); }, token);
+  await page.goto(base + '/');
+  await drop([['batch-one.md', '# One'], ['batch-two.md', '# Two']]);
+  const dialog = page.locator('.upload-dialog');
+  await dialog.getByLabel('Folder for pages').fill('batch');
+  let release;
+  const held = new Promise((r) => { release = r; });
+  await page.route('**/api/artifacts/batch/batch-one.md', async (route) => { await held; await route.continue(); });
+  await dialog.locator('[type="submit"]').click();
+  await page.waitForFunction(() => document.querySelector('.upload-dialog form').getAttribute('aria-busy') === 'true');
+  assert.equal(await dialog.getByLabel('Folder for pages').isDisabled(), true);
+  await dialog.locator('form').evaluate((form) => form.dispatchEvent(new SubmitEvent('submit', { cancelable: true })));
+  await page.keyboard.press('Escape');
+  assert.equal(await dialog.isVisible(), true);
+  await drop([['batch-next.md', '# Next']]);
+  release();
+  await dialog.getByText('Uploaded 2.', { exact: true }).waitFor();
+  for (const name of ['batch-one.md', 'batch-two.md']) assert.equal(store.describe('batch/' + name).latest_version, 1);
+  assert.equal(store.find('batch/batch-next.md'), undefined);
+  await dialog.locator('[type="submit"]').click();
+  await dialog.getByText('Uploaded 1.', { exact: true }).waitFor();
+  assert.equal(store.describe('batch/batch-next.md').latest_version, 1);
+});
+
+test('upload refreshes partial successes after sign-in fails and retries only unfinished files', async () => {
+  await page.addInitScript((t) => { if (window === window.top) localStorage.setItem('artifact_token', t); }, token);
+  await page.goto(base + '/');
+  await drop([['partial-one.md', '# Partial one'], ['partial-two.md', '# Partial two']]);
+  let attempts = 0;
+  await page.route('**/api/artifacts/partial-two.md', (route) => ++attempts === 1
+    ? route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"expired token"}' }) : route.continue());
+  const dialog = page.locator('.upload-dialog');
+  await dialog.locator('[type="submit"]').click();
+  await dialog.getByText(/Uploaded 1\. That token/).waitFor();
+  await page.locator('.card[data-slug="partial-one.md"]').waitFor({ state: 'attached' });
+  assert.equal(await dialog.getByLabel('Sign-in token').isVisible(), true);
+  await dialog.locator('[type="submit"]').click();
+  await dialog.getByText('Uploaded 1.', { exact: true }).waitFor();
+  assert.equal(store.describe('partial-one.md').latest_version, 1);
+  assert.equal(store.describe('partial-two.md').latest_version, 1);
+});
+
+test('bulk actions recover from rejected credentials', async () => {
+  await page.addInitScript(() => { if (window === window.top) localStorage.setItem('artifact_token', 'expired'); });
+  await page.goto(base + '/');
+  await page.locator('#select').click();
+  await page.locator('.card[data-slug="alpha.md"] .pick input').check();
+  await page.locator('#bulk-tag').fill('test');
+  await page.locator('#bulk [data-act="add"]').click();
+  await page.getByText('Sign in to change pages:', { exact: false }).waitFor();
+  assert.equal(await page.locator('#bulk button').first().isEnabled(), true);
+});
+
+test('review version reads and comments cannot replace a newer selection', async () => {
+  await deferReads(['/api/artifacts/versions.md']);
+  await page.goto(base + '/review/versions.md');
+  await page.waitForFunction(() => testReads.length === 1);
+  const meta = store.describe('versions.md');
+  await page.evaluate((m) => testReads[0].respond(JSON.stringify(m)), meta);
+  await page.waitForFunction(() => testReads.length === 2); // v2 comments
+  await page.locator('#ver').selectOption('1');
+  await page.waitForFunction(() => testReads.length === 3); // v1 metadata
+  await page.locator('#ver').selectOption('2');
+  await page.waitForFunction(() => testReads.length === 4); // v2 metadata again
+  await page.evaluate((m) => testReads[3].respond(JSON.stringify(m)), meta);
+  await page.waitForFunction(() => testReads.length === 5);
+  await page.evaluate(() => testReads[4].respond('[]'));
+  await page.getByText('Comments on v2', { exact: true }).waitFor();
+  await page.evaluate((m) => { testReads[2].respond(JSON.stringify(m)); testReads[1].fail(); }, meta);
+  assert.equal(await page.locator('#ver').inputValue(), '2');
+  assert.equal(await page.locator('#ctitle').textContent(), 'Comments on v2');
+  assert.equal(await page.locator('#err').textContent(), '');
+  assert.equal(new URL(page.url()).search, '?v=2');
+});
+
+test('review ignores a previous diff after returning to page and requesting the same diff', async () => {
+  await deferReads(['/review/versions.md/changes?']);
+  await page.goto(base + '/review/versions.md');
+  await page.getByText('Comments on v2', { exact: true }).waitFor();
+  await page.locator('#changes').click();
+  await page.waitForFunction(() => testReads.length === 1);
+  await page.locator('#changes').click();
+  await page.locator('#changes').click();
+  await page.waitForFunction(() => testReads.length === 2);
+  await page.evaluate(() => testReads[1].respond('<p>Current changes</p>'));
+  await page.frameLocator('#frame').getByText('Current changes').waitFor();
+  await page.evaluate(() => testReads[0].respond('<p>Obsolete changes</p>'));
+  assert.match(await page.locator('#frame').getAttribute('srcdoc'), /Current changes/);
+});
+
+test('a failed version switch returns a cancelled diff to the current page', async () => {
+  await deferReads(['/review/versions.md/changes?']);
+  await page.goto(base + '/review/versions.md');
+  await page.getByText('Comments on v2', { exact: true }).waitFor();
+  await page.locator('#changes').click();
+  await page.waitForFunction(() => testReads.length === 1);
+  await page.route('**/api/artifacts/versions.md', (route) => route.fulfill({
+    status: 503, contentType: 'application/json', body: '{"error":"Version temporarily unavailable"}',
+  }));
+  await page.locator('#ver').selectOption('1');
+  await page.getByText('Version temporarily unavailable', { exact: true }).waitFor();
+  assert.equal(await page.locator('#changes').textContent(), 'Show changes');
+  assert.equal(await page.locator('#ver').inputValue(), '2');
+  await page.frameLocator('#frame').getByRole('heading', { name: 'Version two', exact: true }).waitFor();
+  await page.evaluate(() => testReads[0].respond('<p>Obsolete changes</p>'));
+  assert.equal(await page.locator('#frame').getAttribute('srcdoc'), null);
+});
+
+test('review submits a comment once and restores editing after it finishes', async () => {
+  await page.addInitScript((t) => { if (window === window.top) localStorage.setItem('artifact_token', t); }, token);
+  await page.goto(base + '/review/versions.md');
+  await page.getByText('Comments on v2', { exact: true }).waitFor();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  await page.route('**/api/artifacts/versions.md/comments', async (route) => { await held; await route.continue(); });
+  await page.locator('#body').fill('Only once');
+  await page.locator('#new button').click();
+  assert.equal(await page.locator('#body').isDisabled(), true);
+  await page.locator('#new').evaluate((form) => form.dispatchEvent(new SubmitEvent('submit', { cancelable: true })));
+  release();
+  await page.getByText('Only once', { exact: true }).waitFor();
+  assert.equal(store.comments('versions.md', null, 2).filter((c) => c.body === 'Only once').length, 1);
+  assert.equal(await page.locator('#body').isEnabled(), true);
+});
+
+test('move guards pending writes, then allows correcting a failed destination', async () => {
+  await page.addInitScript((t) => { if (window === window.top) localStorage.setItem('artifact_token', t); }, token);
+  await page.goto(base + '/review/versions.md?move=1');
+  const dialog = page.locator('.move-dialog');
+  let release, attempts = 0;
+  const held = new Promise((r) => { release = r; });
+  await page.route('**/api/moves', async (route) => {
+    attempts++;
+    await held;
+    await route.fulfill({ status: 409, contentType: 'application/json', body: '{"error":"Address is occupied"}' });
+  });
+  await dialog.locator('[type="submit"]').click();
+  await dialog.locator('form').evaluate((form) => form.dispatchEvent(new SubmitEvent('submit', { cancelable: true })));
+  await page.keyboard.press('Escape');
+  assert.equal(await dialog.isVisible(), true);
+  assert.equal(await dialog.getByLabel('Folder', { exact: true }).isDisabled(), true);
+  release();
+  await dialog.getByText('Address is occupied', { exact: true }).waitFor();
+  assert.equal(attempts, 1);
+  assert.equal(await dialog.getByLabel('Folder', { exact: true }).isEnabled(), true);
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'detached' });
+});
+
+test('statistics ignore old person responses after selection and close, and expose failed refresh recovery', async () => {
+  await page.addInitScript((t) => { if (window === window.top) localStorage.setItem('artifact_token', t); }, token);
+  await deferReads(['/stats/usage']);
+  await page.goto(base + '/stats');
+  await page.waitForFunction(() => testReads.length === 1);
+  await page.evaluate(() => testReads[0].respond('<div class="range-picker"><a href="?days=90" data-days="90">90 days</a></div>'
+    + '<button class="person-link" data-person="a">Person A</button><button class="person-link" data-person="b">Person B</button><div id="person-detail" hidden></div>'));
+  await page.getByText('Person A', { exact: true }).click();
+  await page.waitForFunction(() => testReads.length === 2);
+  await page.getByText('Person B', { exact: true }).click();
+  await page.waitForFunction(() => testReads.length === 3);
+  await page.evaluate(() => testReads[2].respond('<button class="person-close">Close person</button><p>Current person</p>'));
+  await page.getByText('Current person', { exact: true }).waitFor();
+  await page.getByText('Close person', { exact: true }).click();
+  await page.evaluate(() => testReads[1].respond('<p>Obsolete person</p>'));
+  assert.equal(await page.locator('#person-detail').isHidden(), true);
+  assert.match(await page.locator('#person-detail').textContent(), /Current person/);
+  await page.getByText('90 days', { exact: true }).click();
+  await page.waitForFunction(() => testReads.length === 4);
+  await page.evaluate(() => testReads[3].respond('expired', 401));
+  await page.locator('#usage-signin').waitFor();
+  assert.equal(await page.locator('#usage-token').isEnabled(), true);
+});
+
+test('a stale popular-period failure cannot navigate away from the latest period', async () => {
+  await deferReads(['/stats?weeks=']);
+  await page.goto(base + '/stats');
+  await page.locator('#popular select').selectOption('2');
+  await page.waitForFunction(() => testReads.length === 1);
+  await page.locator('#popular select').selectOption('4');
+  await page.waitForFunction(() => testReads.length === 2);
+  await page.evaluate(() => testReads[1].respond('<section id="popular"><select><option value="4">Latest period</option></select></section>'));
+  await page.waitForURL(base + '/stats?weeks=4#popular');
+  await page.evaluate(() => testReads[0].fail());
+  assert.equal(page.url(), base + '/stats?weeks=4#popular');
+  assert.equal(await page.locator('#popular select').inputValue(), '4');
+});
+
+test('a failed usage refresh does not leave cancelled person details loading', async () => {
+  await page.addInitScript((t) => { if (window === window.top) localStorage.setItem('artifact_token', t); }, token);
+  await deferReads(['/stats/usage']);
+  await page.goto(base + '/stats');
+  await page.waitForFunction(() => testReads.length === 1);
+  await page.evaluate(() => testReads[0].respond('<div class="range-picker"><a href="?days=90" data-days="90">90 days</a></div>'
+    + '<button class="person-link" data-person="a" aria-expanded="false">Person A</button><div id="person-detail" hidden></div>'));
+  await page.getByText('Person A', { exact: true }).click();
+  await page.waitForFunction(() => testReads.length === 2);
+  await page.getByText('90 days', { exact: true }).click();
+  await page.waitForFunction(() => testReads.length === 3);
+  await page.evaluate(() => testReads[2].fail());
+  await page.getByText('Couldn’t reach the server.', { exact: true }).waitFor();
+  assert.equal(await page.locator('#person-detail').isHidden(), true);
+  assert.equal(await page.getByText('Person A', { exact: true }).getAttribute('aria-expanded'), 'false');
+  await page.evaluate(() => testReads[1].respond('<p>Obsolete person</p>'));
+  assert.equal(await page.locator('#person-detail').isHidden(), true);
+});
+
+test('clearing a pending usage sign-in releases its busy state without accepting the old token', async () => {
+  await deferReads(['/stats/usage']);
+  await page.goto(base + '/stats');
+  await page.locator('#usage-token').fill('old-token');
+  await page.locator('#usage-signin button').click();
+  await page.waitForFunction(() => testReads.length === 1);
+  assert.equal(await page.locator('#usage-body').getAttribute('aria-busy'), 'true');
+  await page.locator('#usage-token').fill('');
+  await page.locator('#usage-signin button').click();
+  assert.equal(await page.locator('#usage-body').getAttribute('aria-busy'), 'false');
+  await page.evaluate(() => testReads[0].respond('<p>Obsolete usage</p>'));
+  assert.equal(await page.locator('#usage-signin').isVisible(), true);
+  assert.equal(await page.evaluate(() => localStorage.getItem('artifact_token')), null);
+  assert.equal(await page.getByText('Obsolete usage', { exact: true }).count(), 0);
+});
 
 test('upload: choose files, sign in, publish, fix a refused name, and drop more', async () => {
   await page.goto(base + '/');

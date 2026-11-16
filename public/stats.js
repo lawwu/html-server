@@ -1,6 +1,7 @@
 // /stats hover: every chart mark carries data-tip; show it in one floating tooltip
 // that follows the pointer (and keyboard focus, for the linked rows).
 import { browserSignIn } from './signin.js';
+import { latestRequest } from './async-state.js';
 const tip = document.getElementById('tip');
 const show = (mark, x, y) => {
   tip.textContent = mark.dataset.tip;
@@ -34,20 +35,45 @@ const form = document.getElementById('usage-signin');
 const msg = document.getElementById('usage-msg');
 const auth = browserSignIn();
 const saved = () => auth.token;
+const usageRead = latestRequest(), personRead = latestRequest(), popularRead = latestRequest();
+function usageProblem(message) {
+  if (!form.isConnected) usageBody.prepend(form);
+  form.hidden = false;
+  msg.textContent = message;
+}
+
+// Cancelling the read also closes its presentation; no response can finish it.
+function closePerson({ restoreFocus = false } = {}) {
+  personRead.cancel();
+  const panel = document.getElementById('person-detail');
+  if (panel) panel.hidden = true;
+  const open = usageBody?.querySelector('.person-link[aria-expanded="true"]');
+  open?.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) open?.focus();
+}
 
 async function loadUsage(token, { fromForm = false, days = new URLSearchParams(location.search).get('days') || '' } = {}) {
-  if (!token && !auth.signedIn) { form.hidden = false; return; }
-  let r;
-  try { r = await auth.request(`/stats/usage${days ? `?days=${encodeURIComponent(days)}` : ''}`, { token }); }
-  catch { msg.textContent = 'Couldn’t reach the server.'; return; }
-  if (r.ok) {
-    if (fromForm && token) auth.save(token);
-    usageBody.innerHTML = await r.text();
-    if (days) history.replaceState(null, '', `?days=${encodeURIComponent(days)}#usage`);
+  usageRead.cancel(); closePerson();
+  if (!token && !auth.signedIn) {
+    usageBody.setAttribute('aria-busy', 'false');
+    form.hidden = false;
     return;
   }
-  form.hidden = false;
-  msg.textContent = r.status === 403 ? 'That token isn’t an admin’s.' : r.status === 401 && fromForm ? 'That token isn’t valid here.' : '';
+  const request = usageRead.start();
+  usageBody.setAttribute('aria-busy', 'true');
+  try {
+    const r = await auth.request(`/stats/usage${days ? `?days=${encodeURIComponent(days)}` : ''}`, { token, signal: request.signal });
+    const html = r.ok ? await r.text() : '';
+    if (!request.current) return;
+    if (r.ok) {
+      if (fromForm && token) auth.save(token);
+      usageBody.innerHTML = html;
+      if (days) history.replaceState(null, '', `?days=${encodeURIComponent(days)}#usage`);
+      return;
+    }
+    usageProblem(r.status === 403 ? 'That token isn’t an admin’s.' : r.status === 401 && fromForm ? 'That token isn’t valid here.' : 'Couldn’t load usage. Try again.');
+  } catch { if (request.current) usageProblem('Couldn’t reach the server.'); }
+  finally { if (request.current) usageBody.setAttribute('aria-busy', 'false'); request.finish(); }
 }
 
 form?.addEventListener('submit', (e) => {
@@ -69,40 +95,40 @@ usageBody?.addEventListener('click', async (e) => {
   const close = e.target.closest('.person-close');
   const panel = document.getElementById('person-detail');
   if (close && panel) {
-    panel.hidden = true;
-    const open = usageBody.querySelector('.person-link[aria-expanded="true"]');
-    open?.setAttribute('aria-expanded', 'false');
-    open?.focus();
+    closePerson({ restoreFocus: true });
     return;
   }
   const link = e.target.closest('.person-link');
-  if (!link || !panel) return;
+  if (!link || !panel || usageRead.pending) return;
+  const request = personRead.start();
   const token = saved() || document.getElementById('usage-token')?.value.trim();
   const days = usageBody.querySelector('.range-picker a.on')?.dataset.days || '';
   for (const other of usageBody.querySelectorAll('.person-link')) other.setAttribute('aria-expanded', String(other === link));
   panel.hidden = false;
   panel.innerHTML = '<p class="meta">Loading…</p>';
   try {
-    const r = await auth.request(`/stats/usage/people/${encodeURIComponent(link.dataset.person)}${days ? `?days=${encodeURIComponent(days)}` : ''}`, { token });
-    panel.innerHTML = r.ok ? await r.text() : `<p class="meta">Couldn’t load it (HTTP ${r.status}).</p>`;
-  } catch { panel.innerHTML = '<p class="meta">Couldn’t reach the server.</p>'; }
-  panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const r = await auth.request(`/stats/usage/people/${encodeURIComponent(link.dataset.person)}${days ? `?days=${encodeURIComponent(days)}` : ''}`, { token, signal: request.signal });
+    const html = r.ok ? await r.text() : `<p class="meta">Couldn’t load it (HTTP ${r.status}).</p>`;
+    if (request.current) panel.innerHTML = html;
+  } catch { if (request.current) panel.innerHTML = '<p class="meta">Couldn’t reach the server.</p>'; }
+  if (request.current) panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  request.finish();
 });
 
 // The Popular list's period: swap in that period's list (from this page at ?weeks=) and keep
 // the choice in the address. Without scripts, the form's Show button loads the page so.
-let asked = 0;
 document.addEventListener('change', async (e) => {
   if (!e.target.matches?.('#popular select')) return;
   const url = `/stats?weeks=${encodeURIComponent(e.target.value)}`;
-  const n = ++asked;
+  const request = popularRead.start();
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, { signal: request.signal });
     const next = new DOMParser().parseFromString(await r.text(), 'text/html').getElementById('popular');
     if (!r.ok || !next) throw new Error(`HTTP ${r.status}`);
-    if (n !== asked) return; // a later choice is on its way
+    if (!request.current) return;
     document.getElementById('popular').replaceWith(next);
     next.querySelector('select').focus(); // arrow keys keep choosing
     history.replaceState(null, '', `${url}#popular`);
-  } catch { location.href = `${url}#popular`; }
+  } catch { if (request.current) location.href = `${url}#popular`; }
+  finally { request.finish(); }
 });
