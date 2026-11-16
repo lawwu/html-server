@@ -39,6 +39,8 @@ Use a running server:
                                         upload an .html page, .md note or .ipynb notebook; it lives at /pages/<file name>.
                                         --base N: refuse if someone added a version after vN
   history NAME                          every version, with date, author and note
+  visibility NAME public|private        change a page's visibility without uploading a version (owner only)
+                                        making it private revokes old share links
   pin NAME | unpin NAME                 feature a page at the top of the home page (owner or admin)
   tag add TAG NAME... | tag rm TAG NAME...   tag or untag many pages at once
   tags                                  every tag in use, with counts

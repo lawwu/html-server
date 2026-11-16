@@ -1098,6 +1098,21 @@ link with `POST /api/artifacts/<name>/share`. After upgrading from an older vers
 links for private pages that were previously public, since their metadata may have exposed
 the old capability.
 
+## Change page visibility
+
+Make an existing private page public without uploading it again:
+
+```sh
+html-server visibility research/report.html public
+```
+
+Use `private` to hide it again and revoke its old share links. Only the owner can
+change visibility; content and version history stay unchanged. Single sign-on
+requirements still apply to public pages.
+
+With MCP, call `set_page_visibility` with
+`{"name":"research/report.html","visibility":"public"}` (or `"private"`).
+
 ## Design notes
 
 - **Three deep modules keep callers small.** `public/signin.js` owns browser credentials,

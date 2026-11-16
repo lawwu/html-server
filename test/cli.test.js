@@ -619,3 +619,29 @@ test('sync --prune trashes the last removed file from an existing empty root', a
   assert.equal(r.code, 0, r.err);
   assert.equal((await fetch(url + '/empty/last.md')).status, 404);
 });
+
+test('visibility changes access without a new version and enforces ownership', async () => {
+  const token = store.createUser('visibility-owner');
+  const owner = store.userForToken(token).id;
+  const name = 'visibility/cli.md';
+  store.putVersion(owner, name, Buffer.from('# Private'), { visibility: 'private' });
+  const share = store.describe(name, owner).share_url;
+  const env = { HTML_SERVER_TOKEN: token };
+  assert.equal((await fetch(url + '/pages/' + name)).status, 404);
+  const published = await cli(['visibility', name, 'public'], env);
+  assert.equal(published.code, 0, published.err);
+  assert.match(published.out, /→ public:/);
+  assert.equal((await fetch(url + '/pages/' + name)).status, 200);
+  assert.equal(store.describe(name, owner).versions.length, 1);
+  const other = store.createUser('visibility-other');
+  assert.notEqual((await cli(['visibility', name, 'private'], { HTML_SERVER_TOKEN: other })).code, 0);
+  assert.equal(store.describe(name, owner).visibility, 'public');
+  assert.equal((await cli(['visibility', name, 'private'], env)).code, 0);
+  assert.equal((await fetch(url + share)).status, 404);
+  const privatePage = store.describe(name, owner);
+  assert.equal(privatePage.versions.length, 1);
+  assert.equal((await cli(['visibility', name, 'private'], env)).code, 0);
+  assert.equal(store.describe(name, owner).share_url, privatePage.share_url);
+  assert.notEqual((await cli(['visibility', name, 'invalid'], env)).code, 0);
+  assert.notEqual((await cli(['visibility'], env)).code, 0);
+});

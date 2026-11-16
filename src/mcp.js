@@ -21,6 +21,23 @@ const exactPageArg = { type: 'string', description: 'The page\'s exact name, as 
 /** Each tool: JSON Schema for its arguments, and a handler returning text (or an object, sent as JSON). */
 export const TOOLS = [
   {
+    name: 'set_page_visibility',
+    title: 'Change page visibility',
+    description: 'Change an existing page to public or private without uploading content or creating a version. Owner only. Public pages appear in the gallery and can be read by anyone allowed into the deployment; single sign-on restrictions still apply. Making a public page private revokes its old share links. Only make a page public when the user asks to share it publicly.',
+    inputSchema: {
+      type: 'object',
+      properties: { name: exactPageArg, visibility: { type: 'string', enum: ['public', 'private'] } },
+      required: ['name', 'visibility'],
+    },
+    annotations: { destructiveHint: true, idempotentHint: true },
+    async run({ name, visibility }) {
+      if (!['public', 'private'].includes(visibility)) throw new Error('visibility must be public or private');
+      const a = await api('POST', `/api/artifacts/${enc(name)}/visibility?to=${visibility}`, { auth: 'required' });
+      return { name: a.slug, visibility: a.visibility, url: `${SERVER}${a.url}`,
+        ...(a.visibility === 'private' ? { share_url: `${SERVER}${a.share_url}` } : {}) };
+    },
+  },
+  {
     name: 'publish_page',
     title: 'Publish an HTML page',
     description: 'Upload a single-file HTML page, or a Markdown note (name ending in .md, content in `markdown`; a Jupyter notebook: .ipynb, its JSON in `notebook`; frontmatter title/tags/description, [[wikilinks]] to other pages, > [!note] callouts). If the name is new it creates the page; if a page has exactly that name (and you may edit it) it adds a new version, keeping every old one and the page\'s visibility. A new name that another page already answers to (e.g. "report" while "report.html" exists) is refused with the name it may mean. Returns the page URL. New pages are PRIVATE by default (only the owner and people with the share link can open them); set public: true to list it in the gallery. Add <meta name="description"> and <meta name="category"> to the HTML for a good gallery card, and use h2/h3 headings for a contents sidebar.',

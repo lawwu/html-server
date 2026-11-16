@@ -8,6 +8,8 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- Change existing page visibility without re-uploading content: `html-server visibility NAME public|private` and MCP `set_page_visibility`. Owner-only access and share-link revocation use the existing server behavior.
+
 - Browser sign-in, folder sync and page delivery now have dedicated modules. Browser
   forms share credential selection and identity caching, so single sign-on works even
   when the top bar script hasn't run. Sync decisions and failure-aware pruning can be
