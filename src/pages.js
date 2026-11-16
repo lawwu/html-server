@@ -65,6 +65,9 @@ const inlineScript = (f) => {
   if (code.includes("import { trapModal } from './modal.js';")) {
     code = fileText('public/modal.js').replace(/^export /gm, '') + '\n' + code.replace("import { trapModal } from './modal.js';", '');
   }
+  if (code.includes("import { latestRequest } from './async-state.js';")) {
+    code = fileText('public/async-state.js').replace(/^export /gm, '') + '\n' + code.replace("import { latestRequest } from './async-state.js';", '');
+  }
   return `<script type="module">${code.replace(/<\/script/gi, '<\\/script')}</script>`;
 };
 let SCRIPTS = null;

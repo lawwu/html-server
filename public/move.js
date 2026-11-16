@@ -1,5 +1,6 @@
 // This module runs only in trusted site UI, never inside uploaded content.
 import { browserSignIn } from './signin.js';
+import { singleAction } from './async-state.js';
 export async function openMove(pages, onMoved) {
   const auth = browserSignIn();
   if (document.querySelector('dialog.move-dialog')) return;
@@ -17,6 +18,11 @@ export async function openMove(pages, onMoved) {
   const form = dialog.querySelector('form');
   const folder = form.elements.folder, filename = form.elements.filename;
   const tokenInput = form.elements.token, error = dialog.querySelector('.move-error');
+  const writing = singleAction((pending) => {
+    form.setAttribute('aria-busy', String(pending));
+    form.querySelectorAll('input, button').forEach((el) => { el.disabled = pending; });
+    form.querySelector('[type="submit"]').textContent = pending ? 'Moving…' : 'Move';
+  });
   tokenInput.value = auth.token;
   dialog.querySelector('.move-signin').hidden = auth.signedIn;
   if (pages.length === 1) {
@@ -30,24 +36,28 @@ export async function openMove(pages, onMoved) {
     }));
   };
   form.addEventListener('input', preview);
-  dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
+  dialog.querySelector('[data-cancel]').onclick = () => { if (!writing.pending) dialog.close(); };
+  dialog.addEventListener('cancel', (e) => { if (writing.pending) e.preventDefault(); });
   dialog.addEventListener('close', () => dialog.remove());
   document.body.append(dialog); preview(); dialog.showModal(); folder.focus();
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const button = form.querySelector('[type="submit"]'); button.disabled = true; error.textContent = '';
-    try {
-      const token = tokenInput.value.trim();
-      const r = await auth.request('/api/moves', { method: 'POST', token, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ moves: moves() }) });
-      const data = await r.json();
-      if (!r.ok) {
-        if (r.status === 401) { dialog.querySelector('.move-signin').hidden = false; tokenInput.focus(); }
-        throw new Error(data.error || 'Move failed');
-      }
-      if (token) auth.save(token);
-      dialog.close(); onMoved(data.results);
-    } catch (err) { error.textContent = err.message; }
-    finally { button.disabled = false; }
+    await writing.run(async () => {
+      error.textContent = '';
+      let needsSignIn = false;
+      try {
+        const token = tokenInput.value.trim();
+        const r = await auth.request('/api/moves', { method: 'POST', token, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ moves: moves() }) });
+        const data = await r.json();
+        if (!r.ok) {
+          if (r.status === 401) { dialog.querySelector('.move-signin').hidden = false; needsSignIn = true; }
+          throw new Error(data.error || 'Move failed');
+        }
+        if (token) auth.save(token);
+        dialog.close(); onMoved(data.results);
+      } catch (err) { error.textContent = err.message; }
+      return needsSignIn;
+    }).then((needsSignIn) => { if (needsSignIn) tokenInput.focus(); });
   };
   try {
     const r = await auth.request('/api/folders', { token: tokenInput.value });

@@ -3,9 +3,11 @@
 // opens. Where the page can't fetch (some browsers block a sandboxed note's requests), it
 // matches titles from the explorer already on the page, and Enter searches everything.
 import { trapModal } from './modal.js';
+import { latestRequest } from './async-state.js';
 let releaseFocus, restoringFocus = false;
 const box = document.querySelector('.side-search input');
-let modal, input, list, status, items = [], at = -1, ctl, timer;
+let modal, input, list, status, items = [], at = -1, timer;
+const reading = latestRequest();
 const cache = new Map(); // query → results, for this visit: going back to an earlier query is instant
 
 const go = (url) => { try { window.top.location.href = url; } catch { location.href = url; } };
@@ -34,7 +36,11 @@ function open() {
     status = modal.querySelector('.search-status');
     modal.addEventListener('mousedown', (e) => { if (e.target === modal) close(); });
     // Known results show at once; otherwise wait for a pause in typing, but only a short one.
-    input.addEventListener('input', () => { clearTimeout(timer); if (cache.has(input.value.trim())) run(); else timer = setTimeout(run, 60); });
+    input.addEventListener('input', () => {
+      clearTimeout(timer); reading.cancel();
+      show([], input.value.trim() ? 'Searching…' : '');
+      if (cache.has(input.value.trim()) || !input.value.trim()) run(); else timer = setTimeout(run, 60);
+    });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -57,6 +63,7 @@ function open() {
 
 function close() {
   if (!modal || modal.hidden) return;
+  clearTimeout(timer); reading.cancel();
   modal.hidden = true;
   document.documentElement.classList.remove('searching');
   restoringFocus = true;
@@ -104,24 +111,29 @@ function show(results, message) {
 }
 
 async function run() {
+  clearTimeout(timer);
+  if (modal.hidden) return;
   const q = input.value.trim();
-  ctl?.abort();
+  reading.cancel();
   if (!q) return show([], '');
   if (cache.has(q)) return show(cache.get(q), cache.get(q).length ? '' : 'No matches.');
-  ctl = new AbortController();
+  const request = reading.start();
+  show([], 'Searching…');
   try {
-    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=12`, { signal: ctl.signal });
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=12`, { signal: request.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
+    if (!request.current) return;
     if (r.ok) {
       cache.set(q, data.results);
       if (cache.size > 200) cache.delete(cache.keys().next().value);
     }
     show(data.results || [], data.results?.length ? '' : 'No matches.');
   } catch (e) {
-    if (e.name === 'AbortError') return;
+    if (!request.current) return;
     const hits = titleMatches(q);
     show(hits, hits.length ? 'Titles only here. Press Enter to search everything.' : 'Press Enter to search all pages.');
-  }
+  } finally { request.finish(); }
 }
 
 /** Titles containing every word of the query, or with a word starting with it ("flav" → ObsidianFlavoredMarkdown). */

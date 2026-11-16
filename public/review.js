@@ -3,6 +3,7 @@
 // it because they render sandboxed (opaque origin).
 import { openMove } from './move.js';
 import { browserSignIn } from './signin.js';
+import { latestRequest, singleAction } from './async-state.js';
 const auth = browserSignIn();
 const SLUG = document.body.dataset.slug;
 const S = encodeURIComponent(SLUG); // for the API
@@ -13,7 +14,19 @@ const when = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: 'medium',
 const kb = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
 
 const signedIn = () => auth.signedIn;
-let meta, cur, showingDiff = false, diffAsked = '';
+let meta, cur, view = 'page';
+const loading = latestRequest(), diffs = latestRequest(), comments = latestRequest(), identity = latestRequest();
+const writing = singleAction(syncControls);
+function syncControls() {
+  const busy = loading.pending || writing.pending;
+  $('ver').disabled = writing.pending;
+  $('save').disabled = $('tok').disabled = writing.pending;
+  $('move-page').disabled = busy || !meta;
+  $('restore').disabled = busy || !meta;
+  $('changes').disabled = busy || !meta || cur === 1;
+  for (const el of document.querySelectorAll('#new button, #new textarea, #list button, #list textarea, #history button, #history select, #history input')) el.disabled = busy;
+  $('new').setAttribute('aria-busy', String(writing.pending));
+}
 
 async function api(path, opts = {}) {
   const r = await auth.request(path, { ...opts, headers: opts.body ? { 'Content-Type': 'application/json' } : {} });
@@ -23,12 +36,15 @@ async function api(path, opts = {}) {
 }
 
 async function whoami() {
-  if (!auth.signedIn) { $('who').textContent = 'Reading as a guest.'; return; }
+  const request = identity.start();
+  if (!auth.signedIn) { $('who').textContent = 'Reading as a guest.'; request.finish(); return; }
   try {
-    const me = await api('/api/me'); // verify access here; the top bar may use a cached name
+    const me = await api('/api/me', { signal: request.signal }); // verify access here; the top bar may use a cached name
+    if (!request.current) return;
     $('who').textContent = `Signed in as ${me.name}`; // Sign out is in the top bar
     $('signin').hidden = true;
-  } catch { $('who').textContent = 'Saved token was rejected.'; }
+  } catch { if (request.current) { $('who').textContent = 'Could not verify sign-in. Try your token again.'; $('signin').hidden = false; } }
+  finally { request.finish(); }
 }
 
 // Swap in a new iframe rather than changing src: re-pointing a frame adds
@@ -53,23 +69,26 @@ addEventListener('message', (e) => {
   try { url = new URL(e.data.href); } catch { return; }
   if (/^https?:$/.test(url.protocol)) location.assign(url.href);
 });
-function showPage() { showingDiff = false; $('changes').textContent = 'Show changes'; setFrame({ url: `${meta.share_url || meta.url}?v=${cur}&embed=1` }); }
+function showPage() { diffs.cancel(); view = 'page'; $('changes').textContent = 'Show changes'; setFrame({ url: `${meta.share_url || meta.url}?v=${cur}&embed=1` }); }
 /**
  * What changed between two versions (by default, into the one on show). The changes page is
  * fetched with the saved token, so a private page's show too; a frame pointed at it would
  * go without one.
  */
 async function showDiff({ from = cur - 1, to = cur, source = false } = {}) {
-  showingDiff = true;
+  if (!meta || loading.pending) return;
+  view = 'diff';
   $('changes').textContent = 'Show page';
-  const ask = diffAsked = `${from}-${to}-${source}`;
+  const request = diffs.start();
   const say = (msg) => `<p style="font:14px/1.5 system-ui,sans-serif;padding:1rem">${esc(msg)}</p>`;
+  setFrame({ html: say('Loading changes…') });
   let html;
   try {
-    const r = await auth.request(`/review/${P}/changes?from=${from}&to=${to}${source ? '&of=source' : ''}`);
+    const r = await auth.request(`/review/${P}/changes?from=${from}&to=${to}${source ? '&of=source' : ''}`, { signal: request.signal });
     html = r.ok ? await r.text() : say((await r.json().catch(() => null))?.error || r.statusText);
   } catch (e) { html = say(e.message); }
-  if (showingDiff && diffAsked === ask) setFrame({ html }); // unless the page or other changes were asked for since
+  if (request.current) setFrame({ html });
+  request.finish();
 }
 
 /** Every version, newest first, as on the History page; here, with the saved token, a private page's too. */
@@ -89,11 +108,26 @@ ${vs.length > 1 ? `<form class="compare">Compare <select name="from" aria-label=
 ${meta.moves?.length ? `<h3>Moves</h3><ul>${meta.moves.map((m) => `<li>${esc(when(m.created_at))}: ${esc(m.old_path)} → ${esc(m.new_path)}</li>`).join('')}</ul>` : ''}`;
 }
 
-async function load(n) {
-  try { meta = await api(`/api/artifacts/${S}`); } catch (e) {
-    document.querySelector('.review').innerHTML = `<p style="padding:1rem">${esc(e.message)}</p>`;
+async function load(n, { diff = false } = {}) {
+  const request = loading.start();
+  diffs.cancel(); comments.cancel();
+  syncControls();
+  $('err').textContent = '';
+  $('ctitle').textContent = 'Loading comments…';
+  $('list').replaceChildren();
+  let next;
+  try { next = await api(`/api/artifacts/${S}`, { signal: request.signal }); } catch (e) {
+    if (request.current) {
+      if (meta && view === 'diff') showPage(); // the cancelled comparison can no longer finish
+      $('err').textContent = e.message;
+      $('ctitle').textContent = 'Comments unavailable. Try selecting a version again.';
+      if (cur) $('ver').value = String(cur);
+      request.finish(); syncControls();
+    }
     return;
   }
+  if (!request.current) return;
+  meta = next;
   cur = Math.min(n || meta.latest_version, meta.latest_version);
   document.title = `Review: ${meta.title}`;
   $('title').textContent = meta.title;
@@ -101,15 +135,17 @@ async function load(n) {
     `<option value=${v.n} ${v.n === cur ? 'selected' : ''}>v${v.n}${v.n === meta.latest_version ? ' (current)' : ''} · ${esc(v.author)}${v.note ? ` · ${esc(v.note)}` : ''}</option>`).join('');
   $('move-page').hidden = !meta.can_move;
   $('move-page').onclick = () => openMove([meta.slug], (out) => { location.href = `/review/${out[0].slug.split('/').map(encodeURIComponent).join('/')}`; });
-  if (meta.can_move && new URLSearchParams(location.search).get('move')) $('move-page').click();
+  const openMoveOnLoad = meta.can_move && new URLSearchParams(location.search).get('move');
   $('restore').hidden = cur === meta.latest_version || !meta.can_edit;
   if (!$('history').hidden) showHistory();
-  $('changes').disabled = cur === 1;
   // Through the share link, like the frame: a private page's own address needs a token a
   // new tab doesn't send, so it would 404 there.
   $('open').href = `${meta.share_url || meta.url}${cur === meta.latest_version ? '' : `?v=${cur}`}`; // only the owner gets the share link
   history.replaceState(null, '', `?v=${cur}`);
+  request.finish(); syncControls();
+  if (openMoveOnLoad) $('move-page').click();
   showPage();
+  if (diff) showDiff();
   loadComments();
 }
 
@@ -121,34 +157,42 @@ function card(c, replies = []) {
 }
 
 async function loadComments() {
-  const all = await api(`/api/artifacts/${S}/comments?version=${cur}`);
-  const top = all.filter((c) => !c.parent);
-  const open = top.filter((c) => !c.resolved_at).length;
-  const label = `Comments on v${cur}${top.length ? ` (${top.length}${open < top.length ? `, ${open} open` : ''})` : ''}`;
-  $('ctitle').textContent = label;
-  $('jump').textContent = top.length ? `Comments (${top.length})` : 'Comments';
-  $('list').innerHTML = top.length
-    ? top.map((c) => card(c, all.filter((r) => r.parent === c.id))).join('')
-    : '<p class="meta">No comments on this version yet.</p>';
+  const request = comments.start(), version = cur;
+  try {
+    const all = await api(`/api/artifacts/${S}/comments?version=${version}`, { signal: request.signal });
+    if (!request.current) return;
+    const top = all.filter((c) => !c.parent);
+    const open = top.filter((c) => !c.resolved_at).length;
+    const label = `Comments on v${version}${top.length ? ` (${top.length}${open < top.length ? `, ${open} open` : ''})` : ''}`;
+    $('ctitle').textContent = label;
+    $('jump').textContent = top.length ? `Comments (${top.length})` : 'Comments';
+    $('list').innerHTML = top.length
+      ? top.map((c) => card(c, all.filter((r) => r.parent === c.id))).join('')
+      : '<p class="meta">No comments on this version yet.</p>';
+    syncControls();
+  } catch (e) { if (request.current) { $('ctitle').textContent = `Comments on v${version}`; $('err').textContent = e.message; } }
+  finally { request.finish(); }
 }
 
 async function act(fn) {
-  $('err').textContent = '';
-  try { await fn(); await loadComments(); } catch (e) { $('err').textContent = e.message; }
+  if (loading.pending || !meta) return;
+  await writing.run(async () => {
+    $('err').textContent = '';
+    try { await fn(); await loadComments(); } catch (e) { $('err').textContent = e.message; }
+  });
 }
 
 $('ver').onchange = (e) => load(Number(e.target.value));
-$('changes').onclick = () => (showingDiff ? showPage() : showDiff());
+$('changes').onclick = () => (view === 'diff' ? showPage() : showDiff());
 $('hist').onclick = () => {
   const h = $('history');
   h.hidden = !h.hidden;
   $('hist').setAttribute('aria-expanded', String(!h.hidden));
-  if (!h.hidden && meta) { showHistory(); h.scrollIntoView({ block: 'nearest' }); }
+  if (!h.hidden && meta) { showHistory(); syncControls(); h.scrollIntoView({ block: 'nearest' }); }
 };
-$('history').onclick = async (e) => {
+$('history').onclick = (e) => {
   const { view, diff } = e.target.dataset;
-  if (view) await load(Number(view));
-  if (diff) { await load(Number(diff)); showDiff(); }
+  if (view || diff) load(Number(view || diff), { diff: !!diff });
 };
 $('history').onsubmit = (e) => {
   e.preventDefault();

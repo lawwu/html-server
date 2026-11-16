@@ -8,6 +8,7 @@
 import { openMove } from './move.js';
 import { browserSignIn } from './signin.js';
 import { acceptDrops, openUpload } from './upload.js';
+import { latestRequest, singleAction } from './async-state.js';
 const box = document.getElementById('q');
 const results = document.getElementById('results');
 const count = document.getElementById('count');
@@ -18,7 +19,8 @@ const BASE = box.form.dataset.base || '/'; // "/" for your pages, "/gallery" for
 const PREF = 'artifact_gallery_view';
 const SORT_PREF = 'artifact_gallery_sort';
 const sortSel = document.getElementById('sort'); // your pages only, not the examples
-let ctl, timer;
+const reading = latestRequest();
+let timer;
 // The chosen sort; '' means the default (best match while searching, else recently updated).
 let sort = url.get('sort') || '';
 const sortFor = (q) => (sort === 'relevance' && !q ? '' : sort); // best match means nothing without a query
@@ -123,31 +125,39 @@ function show(html) {
 
 /** Show the cards for what's typed; `fresh` after a change to the pages themselves. */
 async function search({ fresh = false, keepPage = false } = {}) {
+  clearTimeout(timer);
+  const request = reading.start();
   const q = box.value.trim();
   if (!keepPage) page = '';
   syncSort(q);
   syncUrl();
-  ctl?.abort();
   if (fresh) { cache.clear(); cached = 0; }
   const key = fragmentUrl(q);
-  let html = cache.get(key);
-  if (html == null) {
-    ctl = new AbortController();
-    try {
-      const r = await fetch(key, { signal: ctl.signal });
-      html = r.ok ? await r.text() : '<p class="empty">Search failed.</p>';
-      if (r.ok) remember(key, html);
-    } catch (e) {
-      if (e.name !== 'AbortError') throw e;
-      return;
+  results.setAttribute('aria-busy', 'true');
+  try {
+    let html = cache.get(key);
+    if (html == null) {
+      const r = await fetch(key, { signal: request.signal });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      html = await r.text();
+      if (!request.current) return;
+      remember(key, html);
     }
+    if (request.current) count.textContent = show(html);
+  } catch {
+    if (request.current) count.textContent = 'Search failed. Try again.';
+  } finally {
+    if (request.current) results.setAttribute('aria-busy', 'false');
+    request.finish();
   }
-  count.textContent = show(html); // counted by the server, so a search past the listing's limit says how many there are
 }
 
 remember(fragmentUrl(), results.innerHTML); // what's on show now
 // Cached results show at once; otherwise wait for a pause in typing, but only a short one.
-box.addEventListener('input', () => { clearTimeout(timer); page = ''; if (cache.has(fragmentUrl())) search(); else timer = setTimeout(search, 60); });
+box.addEventListener('input', () => {
+  clearTimeout(timer); reading.cancel(); results.setAttribute('aria-busy', 'false'); page = '';
+  if (cache.has(fragmentUrl())) search(); else timer = setTimeout(search, 60);
+});
 box.form.addEventListener('submit', (e) => { e.preventDefault(); search(); });
 for (const t of toggles) t.addEventListener('click', (e) => { e.preventDefault(); setView(t.dataset.view); });
 // Keep the typed query and the layout when switching category. A click that opens a tab or
@@ -191,6 +201,11 @@ if (selectBtn && bulk) {
   const msg = document.getElementById('bulk-msg');
   const tagBox = document.getElementById('bulk-tag');
   const auth = browserSignIn();
+  const writing = singleAction((pending) => {
+    bulk.setAttribute('aria-busy', String(pending));
+    bulk.querySelectorAll('button, input').forEach((el) => { el.disabled = pending; });
+    selectBtn.disabled = pending;
+  });
 
   const say = (text, isError = false) => { msg.textContent = text; msg.classList.toggle('err', isError); };
   const sync = () => {
@@ -245,35 +260,36 @@ if (selectBtn && bulk) {
 
   bulk.addEventListener('click', async (e) => {
     const act = e.target.dataset?.act;
-    if (!act) return;
+    if (!act || writing.pending) return;
     if (act === 'done') return setSelecting(false);
     if (!picked.size) return say('Tick some pages first.', true);
     if (act === 'move') return openMove([...picked], () => location.reload());
     if (!auth.signedIn) return askToken();
+    if ((act === 'add' || act === 'remove') && !tagBox.value.trim()) { tagBox.focus(); return say('Type a tag first.', true); }
     const pages = [...picked];
-    try {
-      let failures = [];
-      if (act === 'add' || act === 'remove') {
-        const tag = tagBox.value.trim();
-        if (!tag) { tagBox.focus(); return say('Type a tag first.', true); }
-        const { results: out } = await call('POST', '/api/tags', { pages, [act]: [tag] });
-        failures = out.filter((r) => r.error).map((r) => `${r.slug}: ${r.error}`);
-        say(`${act === 'add' ? 'Tagged' : 'Untagged'} ${out.length - failures.length} of ${out.length}.`);
-      } else {
-        for (const slug of pages) {
-          try { await call(act === 'pin' ? 'POST' : 'DELETE', `/api/artifacts/${encodeURIComponent(slug)}/pin`); } catch (err) {
-            if (err.status === 401) throw err;
-            failures.push(`${slug}: ${err.message}`);
+    await writing.run(async () => {
+      try {
+        let failures = [];
+        if (act === 'add' || act === 'remove') {
+          const tag = tagBox.value.trim();
+          const { results: out } = await call('POST', '/api/tags', { pages, [act]: [tag] });
+          failures = out.filter((r) => r.error).map((r) => `${r.slug}: ${r.error}`);
+          say(`${act === 'add' ? 'Tagged' : 'Untagged'} ${out.length - failures.length} of ${out.length}.`);
+        } else {
+          for (const slug of pages) {
+            try { await call(act === 'pin' ? 'POST' : 'DELETE', `/api/artifacts/${encodeURIComponent(slug)}/pin`); } catch (err) {
+              if (err.status === 401) throw err;
+              failures.push(`${slug}: ${err.message}`);
+            }
           }
+          say(`${act === 'pin' ? 'Featured' : 'Unfeatured'} ${pages.length - failures.length} of ${pages.length}.`);
         }
-        say(`${act === 'pin' ? 'Featured' : 'Unfeatured'} ${pages.length - failures.length} of ${pages.length}.`);
-      }
-      if (failures.length) say(`${msg.textContent} Not changed: ${failures.join('; ')}`, true);
-      await search({ fresh: true, keepPage: true }); // redraw with the new tags or featured order
-    } catch (err) {
-      if (err.status === 401) { token = ''; return askToken(); }
-      say(err.message, true);
-    }
+        if (failures.length) say(`${msg.textContent} Not changed: ${failures.join('; ')}`, true);
+      } catch (err) {
+        if (err.status === 401) return askToken();
+        say(err.message, true);
+      } finally { await search({ fresh: true, keepPage: true }); } // include partial successes before a 401
+    });
   });
 }
 

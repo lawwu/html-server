@@ -3,6 +3,7 @@
 // `curl -T diagram.png …/api/assets/`, signed in with the token this site's other forms
 // save. This module runs only in trusted site UI, never inside uploaded content.
 import { browserSignIn } from './signin.js';
+import { singleAction } from './async-state.js';
 const PAGE_RE = /\.(html?|md|markdown|ipynb)$/i; // config.js PAGE_EXT_RE
 const ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|pdf)$/i; // config.js ASSET_TYPES
 const encodePath = (p) => p.split('/').map(encodeURIComponent).join('/');
@@ -53,27 +54,30 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
   const status = dialog.querySelector('.upload-status');
   const signin = dialog.querySelector('.move-signin');
   const tokenInput = form.elements.token;
-  const rows = []; // { file, kind, li, name (input), state: 'ready' | 'done' | 'skip' }
-  let busy = false;
+  const rows = []; // queued -> uploading -> done | failed; failed -> uploading; unsupported -> skip
 
   form.elements.folder.value = folder;
   tokenInput.value = auth.token;
   signin.hidden = auth.signedIn;
 
   const say = (text, isError = false) => { status.textContent = text; status.classList.toggle('err', isError); };
-  const pending = () => rows.filter((r) => r.state === 'ready');
+  const pending = () => rows.filter((r) => r.state === 'queued' || r.state === 'failed');
   const sync = () => {
+    const busy = writing.pending;
+    form.setAttribute('aria-busy', String(busy));
+    form.querySelectorAll('input, button').forEach((el) => { el.disabled = busy; });
     const n = pending().length;
     submit.disabled = busy || !n;
-    submit.textContent = n > 1 ? `Upload ${n} files` : 'Upload';
+    submit.textContent = busy ? 'Uploading…' : n > 1 ? `Upload ${n} files` : 'Upload';
     dialog.querySelector('.upload-private').hidden = !rows.some((r) => r.kind === 'page');
   };
+  const writing = singleAction(sync);
 
   function add(files) {
     for (const file of files) {
       const kind = kindOf(file.name);
       const li = document.createElement('li');
-      const row = { file, kind, li, state: kind ? 'ready' : 'skip' };
+      const row = { file, kind, li, state: kind ? 'queued' : 'skip' };
       const what = document.createElement('span');
       what.className = 'meta';
       what.textContent = kind ? `${kind === 'page' ? 'page' : 'image or PDF'} · ${size(file.size)}` : `${file.name}: not a page, image or PDF`;
@@ -82,7 +86,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
         row.name.setAttribute('aria-label', `Name for ${file.name}`);
         const remove = Object.assign(document.createElement('button'), { type: 'button', textContent: '×', className: 'ghost' });
         remove.setAttribute('aria-label', `Remove ${file.name}`);
-        remove.onclick = () => { rows.splice(rows.indexOf(row), 1); li.remove(); sync(); };
+        remove.onclick = () => { if (!writing.pending) { rows.splice(rows.indexOf(row), 1); li.remove(); sync(); } };
         row.remove = remove;
         li.append(row.name, what, remove);
       } else {
@@ -95,18 +99,16 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
       list.append(li);
     }
     sync();
-    if (pending().length) submit.focus();
+    if (!writing.pending && pending().length) submit.focus();
   }
 
-  async function send(row, token) {
-    const name = row.name.value.trim();
+  async function send({ row, name }, { token, folder, note, private: privatePage }) {
     let path;
     if (row.kind === 'page') {
-      const dir = form.elements.folder.value.trim().replace(/^\/+|\/+$/g, '');
       const q = new URLSearchParams();
-      if (form.elements.note.value.trim()) q.set('note', form.elements.note.value.trim());
-      if (form.elements.private.checked) q.set('visibility', 'private');
-      path = `/api/artifacts/${encodePath([dir, name].filter(Boolean).join('/'))}${q.size ? `?${q}` : ''}`;
+      if (note) q.set('note', note);
+      if (privatePage) q.set('visibility', 'private');
+      path = `/api/artifacts/${encodePath([folder, name].filter(Boolean).join('/'))}${q.size ? `?${q}` : ''}`;
     } else {
       path = `/api/assets/${encodeURIComponent(name)}`;
     }
@@ -138,38 +140,49 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (writing.pending || !pending().length) return;
     const token = tokenInput.value.trim();
     if (!token && !auth.session) { signin.hidden = false; tokenInput.focus(); return say('Paste your sign-in token first.', true); }
-    busy = true; sync(); say('Uploading…');
-    let ok = 0, failed = 0;
-    for (const row of pending()) {
-      row.out.className = 'upload-out';
-      row.out.textContent = 'uploading…';
-      try {
-        done(row, await send(row, token));
-        ok++;
-        if (token) auth.save(token);
-      } catch (err) {
-        failed++;
-        row.out.className = 'upload-out err';
-        row.out.textContent = err.message;
-        if (err.status === 401) {
-          signin.hidden = false;
-          tokenInput.focus();
-          busy = false; sync();
-          return say('That token isn’t valid here. Paste yours and upload again.', true);
+    // Snapshot intent before the first await; dropped files join the next batch.
+    const batch = pending().map((row) => ({ row, name: row.name.value.trim() }));
+    const options = { token, folder: form.elements.folder.value.trim().replace(/^\/+|\/+$/g, ''),
+      note: form.elements.note.value.trim(), private: form.elements.private.checked };
+    let ok = 0, failed = 0, needsSignIn = false;
+    await writing.run(async () => {
+      say('Uploading…');
+      for (const entry of batch) {
+        const { row } = entry;
+        row.state = 'uploading';
+        row.out.className = 'upload-out';
+        row.out.textContent = 'uploading…';
+        try {
+          done(row, await send(entry, options));
+          ok++;
+          if (token) auth.save(token);
+        } catch (err) {
+          failed++;
+          row.state = 'failed';
+          row.out.className = 'upload-out err';
+          row.out.textContent = err.message;
+          if (err.status === 401) {
+            needsSignIn = true;
+            break;
+          }
         }
       }
-    }
-    busy = false; sync();
-    say(failed ? `Uploaded ${ok} of ${ok + failed}. Fix what's marked and upload again.` : `Uploaded ${ok}.`, !!failed);
-    if (ok) { signin.hidden = true; onUploaded(); }
-    (failed ? submit : dialog.querySelector('[data-cancel]')).focus();
+    });
+    if (needsSignIn) signin.hidden = false;
+    else if (ok) signin.hidden = true;
+    say(needsSignIn ? `Uploaded ${ok}. That token isn’t valid here. Paste yours and upload again.`
+      : failed ? `Uploaded ${ok} of ${ok + failed}. Fix what's marked and upload again.` : `Uploaded ${ok}.`, !!failed);
+    if (ok) onUploaded(); // also refresh after a partial batch stopped by authentication
+    (needsSignIn ? tokenInput : pending().length ? submit : dialog.querySelector('[data-cancel]')).focus();
   });
 
   dialog.querySelector('[data-choose]').onclick = () => picker.click();
   picker.onchange = () => { add(picker.files); picker.value = ''; };
-  dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
+  dialog.querySelector('[data-cancel]').onclick = () => { if (!writing.pending) dialog.close(); };
+  dialog.addEventListener('cancel', (e) => { if (writing.pending) e.preventDefault(); });
   dialog.addEventListener('close', () => { current = null; dialog.remove(); });
   current = add;
   document.body.append(dialog);

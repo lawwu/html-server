@@ -1149,6 +1149,9 @@ With MCP, call `set_page_visibility` with
 
 ## Design notes
 
+- **Stateful workflows.** [STATE-MACHINES.md](STATE-MACHINES.md) maps browser, domain,
+  server and command workflows to their states, guards and tests. Shared browser reads
+  accept only the latest response; writes ignore duplicate submissions while pending.
 - **Three deep modules keep callers small.** `public/signin.js` owns browser credentials,
   session precedence, authenticated requests and cached identity; the top bar and forms
   use it independently. `src/sync.js` owns folder discovery, reconciliation, dry runs
