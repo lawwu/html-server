@@ -12,12 +12,32 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
-import { VERSION, githubSignIn, publicOrigin, setGitHubSignIn, setPublicUrl, setSso, sso } from './config.js';
+import { MAX_BUNDLE_FILES } from './bundle.js';
+import { MAX_BODY_BYTES, VERSION, githubSignIn, publicOrigin, setGitHubSignIn, setPublicUrl, setSso, sso } from './config.js';
+import { noteSlug } from './markdown.js';
 import { encodePath } from './paths.js';
 import { listTrash, restorePage, sharePage, readPage, restoreVersion, listAssets, putAsset, deleteAsset, resolveComment } from './manage.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
 
+
+function readBundle(root) {
+  const files = [];
+  let encodedSize = 0;
+  function visit(dir, prefix) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const path = prefix + entry.name, full = join(dir, entry.name);
+      if (entry.isDirectory()) visit(full, path + '/');
+      if (!entry.isFile()) continue;
+      encodedSize += 4 * Math.ceil(statSync(full).size / 3);
+      if (files.length >= MAX_BUNDLE_FILES || encodedSize > MAX_BODY_BYTES) fail('folder exceeds the file count or upload size limit');
+      files.push({ path, base64: readFileSync(full).toString('base64') });
+    }
+  }
+  visit(root, '');
+  return files;
+}
 
 const USAGE = usage({ backupDir: BACKUP_DIR, homeDir: HOME_DIR, server: SERVER });
 
@@ -380,8 +400,10 @@ const clientCommands = {
     else console.log(`comment ${value} ${op === 'resolve' ? 'resolved' : 'reopened'}`);
   },
   async put([file, note = ''], opts) {
-    if (!file || !existsSync(file)) fail('usage: put FILE [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]');
-    const name = [opts.folder?.replace(/^\/+|\/+$/g, ''), opts.name || basename(file)].filter(Boolean).join('/'); // upload to the base name, so out/page.html works
+    if (!file || !existsSync(file)) fail('usage: put FILE_OR_DIR [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]');
+    const isFolder = statSync(file).isDirectory();
+    const defaultName = isFolder ? (noteSlug(basename(resolve(file))) || 'site') + '.html' : basename(file);
+    const name = [opts.folder?.replace(/^\/+|\/+$/g, ''), opts.name || defaultName].filter(Boolean).join('/'); // upload to the base name, so out/page.html works
     // The name is in the URL, so options can ride in the query string (any characters, unlike headers).
     const q = new URLSearchParams();
     if (note) q.set('note', note);
@@ -390,7 +412,8 @@ const clientCommands = {
       if (!/^\d+$/.test(opts.base)) fail('--base must be a version number');
       q.set('base', opts.base);
     }
-    const a = await api('PUT', `/api/artifacts/${enc(name)}${q.size ? `?${q}` : ''}`, { body: readFileSync(file), auth: 'required' });
+    const body = isFolder ? JSON.stringify({ files: readBundle(file) }) : readFileSync(file);
+    const a = await api('PUT', `/api/${isFolder ? 'bundles' : 'artifacts'}/${enc(name)}${q.size ? `?${q}` : ''}`, { body, json: isFolder, auth: 'required' });
     console.log(`published v${a.latest_version}: ${SERVER}${a.url}`);
     console.log(`review:       ${SERVER}/review/${encodePath(a.slug)}`);
     if (a.visibility === 'private') console.log(`share link:   ${SERVER}${a.share_url}`);

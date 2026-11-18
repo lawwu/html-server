@@ -35,9 +35,10 @@ Sign this CLI in to a server (saved, so there's nothing to add to your shell pro
   logout
 
 Use a running server:
-  put FILE [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]
+  put FILE_OR_DIR [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]
                                         upload an .html page, .md note or .ipynb notebook; it lives at /pages/<file name>.
                                         --base N: refuse if someone added a version after vN
+                                        pass a folder with index.html to publish one version of a static site
   get NAME [--output FILE] [--version N] [--json]
                                         download exact source; output files must not already exist
   trash ls | trash restore NAME        list your trash or recover a page without adding a version

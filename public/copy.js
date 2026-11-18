@@ -18,7 +18,20 @@ document.addEventListener('click', async (e) => {
   let text;
   try {
     const held = b.dataset.copySource && document.getElementById(b.dataset.copySource);
-    if (held) text = JSON.parse(held.textContent);
+    if (b.dataset.embed) {
+      const url = new URL(b.dataset.embed, location.href);
+      url.searchParams.set('embed', 'external');
+      const version = b.parentElement.querySelector('select').value;
+      if (version) url.searchParams.set('v', version);
+      const frame = document.createElement('iframe');
+      frame.src = url.href;
+      frame.title = b.dataset.title;
+      frame.style.width = '100%';
+      frame.height = '480';
+      frame.loading = 'lazy';
+      frame.referrerPolicy = 'no-referrer';
+      text = frame.outerHTML;
+    } else if (held) text = JSON.parse(held.textContent);
     else {
       const r = await fetch(b.dataset.src);
       if (!r.ok) throw new Error(r.statusText); // signed out, or the page has gone: never its error, as if it were the page

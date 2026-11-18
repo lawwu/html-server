@@ -110,7 +110,7 @@ test('--version prints the package.json version', async () => {
 
 test('errors are one line with a non-zero exit', async () => {
   let r = (await cli(['put', '/nope.html']));
-  assert.deepEqual([r.code, r.err.trim()], [1, 'error: usage: put FILE [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]']);
+  assert.deepEqual([r.code, r.err.trim()], [1, 'error: usage: put FILE_OR_DIR [NOTE] [--private] [--name PATH] [--folder FOLDER] [--base N]']);
   r = (await cli(['whoami'], { HTML_SERVER_HOME: join(dir, 'empty-home') })); // no token anywhere
   assert.equal(r.code, 1);
   assert.match(r.err, /^error: not signed in: run `html-server login`/);
@@ -804,4 +804,20 @@ test('trash ls includes every owned page beyond one API batch', async () => {
   const pages = JSON.parse(r.out);
   assert.equal(pages.length, 501);
   assert.equal(new Set(pages.map((p) => p.slug)).size, 501);
+});
+
+test('put publishes a directory under one page name and skips hidden files and symlinks', async () => {
+  const folder = join(dir, 'sample-site');
+  mkdirSync(join(folder, 'assets'), { recursive: true });
+  writeFileSync(join(folder, 'index.html'), '<title>Example</title>');
+  writeFileSync(join(folder, 'assets', 'style.css'), 'body { color: green; }');
+  writeFileSync(join(folder, '.env'), 'excluded');
+  symlinkSync(join(folder, '.env'), join(folder, 'link.txt'));
+  const auth = { HTML_SERVER_TOKEN: store.createUser('folder-publisher') };
+  const result = await cli(['put', folder, '--folder', 'reports', '--private'], auth);
+  assert.equal(result.code, 0, result.err);
+  assert.match(result.out, /published v1: .*\/reports\/sample-site.html/);
+  const page = store.find('reports/sample-site.html');
+  assert.equal(page.visibility, 'private');
+  assert.deepEqual(store.all('SELECT path FROM bundle_files WHERE artifact_id = ? ORDER BY path', page.id).map((x) => x.path), ['assets/style.css', 'index.html']);
 });

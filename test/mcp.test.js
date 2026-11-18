@@ -246,3 +246,12 @@ test('MCP treats an explicit version zero as a missing version', async () => {
   assert.equal(data(await call('list_comments', { name })).length, 1);
   assert.equal(data(await call('page_history', { name })).versions.length, 1);
 });
+
+test('publish_page accepts a complete folder from an agent and keeps new pages private', async () => {
+  const result = data(await call('publish_page', { name: 'agent-folder.html', files: [
+    { path: 'index.html', base64: Buffer.from('<title>Agent site</title>').toString('base64') },
+    { path: 'chart.json', base64: Buffer.from('[1,2]').toString('base64') },
+  ] }));
+  assert.equal(result.visibility, 'private');
+  assert.match(await (await fetch(result.share_url)).text(), /<base href="\/_bundle\//);
+});

@@ -694,7 +694,7 @@ test('tags: categories become tags; tag many pages at once; filter by tag', asyn
 
   const [, home] = await req('GET', '/');
   assert.match(home, /<button type="button" id="select"/);
-  assert.match(home, /<button type="button" id="upload" class="select-btn">Upload<\/button>/); // public/upload.js
+  assert.match(home, /<button type="button" id="upload" class="select-btn"[^>]*>Upload<\/button>/); // public/upload.js
   assert.match(home, /<span class="session" data-session hidden>.*data-sign-out>Sign out<\/button><\/span><\/div><\/header>/); // the top bar's last; shown by the page's script when signed in
   assert.match(home, /<input type="checkbox" value="b.html"/);
   assert.match(home, /data-category="trip-plans"/); // tag chips in the filter bar
@@ -1634,7 +1634,7 @@ test('folders: nested addresses, direct contents, descendants, scoped search and
   let [status, html] = await req('GET', '/research/');
   assert.equal(status, 200);
   assert.match(html, /href="\/research\/deep\/"/);
-  assert.match(html, /<button type="button" id="upload" class="select-btn" data-folder="research">/); // uploads land here
+  assert.match(html, /<button type="button" id="upload" class="select-btn"[^>]* data-folder="research">/); // uploads land here
   const cards = html.slice(html.indexOf('<section id="results"'));
   assert.match(cards, /Research report/);
   assert.doesNotMatch(cards, /Unique experiment|Hidden title|Outside/);
@@ -2169,4 +2169,59 @@ test("the server's log never shows a share link's id", async () => {
   try { assert.equal((await req('GET', a.share_url))[0], 200); } finally { console.error = log; }
   assert.ok(lines.includes('GET /v/…'), lines.join('\n'));
   assert.ok(!lines.some((l) => l.includes(id)), lines.join('\n'));
+});
+
+test('published folders version all files, honor access changes and restore the selected snapshot', async () => {
+  const entry = '<title>Report</title><script src="js/main.js"></script>';
+  const files = (js) => Object.entries({ 'index.html': entry, 'js/main.js': js, 'chapter/index.html': '<p>Chapter</p>' })
+    .map(([path, data]) => ({ path, base64: Buffer.from(data).toString('base64') }));
+  const publish = (members, query = '') => req('PUT', '/api/bundles/report.html' + query, { token: admin, body: JSON.stringify({ files: members }) });
+  const directory = (body) => body.match(/<base href="([^"]+\/)index\.html">/)[1];
+  const [created, page] = await publish(files('first'));
+  assert.equal(created, 201);
+  const first = directory((await req('GET', page.url))[1]);
+  const [, js, headers] = await req('GET', first + 'js/main.js');
+  assert.equal(js, 'first');
+  assert.match(headers.get('content-type'), /javascript/);
+  assert.match(headers.get('content-security-policy'), /sandbox/);
+  assert.equal(headers.get('access-control-allow-origin'), '*');
+  assert.equal((await req('GET', first + 'chapter/'))[1], '<p>Chapter</p>');
+  assert.equal((await publish(files('broken').slice(1)))[0], 400);
+  assert.equal((await publish([...files('x'), files('x')[0]]))[0], 400);
+  assert.equal((await publish(files('second'), '?base=1'))[0], 200);
+  assert.equal((await publish(files('stale'), '?base=1'))[0], 409);
+  const latest = directory((await req('GET', page.url + '?embed=external'))[1]);
+  assert.equal((await req('GET', latest + 'js/main.js'))[1], 'second');
+  assert.equal((await req('GET', first + 'js/main.js'))[1], 'first');
+  assert.match((await req('GET', '/api/artifacts/report.html/diff'))[1], /js\/main\.js/);
+  assert.equal((await req('GET', first.replace('/1/', '/2/') + 'js/main.js'))[0], 404);
+  await put('report.html', '<title>Edited entry</title>');
+  assert.equal((await req('GET', directory((await req('GET', page.url))[1]) + 'js/main.js'))[1], 'second');
+  await req('POST', '/api/artifacts/report.html/versions/1/restore', { token: admin });
+  assert.equal((await req('GET', directory((await req('GET', page.url))[1]) + 'js/main.js'))[1], 'first');
+  const [, priv] = await req('POST', '/api/artifacts/report.html/visibility?to=private', { token: admin });
+  assert.equal((await req('GET', first + 'js/main.js'))[0], 404);
+  const shared = directory((await req('GET', priv.share_url + '?v=2'))[1]);
+  assert.equal((await req('GET', shared + 'js/main.js'))[1], 'second');
+  await req('POST', '/api/artifacts/report.html/share', { token: admin });
+  assert.equal((await req('GET', shared + 'js/main.js'))[0], 404);
+});
+
+test('public link previews use the addressed version and escape author metadata', async () => {
+  await put('preview.html', '<title>First &amp; best</title><meta name="description" content=\'A "quote"\'>');
+  await put('preview.html', '<title>Second</title><p>Visible summary</p>');
+  for (const dest of ['document', 'empty']) {
+    const html = await (await fetch(base + '/pages/preview.html?v=1', { headers: { 'Sec-Fetch-Dest': dest } })).text();
+    assert.match(html, /og:title" content="First &amp; best"/);
+    assert.match(html, /og:description" content="A &quot;quote&quot;"/);
+    assert.ok(html.includes(base + '/pages/preview.html?v=1'));
+  }
+  const [, latest] = await req('GET', '/pages/preview.html');
+  assert.match(latest, /og:title" content="Second"/);
+  assert.match(latest, /og:description" content="[^"]*Visible summary/);
+  await put('notebook-note.md', '---\ndescription: A short note\n---\n# Note');
+  assert.match((await req('GET', '/notebook-note.md'))[1], /og:description" content="A short note"/);
+  const [, priv] = await req('POST', '/api/artifacts/preview.html/visibility?to=private', { token: admin });
+  assert.doesNotMatch((await req('GET', priv.share_url))[1], /property="og:/);
+  assert.equal((await req('GET', '/pages/preview.html'))[0], 404);
 });

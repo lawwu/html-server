@@ -112,8 +112,7 @@ should be. A file you already have becomes a new version. Each name comes from i
 with spaces as dashes (`Trip Plan.html` becomes `Trip-Plan.html`), and can be changed before
 uploading. The first time, paste your token; the browser keeps it for this site, as it does
 for comments, until you press **Sign out** in the top bar. Nothing to install, so it suits a server running in [Docker](#docker) or on
-[Cloudflare](#deploy-to-cloudflare). A whole folder, kept in step as it changes, is `sync`'s
-job (below).
+[Cloudflare](#deploy-to-cloudflare). Use **Publish a folder** to upload one prebuilt static site as a single version. Use `sync` to keep a collection of separate pages in step with a local folder.
 
 **The CLI:**
 
@@ -169,6 +168,27 @@ See [HTTP API](#http-api).
 Every page, whatever its kind, gets versions, search, tags, comments, views, the graph,
 featuring and a stable URL: `/pages/<file name>`, with the extension optional
 (`/pages/trip-plan` finds `trip-plan.html`).
+
+### Publish a folder as one site
+
+Choose **Upload → Publish a folder** in the browser, or pass the folder to the CLI. The folder needs an `index.html` at its root. Stylesheets, scripts, images, fonts, data files, and nested pages keep their relative paths. Use relative URLs in the build (for example, `./assets/main.js`). An address starting with `/` points to the server root.
+
+```bash
+html-server put ./dist "First dashboard" --name reports/dashboard.html
+html-server put ./dist "Update the chart" --name reports/dashboard.html --base 1
+```
+
+The first command publishes one page at `/reports/dashboard.html`. The second creates v2 at the same address. Opening `/reports/dashboard.html?v=1` still loads the original chart. Restoring v1 also restores its files. Publishing a complete folder replaces its file list for the new version. Uploading just an updated entry page keeps the files from the preceding version. Without `--name`, a directory named `dist` publishes as `dist.html`.
+
+Publish the built output. The server serves static files, with the same sandbox and visibility settings as other pages. A folder upload accepts up to 512 files within the server's existing request limit (16 MiB on Node, about 1.9 MiB on Cloudflare, including base64 and JSON). The browser and CLI skip hidden entries and `node_modules`. The CLI also skips symlinks inside the folder.
+
+HTTP clients can send `PUT /api/bundles/<name>.html` with a body like `{"files":[{"path":"index.html","base64":"PHA+SGk8L3A+"}]}`. MCP clients can pass the same `files` array to `publish_page` with the published page name.
+
+### Rich links and embeds
+
+Paste a public page URL into a chat or document that supports link previews to show its title and description. The server reads descriptions from HTML metadata, Markdown frontmatter, or notebook metadata. A URL with `?v=1` describes that version.
+
+To embed a public page in another site, open the page, choose **Latest version** or **Fixed at vN**, then select **Copy embed**. Paste the copied iframe into the destination. Latest follows future publishes. Fixed keeps the selected version, including its bundled files. These public sharing controls apply to deployments that allow anonymous reads.
 
 ### Folders and moving pages
 

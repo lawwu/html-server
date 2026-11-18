@@ -73,7 +73,7 @@ test('SSO in Chromium: sign in, upload without a token, and an uploaded page get
   // Upload with no token pasted: the session is enough.
   await page.goto(`${base}/`);
   await page.locator('#upload').click();
-  await page.locator('.upload-dialog input[type="file"]').setInputFiles([{ name: 'mine.html', mimeType: 'text/html', buffer: Buffer.from('<title>Mine</title><p>mine</p>') }]);
+  await page.locator('.upload-dialog input[type="file"]:not([webkitdirectory])').setInputFiles([{ name: 'mine.html', mimeType: 'text/html', buffer: Buffer.from('<title>Mine</title><p>mine</p>') }]);
   assert.equal(await page.locator('.upload-dialog .move-signin').isHidden(), true); // no token asked for
   await page.locator('.upload-dialog [type="submit"]').click();
   await page.locator('.upload-dialog').getByText('Uploaded 1.').waitFor();

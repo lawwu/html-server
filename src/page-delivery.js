@@ -10,13 +10,14 @@ import { ASSET_RE, renderMarkdown, safeDecode } from './markdown.js';
 import { encodePath, isPagePath, pageUrl, parentPath } from './paths.js';
 import { isNote, isNotebook, parseNotebook, renderNotebook } from './notebook.js';
 import { pageMeta, summary } from './store.js';
-import { ApiError } from './text.js';
+import { ApiError, decodeEntities, escapeHtml, extractText, metaContent } from './text.js';
 
 export class PageDelivery {
-  #store; #query; #document; #viewerId; #visit; #theme; #sidebar; #sso; #search;
+  #store; #origin; #query; #document; #viewerId; #visit; #theme; #sidebar; #sso; #search;
 
-  constructor(store, { query = '', document = false, viewer = null, visit = null, theme, sidebar, sso = false } = {}) {
+  constructor(store, { origin, query = '', document = false, viewer = null, visit = null, theme, sidebar, sso = false } = {}) {
     this.#store = store;
+    this.#origin = origin;
     this.#query = new URLSearchParams(query);
     this.#search = query ? (String(query).startsWith('?') ? String(query) : `?${query}`) : '';
     this.#document = document;
@@ -45,7 +46,8 @@ export class PageDelivery {
     if (this.#wantsFrame() && a.state === ACTIVE && !isNote(a.slug)) return this.#frame(a);
     const r = this.#store.render(slug, this.#int('v'), this.#viewer(), this.#preview() ? null : this.#visit);
     const path = encodePath(r.slug);
-    return this.#artifact(this.#decorate(r, { current: `/pages/${path}`, history: `/history/${path}` }, slug));
+    const body = this.#decorate(r, { current: `/pages/${path}`, history: `/history/${path}` }, slug);
+    return this.#artifact(this.#richLink(body, a, r.n, r.body));
   }
 
   shared(share) {
@@ -77,6 +79,25 @@ export class PageDelivery {
   // page paths fail before authentication. HTTP remains responsible for credentials.
   #viewer() { return typeof this.#viewerId === 'function' ? this.#viewerId() : this.#viewerId; }
 
+  #richLink(body, page, n, source) {
+    if (!this.#origin || this.#sso || page.visibility !== 'public' || this.#preview() || this.#query.has('raw') || this.#query.has('embed')) return body;
+    const pinned = this.#int('v') != null, note = isNote(page.slug);
+    let title = page.title, description = note ? page.description : decodeEntities(page.description || '');
+    if (pinned || !description) {
+      const text = source.toString('utf8');
+      const meta = note ? pageMeta(page.slug, text) : { ...extractText(text), description: decodeEntities(metaContent(text, 'description')) };
+      if (pinned) title = meta.title || page.slug;
+      description = meta.description || meta.body || title;
+    }
+    description = description.replace(/\s+/g, ' ').trim().slice(0, 240);
+    const url = new URL(pageUrl(page.slug), this.#origin);
+    if (pinned) url.searchParams.set('v', n);
+    const tags = `<meta property="og:type" content="website"><meta property="og:site_name" content="HTML Server">
+<meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:url" content="${escapeHtml(url.href)}"><meta name="twitter:card" content="summary">`;
+    return inHead(body.toString(), tags);
+  }
+
   #artifact(body) { return { kind: 'artifact', body, preview: this.#preview() }; }
 
   #int(name) {
@@ -102,19 +123,21 @@ export class PageDelivery {
     const nb = isNotebook(page.slug) ? parseNotebook(text) : null;
     const opts = { ...this.#resolvers(viewer, { page }), title: meta.title, path: basePath };
     const html = nb ? renderNotebook(nb, opts) : renderMarkdown(text, opts);
-    const backlinks = this.#store.backlinks(page, viewer);
+    const chrome = !this.#preview() && this.#query.get('embed') !== 'external';
+    const backlinks = chrome ? this.#store.backlinks(page, viewer) : [];
     const linked = [...html.matchAll(/href="\/(?:pages\/)?([^"?#]+)/g)].map((m) => safeDecode(m[1])).concat(backlinks.map((b) => b.slug));
     return Buffer.from(notePage({
-      slug: page.slug, chrome: !this.#preview(), latest: page.latest_version,
+      slug: page.slug, chrome, latest: page.latest_version, embedPinned: this.#query.has('v'),
+      canEmbed: page.visibility === 'public' && !this.#sso,
       title: meta.title, description: meta.description, tags: meta.tags, version: n,
       updated: n === page.latest_version ? page.updated_at : null,
-      html, backlinks, previews: this.#preview() ? {} : this.#previews(linked, viewer), source: text,
+      html, backlinks, previews: chrome ? this.#previews(linked, viewer) : {}, source: text,
       copyLabel: nb ? 'Copy notebook' : 'Copy markdown',
       extra: nb ? [nb.kernel, `${nb.cells.filter((c) => c.type === 'code').length} code cells`].filter(Boolean).join(' · ') : '',
       theme: this.#theme,
       sidebar: this.#sidebar,
-      path: this.#store.presentationPath(page), explorer: this.#preview() ? [] : this.#store.explorer(viewer),
-      graph: this.#preview() ? null : this.#store.graph(viewer, { views: false }),
+      path: this.#store.presentationPath(page), explorer: chrome ? this.#store.explorer(viewer) : [],
+      graph: chrome ? this.#store.graph(viewer, { views: false }) : null,
     }));
   }
 
@@ -184,13 +207,14 @@ export class PageDelivery {
   #frame(a) {
     const viewer = this.#viewer();
     const n = this.#int('v') ?? a.latest_version;
-    this.#store.version(a, n); // 404 for a version that doesn't exist
+    const source = this.#store.version(a, n);
     const backlinks = this.#store.backlinks(a, viewer);
-    return { kind: 'site', body: htmlFramePage({
-      page: summary(a, viewer), n, backlinks,
+    const frame = htmlFramePage({
+      page: summary(a, viewer), n, backlinks, pinned: this.#query.has('v'), canEmbed: a.visibility === 'public' && !this.#sso,
       explorer: this.#store.explorer(viewer), graph: this.#store.graph(viewer, { views: false }),
       previews: this.#previews(backlinks.map((b) => b.slug), viewer),
-    }) };
+    });
+    return { kind: 'site', body: this.#richLink(frame, a, n, source) };
   }
 
   /** ?preview=1: a gallery-card thumbnail. Not a view, and no sidebar or badge drawn over it. */
@@ -208,13 +232,18 @@ export class PageDelivery {
       // Relative links go where they went when this version was written. Shown from
       // another folder (moved since, or a share link), the page gets a <base> there.
       const written = this.#store.versionBase(page, n);
-      if (at == null || parentPath(at).toLowerCase() !== parentPath(written).toLowerCase()) {
+      const bundle = this.#store.bundleBase(page, n, this.#sso);
+      if (bundle) {
+        body = withBundleBase(body, bundle);
+        based = true;
+      } else if (at == null || parentPath(at).toLowerCase() !== parentPath(written).toLowerCase()) {
         const doc = withBase(body, `/pages/${encodePath(written)}${n < latest ? `?v=${n}` : ''}`);
         if (doc) { body = doc; based = true; }
       }
       if (this.#sso) body = withAssetLinks(body, page.share_id);
     }
     if (this.#preview()) return body;
+    if (this.#query.get('embed') === 'external') return based ? withInPageLinks(body) : body;
     // In the site's frame the title bar shows the version, and a floating contents box
     // would be pinned to the top of a frame as tall as the page: just size it.
     if (this.#query.get('embed')) return withInFrame(withInPageLinks(note ? body : withEmbedSizing(body)));
@@ -262,6 +291,21 @@ function withEmbedSizing(doc) {
     html = inHead(html, '<meta name="responsive-embedded-sizing" content="allow-origins=*">');
   }
   return Buffer.from(injectScript(html, 'data-html-server-embed', EMBED_SIZE_SCRIPT));
+}
+
+function withBundleBase(doc, prefix) {
+  // Preserve an authored relative base, resolved as if the entry lived in the
+  // version directory. The other files are served at their own real paths.
+  const html = doc.toString('utf8');
+  const authored = /<base\b[^>]*?\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(html);
+  const entry = prefix + 'index.html';
+  let href = entry;
+  if (authored) {
+    const value = authored[1] ?? authored[2] ?? authored[3];
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(value)) return doc;
+    href = new URL(value, 'https://bundle.invalid' + entry).pathname;
+  }
+  return Buffer.from(inHead(html, `<base href="${escapeHtml(href)}">`));
 }
 
 /**

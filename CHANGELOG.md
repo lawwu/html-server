@@ -8,6 +8,9 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+- Publish a prebuilt static folder as one version from Upload, `html-server put`, HTTP, or MCP. Version links and restores include the supporting files.
+- Public page links provide title and description previews. **Copy embed** offers either the latest version or the version being viewed.
+
 ## 0.19.0 (2026-11-15)
 
 - **Manage pages from the CLI and MCP.** Recover pages from trash, retrieve or rotate

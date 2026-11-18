@@ -9,6 +9,7 @@ import {
   publicOrigin,
   sso,
 } from './config.js';
+import { bundleMime, decodeBundle } from './bundle.js';
 import { ACTIVE, TRASHED } from './lifecycle.js';
 import { cliPackage } from './package.js';
 import { SESSION_COOKIE, clearLoginCookie, clearSessionCookie, finishLogin, logoutUrl, sessionCookie, startLogin } from './sso.js';
@@ -29,6 +30,8 @@ const CID = '(?<cid>\\d+)';
 // with no description stay off the page. The bare /<slug> page route matches last.
 export const ROUTES = [
   ['GET', '/(?<folder>[\\p{L}\\p{N}][\\p{L}\\p{N}\\p{M}_./-]*)/', 'folder', 'anyone*', 'Folder contents, subfolders, and scoped search. `?recursive=1` includes descendants'],
+  ['PUT', `/api/bundles/${SLUG}`, 'putBundle', 'token', 'Publish a static folder as one version. Send JSON with a files array of relative path and base64 pairs, including index.html. Accepts the same options as a page upload'],
+  ['GET', '/_bundle/(?<id>[0-9]+)/(?<n>[0-9]+)/(?<key>[a-f0-9]{64})/(?<file>.*)', 'bundleFile', 'version file link', null],
   ['POST', '/api/moves', 'movePages', 'owner', 'Move pages atomically: `{"moves":[{"from":"report.html","to":"research/report.html"}]}`. History and share links survive; old addresses redirect'],
   ['GET', '/api/folders', 'folders', 'anyone*', 'Folder choices visible to the viewer'],
   ['GET', '/', 'gallery', 'anyone', 'Your pages: browse, filter by `?category=`, search (`?q=`, titles rank first, whatever the sort); `?sort=updated|created|views|title` (featured pages stay on top); `?view=list` for the list layout'],
@@ -163,9 +166,10 @@ const CLAIMS_OK = new Set(['me', 'rotateOwnToken', 'claimLink']);
 
 // With SSO on, what can be reached without signing in: signing in itself, health checks,
 // the files the sign-in pages need, claim links (they carry their own proof), and the
-// command line's package (the same MIT code as on GitHub; npm can't sign in to fetch it).
+// command line's package (npm can't sign in), and bundle files whose scoped,
+// revocable version key is validated by Store before returning any bytes.
 const OPEN_WITH_SSO = new Set(['oidcLogin', 'oidcCallback', 'oidcLogout', 'health', 'static', 'font', 'notFound',
-  'claimPage', 'claim', 'claimCallback', 'cliInfo', 'cliLatest', 'cliTarball']);
+  'bundleFile', 'claimPage', 'claim', 'claimCallback', 'cliInfo', 'cliLatest', 'cliTarball']);
 
 /**
  * Not signed in: a browser opening a page is sent to sign in, and comes back here after;
@@ -251,7 +255,7 @@ class Ctx {
   deliver(kind, key) {
     const cookie = this.req.headers.cookie || '';
     const delivery = new PageDelivery(this.store, {
-      query: this.url.search, document: this.req.headers['sec-fetch-dest'] === 'document',
+      origin: this.origin(), query: this.url.search, document: this.req.headers['sec-fetch-dest'] === 'document',
       viewer: () => this.viewerId(), visit: this.visit(), sso: !!sso(),
       theme: cookie.match(/(?:^|;\s*)theme=(dark|light)/)?.[1],
       sidebar: cookie.match(/(?:^|;\s*)sidebar=(hidden)(?:;|$)/)?.[1],
@@ -514,6 +518,15 @@ const handlers = {
     try { body = fileBytes(`public/${file}`); } catch { throw new ApiError(404, 'not found'); }
     c.send(200, type, body, { 'Cache-Control': 'no-cache' });
   },
+  bundleFile(c, { id, n, key, file }) {
+    if (c.req.headers['service-worker'] === 'script') throw new ApiError(403, 'service workers are unavailable for published files');
+    const path = !file || file.endsWith('/') ? file + 'index.html' : file;
+    const body = c.store.bundleFile(Number(id), Number(n), key, path, !!sso());
+    c.send(200, bundleMime(path), body, {
+      'Content-Security-Policy': c.csp, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+      'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store',
+    });
+  },
   render(c, { slug }) { c.deliver('named', slug); },
   renderShare(c, { share }) { c.deliver('shared', share); },
   // Always the shell: the script loads the page with the viewer's saved token, so
@@ -742,12 +755,17 @@ const handlers = {
   },
 
   // --- writes, owner only ---
-  async put(c, { slug }) {
+  putBundle(c, params) { return handlers.put(c, params, true); },
+  async put(c, { slug }, folder = false) {
     const u = c.user();
-    const doc = await c.body();
+    const bytes = await c.body();
+    if (folder && !/\.html?$/i.test(slug)) throw new ApiError(400, 'give the folder an HTML page name ending in .html');
+    const bundle = folder ? decodeBundle(bytes) : null;
+    const doc = bundle ? bundle.get('index.html') : bytes;
     if (!doc.length) throw new ApiError(400, 'empty body; send HTML with -T file.html or --data-binary @file.html');
     const h = c.req.headers;
     const res = c.store.putVersion(u.id, slug, doc, {
+      bundle,
       title: c.query.get('title') || h['x-title'],
       note: c.query.get('note') || h['x-note'] || '',
       visibility: c.query.get('visibility') || h['x-visibility'],
@@ -857,6 +875,7 @@ export async function handleRequest(store, req, res, { csp = RENDER_CSP } = {}) 
  */
 function logPath(c, url) {
   const h = c.route?.handler;
+  if (h === 'bundleFile' || url.pathname.startsWith('/_bundle/')) return '/_bundle/…';
   if (h === 'renderShare') return '/v/…';
   if (h?.startsWith('claim') && h !== 'claimLink' && h !== 'claimCallback') return '/api/claim/…';
   return url.pathname;

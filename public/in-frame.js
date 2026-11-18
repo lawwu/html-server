@@ -23,6 +23,9 @@
     if (target && !['_self', '_parent', '_top'].includes(target)) return;
     let url;
     try { url = new URL(a.href); } catch { return; }
+    // A relative link inside a published site stays in its frame. Its file URL
+    // identifies one snapshot; the tab keeps the page’s shareable address.
+    if ((!target || target === '_self') && url.origin === location.origin && url.pathname.startsWith('/_bundle/')) return;
     // This page again (href="" or "?embed=1") reloads in the frame, as it always did.
     if (!/^https?:$/.test(url.protocol) || url.href.split('#')[0] === location.href.split('#')[0]) return;
     e.preventDefault();

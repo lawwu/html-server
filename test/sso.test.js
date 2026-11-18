@@ -346,3 +346,19 @@ test('SSO: behind a proxy, HTML_SERVER_PUBLIC_URL is this site: its pages make c
   assert.throws(() => setPublicUrl({ HTML_SERVER_PUBLIC_URL: 'ftp://pages.example' }), /must start with https:/);
   setPublicUrl({});
 });
+
+test('an SSO-protected bundle issues version file links only from an authorized page read', async () => {
+  const entry = Buffer.from('<title>Internal</title>');
+  const owner = store.userForToken(admin).id;
+  store.putVersion(owner, 'internal.html', entry, { bundle: new Map([['index.html', entry], ['data.json', Buffer.from('[42]')]]) });
+  const page = store.find('internal.html');
+  const old = store.bundleBase(page, 1, false);
+  assert.equal((await fetch(base + old + 'data.json')).status, 404);
+  assert.equal((await fetch(base + '/pages/internal.html')).status, 401);
+  const gated = await (await fetch(base + '/pages/internal.html', { headers: { Authorization: 'Bearer ' + admin } })).text();
+  assert.doesNotMatch(gated, /property="og:/);
+  const prefix = gated.match(/<base href="([^"]+\/)index\.html">/)[1];
+  assert.equal(await (await fetch(base + prefix + 'data.json')).text(), '[42]');
+  store.rotateShare(owner, 'internal.html');
+  assert.equal((await fetch(base + prefix + 'data.json')).status, 404);
+});

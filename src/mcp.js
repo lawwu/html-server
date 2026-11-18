@@ -118,11 +118,13 @@ export const TOOLS = [
   {
     name: 'publish_page',
     title: 'Publish an HTML page',
-    description: 'Upload a single-file HTML page, or a Markdown note (name ending in .md, content in `markdown`; a Jupyter notebook: .ipynb, its JSON in `notebook`; frontmatter title/tags/description, [[wikilinks]] to other pages, > [!note] callouts). If the name is new it creates the page; if a page has exactly that name (and you may edit it) it adds a new version, keeping every old one and the page\'s visibility. A new name that another page already answers to (e.g. "report" while "report.html" exists) is refused with the name it may mean. Returns the page URL. New pages are PRIVATE by default (only the owner and people with the share link can open them); set public: true to list it in the gallery. Add <meta name="description"> and <meta name="category"> to the HTML for a good gallery card, and use h2/h3 headings for a contents sidebar.',
+    description: 'Upload a static folder (files with relative paths and base64 bytes, including index.html, under a .html name), a single-file HTML page, or a Markdown note (name ending in .md, content in `markdown`; a Jupyter notebook: .ipynb, its JSON in `notebook`; frontmatter title/tags/description, [[wikilinks]] to other pages, > [!note] callouts). If the name is new it creates the page; if a page has exactly that name (and you may edit it) it adds a new version, keeping every old one and the page\'s visibility. A new name that another page already answers to (e.g. "report" while "report.html" exists) is refused with the name it may mean. Returns the page URL. New pages are PRIVATE by default (only the owner and people with the share link can open them); set public: true to list it in the gallery. Add <meta name="description"> and <meta name="category"> to the HTML for a good gallery card, and use h2/h3 headings for a contents sidebar.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Path to publish as (folders supported, e.g. research/report.html; in a folder, keep the file extension), which becomes the URL: lowercase-with-dashes, e.g. "q3-report.html"' },
+        files: { type: 'array', description: 'Publish this complete static folder as one version, instead of inline page content.',
+          items: { type: 'object', properties: { path: { type: 'string' }, base64: { type: 'string' } }, required: ['path', 'base64'] } },
         html: { type: 'string', description: 'The complete, self-contained HTML document (for .html names)' },
         markdown: { type: 'string', description: 'The note\'s Markdown, including any frontmatter (for .md names)' },
         notebook: { type: 'string', description: 'A Jupyter notebook\'s JSON, as saved (for .ipynb names); its saved outputs are shown, nothing runs' },
@@ -133,7 +135,7 @@ export const TOOLS = [
       required: ['name'],
     },
     annotations: { destructiveHint: false, idempotentHint: false },
-    async run({ name, html, markdown, notebook, note = '', public: isPublic = false, base_version: baseVersion }) {
+    async run({ name, html, markdown, notebook, files, note = '', public: isPublic = false, base_version: baseVersion }) {
       const q = new URLSearchParams();
       if (note) q.set('note', note);
       // A new page gets the requested visibility; an existing page keeps its own unless asked to go public.
@@ -144,9 +146,10 @@ export const TOOLS = [
       try { exists = (await api('GET', `/api/artifacts/${enc(name)}`, { auth: 'required' })).slug === name; } catch { /* new page */ }
       if (!exists || isPublic) q.set('visibility', isPublic ? 'public' : 'private');
       if (baseVersion != null) q.set('base', String(baseVersion));
-      const content = notebook ?? markdown ?? html;
+      if (files && [html, markdown, notebook].some((s) => s != null)) throw new Error('give either files or inline page content');
+      const content = files ? JSON.stringify({ files }) : notebook ?? markdown ?? html;
       if (typeof content !== 'string' || !content) throw new Error('give the page content as `html` (`markdown` for a .md note, `notebook` for an .ipynb)');
-      const a = await api('PUT', `/api/artifacts/${enc(name)}?${q}`, { body: content, auth: 'required' });
+      const a = await api('PUT', `/api/${files ? 'bundles' : 'artifacts'}/${enc(name)}?${q}`, { body: content, json: !!files, auth: 'required' });
       return {
         published: `v${a.latest_version} of ${a.slug}`,
         visibility: a.visibility,

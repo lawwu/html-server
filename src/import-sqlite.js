@@ -36,6 +36,7 @@ export const TABLES = [
   { name: 'page_addresses', key: ['path:text'] },
   { name: 'moves', key: ['id'] },
   { name: 'versions', key: ['artifact_id', 'n'], binary: ['html'] },
+  { name: 'bundle_files', key: ['artifact_id', 'n', 'path:text'], binary: ['data'] },
   { name: 'views', key: ['artifact_id', 'at', 'n', 'visitor:text', 'via:text'] }, // no key of its own: every column
   { name: 'api_calls', key: ['id'] },
   { name: 'api_calls_daily', key: ['day:text', 'client:text', 'name:text', 'method:text', 'route:text'] },

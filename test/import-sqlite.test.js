@@ -27,7 +27,8 @@ function makeSource(file) {
   s.putVersion(b, 'notes/Café.md', Buffer.from('---\ntags: [food]\naliases: [Coffee notes]\n---\n# Café\n\nSee [[plan]] and ![[pic.png]].\n'));
   s.putVersion(b, 'secret.html', Buffer.from('<p>private</p>'), { visibility: 'private' });
   s.putVersion(a, 'raw.html', RAW, { title: 'Raw bytes' });
-  s.putVersion(a, 'old-name.html', Buffer.from('<p>moved</p>'));
+  const entry = Buffer.from('<p>moved</p>');
+  s.putVersion(a, 'old-name.html', entry, { bundle: new Map([['index.html', entry], ['image.png', PNG]]) });
   s.movePages(a, [{ from: 'old-name.html', to: 'archive/new-name.html' }]);
   s.putAsset(b, 'pic.png', PNG);
   s.pin(s.userForToken(admin), 'plan.html', true);
@@ -63,7 +64,7 @@ test('a preview checks both sides and imports nothing', { skip: live }, () => {
   const before = fileSha(source);
   const r = importSqlite(source, dest);
   assert.deepEqual([r.applied, r.problems], [false, []]);
-  assert.match(r.report[0], /^source: users 2, artifacts 5, page_addresses 1, moves 1, versions 6, views 1, api_calls 1, api_calls_daily 1, api_calls_user_daily 1, comments 2, tags 1, aliases 1, assets 1, asset_grants 1, meta 3$/);
+  assert.match(r.report[0], /^source: users 2, artifacts 5, page_addresses 1, moves 1, versions 6, bundle_files 2, views 1, api_calls 1, api_calls_daily 1, api_calls_user_daily 1, comments 2, tags 1, aliases 1, assets 1, asset_grants 1, meta 3$/);
   assert.deepEqual(destinationState(dest), { content: {}, settings: [], telemetry: {} });
   assert.equal(fileSha(source), before); // the source is only ever read
 });
@@ -102,6 +103,8 @@ test('--apply keeps everything: users and tokens, ids, addresses, history, bytes
   assert.equal(dest.stats(null).totals.views, 1);
   assert.equal(dest.usage({ days: null }).totals.calls, 2); // a detailed call and a day's total
   // New rows get new ids, after the imported ones.
+  const moved = dest.find('archive/new-name.html');
+  assert.deepEqual(dest.bundleFile(moved.id, 1, dest.bundleKey(moved, 1, false), 'image.png', false), PNG);
   const fresh = dest.putVersion(bob.id, 'after.html', Buffer.from('<p>after</p>'));
   assert.ok(dest.find(fresh.slug).id > Math.max(...rows(dest, 'SELECT id FROM artifacts WHERE slug <> \'after.html\'').map((x) => x.id)));
   assert.doesNotThrow(() => dest.createUser('carol'));
