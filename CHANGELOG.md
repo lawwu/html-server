@@ -8,8 +8,15 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
-- Publish a prebuilt static folder as one version from Upload, `html-server put`, HTTP, or MCP. Version links and restores include the supporting files.
-- Public page links provide title and description previews. **Copy embed** offers either the latest version or the version being viewed.
+## 0.20.0 (2026-11-17)
+
+- **Publish a folder as one version.** Choose **Upload → Publish a folder** or run `html-server put ./dist --name report.html` for a prebuilt site with a root `index.html`. HTTP and MCP also accept folders. Version links and restores keep the scripts, styles, images, and data that shipped together.
+- **Preview and embed public pages.** A public page link supplies a title and description for chat previews. **Copy embed** lets a wiki follow the latest version or a decision record keep the version its readers reviewed.
+- **Downloads and history.** CLI downloads preserve the original bytes. Page history rejects version zero, and the comments link on an older note or notebook opens that version’s discussion.
+- **Gallery and static export.** Updated or replaced pages refresh their gallery previews. Unchanged previews stay loaded. Building the static site in a running process preserves search and navigation on live pages.
+- **Folder sync.** When a pruned file reappears, sync identifies the page to restore. A reconciliation failure stops pruning. Installed Git hooks use the original Quartz repository’s settings.
+
+The server creates the new bundle storage table automatically on startup.
 
 ## 0.19.0 (2026-11-15)
 
