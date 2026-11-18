@@ -154,7 +154,7 @@ test('uploading a new version refreshes its gallery preview and preserves unchan
 
   await page.locator('#upload').click();
   const dialog = page.locator('.upload-dialog');
-  await dialog.locator('input[type="file"]').setInputFiles({
+  await dialog.locator('input[type="file"]:not([webkitdirectory])').setInputFiles({
     name: slug, mimeType: 'text/html', buffer: Buffer.from('<title>Preview revised</title><p>Second preview</p>'),
   });
   await dialog.getByRole('button', { name: 'Upload', exact: true }).click();
