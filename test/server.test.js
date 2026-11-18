@@ -161,6 +161,12 @@ test('diff and restoring a version', async () => {
   assert.equal((await req('GET', '/api/artifacts/plan.html/diff?from=1&to=3'))[1], ''); // identical
   assert.match((await req('GET', '/review/plan.html/changes?from=1&to=3'))[1], /No differences/);
   assert.equal((await req('POST', '/api/artifacts/plan.html/versions/9/restore', { token: admin }))[0], 404);
+  assert.equal((await req('POST', '/api/artifacts/plan.html/versions/0/restore', { token: admin }))[0], 404);
+  assert.equal((await req('GET', '/api/artifacts/plan.html'))[1].versions.length, 3);
+  for (const path of ['/api/artifacts/plan.html/versions/0', '/plan.html?v=0', a.share_url + '?v=0',
+    '/api/artifacts/plan.html/diff?from=0', '/api/artifacts/plan.html/diff?to=0']) {
+    assert.equal((await req('GET', path))[0], 404, path);
+  }
 });
 
 test('comments', async () => {
@@ -181,6 +187,8 @@ test('comments', async () => {
   const [, cs] = await req('GET', '/api/artifacts/handout.html/comments?version=1'); // public page: anyone reads
   assert.deepEqual(cs.map((x) => x.body), ['Soften the second point', 'Done in v2']);
   assert.deepEqual((await req('GET', '/api/artifacts/handout.html/comments?version=2'))[1], []);
+  assert.equal((await post({ body: 'No such version', version: 0 }, reviewer))[0], 404);
+  assert.deepEqual((await req('GET', '/api/artifacts/handout.html/comments?version=0'))[1], []);
 
   assert.ok((await req('POST', `/api/comments/${c.id}/resolve`, { token: admin }))[1].resolved_at); // page owner
   assert.equal((await req('POST', `/api/comments/${c.id}/resolve?undo=1`, { token: reviewer }))[1].resolved_at, null); // author
@@ -516,9 +524,10 @@ test('/gallery: the bundled example pages, filterable and searchable', async () 
 
 test('card previews load the page without counting a view or drawing extras', async () => {
   const long = '<title>Long</title><h2>A</h2><h2>B</h2><h2>C</h2>';
-  await put('long.html', long);
+  const [, original] = await put('long.html', long);
   await put('long.html', long + '<p>v2</p>');
-  assert.match((await req('GET', '/'))[1], /<iframe src="\/pages\/long.html\?preview=1" loading="lazy"/);
+  const [, listing] = await req('GET', '/');
+  assert.ok(listing.includes(`<iframe src="/pages/long.html?preview=1&amp;v=2&amp;created=${original.created_at}" loading="lazy"`));
   const [, prev, h] = await req('GET', '/pages/long.html?preview=1&v=1');
   assert.doesNotMatch(prev, /data-artifact-toc-script|data-artifact-version-badge/);
   assert.equal(h.get('content-security-policy'), 'sandbox allow-scripts');

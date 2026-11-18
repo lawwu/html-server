@@ -11,6 +11,11 @@ import { pageUrl } from './paths.js';
 
 export class SyncError extends Error {}
 const fail = (message) => { throw new SyncError(message); };
+const bySourcePath = (pages) => new Map(pages.filter((p) => p.source_path).map((p) => [p.source_path, p]));
+
+function checkTrash(page) {
+  if (page?.state === 'trashed') fail(`page is in the trash. Run html-server trash restore ${page.slug} before syncing`);
+}
 
 export class FolderSync {
   #quartz;
@@ -70,7 +75,8 @@ export class FolderSync {
 
     // A source file keeps its published identity when a user moves it on the server.
     const synced = await remote.listSourcePages(root);
-    const bySource = new Map(synced.filter((p) => p.source_path).map((p) => [p.source_path, p]));
+    const bySource = bySourcePath(synced);
+    let trashBySource;
     // Synced before folders from another checkout or folder of this vault, a nested file's page
     // has its flat name (source/legacy.md → source-legacy.md) and isn't among this folder's. It's
     // this file's page if it was synced from this file's path, is yours to edit and isn't in
@@ -108,6 +114,11 @@ export class FolderSync {
         }
         const parts = rel.split('/');
         const desired = [opts.folder?.replace(/^\/+|\/+$/g, ''), ...parts.map(noteSlug)].filter(Boolean).join('/');
+        if (!bySource.has(rel)) {
+          // A reappearing file may belong to a trashed page at a different published address.
+          trashBySource ??= bySourcePath(await remote.listSourcePages(root, 'trashed'));
+          checkTrash(trashBySource.get(rel));
+        }
         const previous = bySource.get(rel) ?? (syncedSlug(rel).toLowerCase() !== desired.toLowerCase() ? await legacyPage(rel) : null);
         let name = previous?.slug || desired;
         if (previous && !opts.migratePaths && !name.includes('/') && desired.includes('/')) flat.push([name, desired]);
@@ -133,6 +144,7 @@ export class FolderSync {
         let page = await remote.findPage(at);
         const renamed = page && page.slug !== at && page.slug.toLowerCase() === at.toLowerCase() ? page.slug : null;
         if (page?.slug !== at && !renamed) page = null; // another page answering to the name isn't this file's
+        checkTrash(page);
         const latest = page?.versions.at(-1);
         if (latest?.sha256 === sha && !renamed) { count.unchanged++; continue; }
         const what = renamed ? 'renamed' : latest ? 'updated' : 'new';

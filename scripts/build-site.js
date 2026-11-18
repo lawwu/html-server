@@ -3,7 +3,7 @@
 // itself: README.md and CHANGELOG.md as notes, the Docs page, and the example gallery.
 // Each page is what the server's own request handler answers (in this process, the way
 // cloudflare/worker.js hands it requests, over a throwaway database holding the two
-// notes), saved as a file, keeping rendering shared with the server. setStaticSite
+// notes), saved as a file, keeping rendering shared with the server. withStaticSite
 // (src/pages.js) leaves out what needs a server, and every link is made relative, so
 // the site works under any path, such as https://lawwu.github.io/html-server/. Then
 // static attributes, CSS URLs and generated link data are checked, including fragments.
@@ -17,7 +17,7 @@ import { parse } from 'parse5';
 import { FALLBACK_URL, REPO_URL } from '../src/config.js';
 import { examples } from '../src/examples.js';
 import { safeDecode } from '../src/markdown.js';
-import { setStaticSite } from '../src/pages.js';
+import { withStaticSite } from '../src/pages.js';
 import { handleRequest } from '../src/server.js';
 import { Store } from '../src/store.js';
 
@@ -147,19 +147,17 @@ export async function buildSite(out) {
   prepare(out);
   const site = siteMap();
   const used = new Set();
-  setStaticSite(true);
   const store = new Store(':memory:');
   try {
     const owner = store.userForToken(store.createUser('html-server')).id;
     for (const f of NOTES) store.putVersion(owner, f, readFileSync(join(ROOT, f)));
     for (const [url, file] of site) {
-      const r = await get(store, url);
+      const r = await withStaticSite(() => get(store, url));
       if (r.status !== 200) fail(`${url}: the server answered ${r.status} ${r.body}`);
       write(out, file, r.type.startsWith('text/html') ? linker(file, site, used).page(r.body.toString('utf8')) : r.body);
     }
   } finally {
     store.close();
-    setStaticSite(false);
   }
   // The styles and fonts the pages use; a stylesheet's fonts are its links too.
   for (const file of used) {

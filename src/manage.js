@@ -16,13 +16,19 @@ export async function sharePage(name, rotate = false) {
   if (!page.share_url) throw new ClientError('only the owner can retrieve a share link');
   return { name: page.slug, share_url: SERVER + page.share_url };
 }
-export async function readPage(name, version) {
-  if (version != null && (!/^\d+$/.test(String(version)) || !Number.isSafeInteger(Number(version)) || Number(version) < 1)) throw new ClientError('version must be a positive integer');
-  const page = await api('GET', `/api/artifacts/${enc(name)}`);
-  const n = version == null ? page.latest_version : Number(version);
-  const source = await api('GET', `/api/artifacts/${enc(page.slug)}/versions/${n}`);
-  return { name: page.slug, version: n, source };
+function versionNumber(value) {
+  const n = Number(value);
+  if (!/^\d+$/.test(String(value)) || !Number.isSafeInteger(n) || n < 1) throw new ClientError('version must be a positive integer');
+  return n;
 }
+export async function readPage(name, version) {
+  if (version != null) version = versionNumber(version);
+  const page = await api('GET', `/api/artifacts/${enc(name)}`);
+  const n = version ?? page.latest_version;
+  const source = await api('GET', `/api/artifacts/${enc(page.slug)}/versions/${n}`, { bytes: true });
+  return { page, version: n, source };
+}
+export const restoreVersion = (name, version) => api('POST', `/api/artifacts/${enc(name)}/versions/${versionNumber(version)}/restore`, { auth: 'required' });
 export const listAssets = () => api('GET', '/api/assets', { auth: 'required' });
 export const putAsset = (name, body) => api('PUT', `/api/assets/${enc(name)}`, { body, auth: 'required' });
 export const deleteAsset = (name) => api('DELETE', `/api/assets/${enc(name)}`, { auth: 'required' });

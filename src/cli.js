@@ -8,13 +8,13 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { createInterface } from 'node:readline/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { ClientError, SERVER, api, creds, saveCredentials, setClient, token } from './client.js';
 import { VERSION, githubSignIn, publicOrigin, setGitHubSignIn, setPublicUrl, setSso, sso } from './config.js';
 import { encodePath } from './paths.js';
-import { listTrash, restorePage, sharePage, readPage, listAssets, putAsset, deleteAsset, resolveComment } from './manage.js';
+import { listTrash, restorePage, sharePage, readPage, restoreVersion, listAssets, putAsset, deleteAsset, resolveComment } from './manage.js';
 import { usage } from './usage.js';
 import { BACKUP_DIR, CREDENTIALS_FILE, DEFAULT_DB, DEFAULT_HOST, DEFAULT_PORT, FALLBACK_URL, HOME_DIR } from './config.js';
 
@@ -360,10 +360,10 @@ const clientCommands = {
   },
   async get([name, ...extra], opts) {
     if (!name || extra.length) fail('usage: get NAME [--output FILE] [--version N] [--json]');
-    const result = await readPage(name, opts.version);
-    if (opts.output) writeFileSync(opts.output, result.source, { flag: 'wx', mode: 0o600 });
-    if (opts.json) return printJson(result);
-    if (!opts.output) process.stdout.write(result.source);
+    const { page, version, source } = await readPage(name, opts.version);
+    if (opts.output) writeFileSync(opts.output, source, { flag: 'wx', mode: 0o600 });
+    if (opts.json) return printJson({ name: page.slug, version, source: source.toString('utf8') });
+    if (!opts.output) process.stdout.write(source);
   },
   async assets([op, value, ...extra], opts) {
     if (extra.length || !['ls', 'put', 'rm'].includes(op) || (op === 'ls' ? value : !value)) fail('usage: assets ls | assets put FILE [--name NAME] | assets rm NAME');
@@ -499,7 +499,7 @@ const clientCommands = {
     const { syncRemote } = await import('./sync-remote.js');
     try {
       const sync = new FolderSync(dir, { remote: syncRemote(api), onEvent: printSyncEvent });
-      if (opts['install-hook']) return installHook(sync.root, opts);
+      if (opts['install-hook']) return installHook(resolve(dir), opts);
       const { counts, flat, dryRun } = await sync.run({
         private: opts.private, folder: opts.folder, prune: opts.prune,
         dryRun: opts['dry-run'], migratePaths: opts['migrate-paths'],
@@ -546,8 +546,8 @@ const clientCommands = {
     process.stdout.write(diff || '(no differences)\n');
   },
   async restore([name, n]) {
-    if (!name || !/^\d+$/.test(n || '')) fail('usage: restore NAME N');
-    const a = await api('POST', `/api/artifacts/${enc(name)}/versions/${n}/restore`, { auth: 'required' });
+    if (!name || !n) fail('usage: restore NAME N');
+    const a = await restoreVersion(name, n);
     console.log(`v${a.latest_version} is now a copy of v${n}`);
   },
   async views([name]) {
@@ -594,9 +594,12 @@ function installHook(root, opts) {
     fail(`${root} isn't in a git repository`);
   }
   const MARK = '# html-server sync hook';
+  const quote = (arg) => `'${arg.replace(/'/g, `'\\''`)}'`;
+  const log = resolve(HOME_DIR, 'sync.log');
   const cmd = [process.execPath, fileURLToPath(import.meta.url), 'sync', root, '--prune', ...(opts.private ? ['--private'] : []), ...(opts.folder ? ['--folder', opts.folder] : [])]
-    .map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ');
-  const script = `#!/bin/sh\n${MARK} (installed by html-server ${VERSION}; delete this file to stop)\n(${cmd} >> '${join(HOME_DIR, 'sync.log')}' 2>&1 &)\n`;
+    .map(quote).join(' ');
+  const script = `#!/bin/sh\n${MARK} (installed by html-server ${VERSION}; delete this file to stop)\n(${cmd} >> ${quote(log)} 2>&1 &)\n`;
+  mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
   mkdirSync(hooks, { recursive: true });
   for (const name of ['post-commit', 'post-merge']) {
     const f = join(hooks, name);
@@ -609,7 +612,7 @@ function installHook(root, opts) {
     chmodSync(f, 0o755);
     console.log(`installed ${f}`);
   }
-  console.log(`Each commit and pull now runs: html-server sync ${root} --prune (log: ${join(HOME_DIR, 'sync.log')})`);
+  console.log(`Each commit and pull now runs: html-server sync ${root} --prune (log: ${log})`);
 }
 
 export async function main(argv) {

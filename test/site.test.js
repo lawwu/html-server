@@ -7,10 +7,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { checkLinks, linker } from '../scripts/build-site.js';
+import { buildSite, checkLinks, linker } from '../scripts/build-site.js';
 import { examples } from '../src/examples.js';
 import { TOOLS } from '../src/mcp.js';
-import { docsMarkdown } from '../src/pages.js';
+import { docsMarkdown, topBar } from '../src/pages.js';
 import { ROUTES } from '../src/server.js';
 
 const SCRIPT = new URL('../scripts/build-site.js', import.meta.url).pathname;
@@ -66,6 +66,15 @@ test('what needs a server is left out: search, history, comments, the graph and 
     }
   }
   assert.match(read('index.html'), /<p class="content-meta">[^<]*min read<\/p>/); // no version: the site has no history
+});
+
+test('a static export in progress keeps search available on live pages', async () => {
+  const out = join(dir, 'in-process');
+  const exporting = buildSite(out);
+  const liveHeader = topBar('pages');
+  await exporting;
+  assert.ok(liveHeader.includes('class="side-search"'), 'the live page lost its search box during export');
+  assert.ok(!readFileSync(join(out, 'index.html'), 'utf8').includes('class="side-search"'));
 });
 
 test('the Docs page is the server\'s, from the code: CLI usage, MCP tools, every route', () => {

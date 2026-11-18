@@ -8,7 +8,7 @@
 // public: true, so a model can't put something in a public gallery by accident. A new
 // version of an existing page keeps that page's visibility.
 import { SERVER, api, withClient } from './client.js';
-import { listTrash, restorePage, sharePage, listAssets, putAsset, deleteAsset, resolveComment } from './manage.js';
+import { listTrash, restorePage, sharePage, readPage, restoreVersion, listAssets, putAsset, deleteAsset, resolveComment } from './manage.js';
 import { MAX_ASSET_BYTES, VERSION } from './config.js';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']; // newest first
@@ -219,12 +219,11 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { name: pageArg, version: { type: 'integer', description: 'Version number (default: latest)' } }, required: ['name'] },
     annotations: { readOnlyHint: true },
     async run({ name, version }) {
-      const a = await api('GET', `/api/artifacts/${enc(name)}`);
-      const n = version || a.latest_version;
-      let html = await api('GET', `/api/artifacts/${enc(a.slug)}/versions/${n}`);
+      const { page, version: n, source } = await readPage(name, version);
+      let html = source.toString('utf8');
       const truncated = html.length > MAX_SOURCE_CHARS;
       if (truncated) html = html.slice(0, MAX_SOURCE_CHARS);
-      return { ...brief(a), version: n, latest_version: a.latest_version, can_edit: a.can_edit, truncated, html };
+      return { ...brief(page), version: n, latest_version: page.latest_version, can_edit: page.can_edit, truncated, html };
     },
   },
   {
@@ -253,8 +252,8 @@ export const TOOLS = [
     annotations: { readOnlyHint: true },
     async run({ name, from, to, source = false }) {
       const q = new URLSearchParams();
-      if (from) q.set('from', String(from));
-      if (to) q.set('to', String(to));
+      if (from != null) q.set('from', String(from));
+      if (to != null) q.set('to', String(to));
       if (source) q.set('of', 'source');
       const diff = await api('GET', `/api/artifacts/${enc(name)}/diff${q.size ? `?${q}` : ''}`);
       return diff || 'No differences.';
@@ -267,7 +266,7 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { name: exactPageArg, version: { type: 'integer' } }, required: ['name', 'version'] },
     annotations: { destructiveHint: false },
     async run({ name, version }) {
-      const a = await api('POST', `/api/artifacts/${enc(name)}/versions/${version}/restore`, { auth: 'required' });
+      const a = await restoreVersion(name, version);
       return { restored: `v${a.latest_version} is now a copy of v${version}`, url: `${SERVER}${a.url}` };
     },
   },
@@ -278,7 +277,7 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { name: pageArg, version: { type: 'integer', description: 'Only comments on this version' } }, required: ['name'] },
     annotations: { readOnlyHint: true },
     async run({ name, version }) {
-      const list = await api('GET', `/api/artifacts/${enc(name)}/comments${version ? `?version=${version}` : ''}`);
+      const list = await api('GET', `/api/artifacts/${enc(name)}/comments${version != null ? `?version=${version}` : ''}`);
       return list.map((c) => ({ id: c.id, version: c.version, reply_to: c.parent, author: c.author, at: iso(c.created_at), resolved: !!c.resolved_at, body: c.body }));
     },
   },

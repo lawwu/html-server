@@ -28,7 +28,7 @@ function remote(initial = [], fail = () => false) {
   };
   return {
     pages, calls,
-    listSourcePages: async () => [...pages.values()].map((p) => ({ ...p })),
+    listSourcePages: async (_source, state = 'active') => [...pages.values()].filter((p) => p.state === state).map((p) => ({ ...p })),
     listAssets: async () => [],
     findPage: async (name) => [...pages.values()].find((p) => p.slug.toLowerCase() === name.toLowerCase()) ?? null,
     async movePage(from, to) { change('move', from); const p = pages.get(from); pages.delete(from); pages.set(to, { ...p, slug: to }); },

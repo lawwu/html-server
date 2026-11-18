@@ -130,6 +130,98 @@ test('a search starting with no results reports its newly inserted card', async 
   assert.equal(await page.locator('.card:visible').count(), 1);
 });
 
+test('uploading a new version refreshes its gallery preview and preserves unchanged previews', async () => {
+  const slug = 'preview-refresh.html';
+  store.putVersion(store.userForToken(token).id, slug, Buffer.from('<title>Preview draft</title><p>First preview</p>'));
+  await page.addInitScript((t) => { if (window === window.top) localStorage.setItem('artifact_token', t); }, token);
+  await page.goto(base + '/docs');
+  await page.goto(base + '/');
+  const card = page.locator(`.card[data-slug="${slug}"]`);
+  const preview = card.frameLocator('iframe');
+  const draft = preview.getByText('First preview', { exact: true });
+  await draft.evaluate((p) => { p.dataset.loaded = 'yes'; });
+  const alpha = page.frameLocator('.card[data-slug="alpha.md"] iframe').getByRole('heading', { name: 'Alpha', exact: true });
+  await alpha.evaluate((h) => { h.dataset.loaded = 'yes'; });
+
+  await page.locator('#q').fill('Alpha');
+  await card.waitFor({ state: 'hidden' });
+  await page.locator('#q').fill('');
+  await card.waitFor();
+  await page.locator('#sort').selectOption('title');
+  await page.locator('#results[aria-busy="false"]').waitFor();
+  assert.equal(await draft.getAttribute('data-loaded'), 'yes');
+
+  await page.locator('#upload').click();
+  const dialog = page.locator('.upload-dialog');
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: slug, mimeType: 'text/html', buffer: Buffer.from('<title>Preview revised</title><p>Second preview</p>'),
+  });
+  await dialog.getByRole('button', { name: 'Upload', exact: true }).click();
+  await dialog.getByText('Uploaded 1.').waitFor();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await card.getByRole('heading', { name: 'Preview revised' }).waitFor();
+  await preview.getByText('Second preview', { exact: true }).waitFor();
+  assert.equal(await alpha.getAttribute('data-loaded'), 'yes');
+  await page.evaluate(() => history.back());
+  await page.waitForURL(base + '/docs');
+});
+
+for (const [change, replace] of [['a new version', false], ['a replacement page at the same address', true]]) {
+  test(`gallery filters keep ${change} after discovering it on a hidden card`, async () => {
+    const owner = store.userForToken(token).id;
+    const slug = replace ? 'replace-ledger.html' : 'revise-ledger.html';
+    const put = (title, body) => store.putVersion(owner, slug, Buffer.from(`<title>${title}</title><p>${body}</p>`));
+    put('Ledger totals draft', 'First amount');
+    await page.goto(base + '/?q=Ledger');
+    const card = page.locator(`.card[data-slug="${slug}"]`);
+    const preview = card.frameLocator('iframe');
+    await preview.getByText('First amount').waitFor();
+    await page.locator('#q').fill('Alpha');
+    await card.waitFor({ state: 'hidden' });
+
+    if (replace) { store.apply(owner, slug, 'trash'); store.apply(owner, slug, 'purge'); }
+    put('Ledger totals revised', 'New amount');
+    await page.locator('#q').fill('totals');
+    await card.getByRole('heading', { name: 'Ledger totals revised' }).waitFor();
+    await preview.getByText('New amount').waitFor();
+
+    await page.locator('#q').fill('Ledger');
+    await card.locator('h2 mark').filter({ hasText: 'Ledger' }).waitFor();
+    assert.equal(await card.locator('h2').textContent(), 'Ledger totals revised');
+    await preview.getByText('New amount').waitFor();
+  });
+}
+
+test('a gallery search that discovers a moved page invalidates its old address', async () => {
+  const owner = store.userForToken(token).id;
+  const oldSlug = 'travel-budget.html', newSlug = 'archive/travel-budget.html';
+  store.putVersion(owner, oldSlug, Buffer.from('<title>Travel budget draft</title><p>First budget</p>'));
+  const reads = [];
+  page.on('request', (r) => { if (new URL(r.url()).searchParams.has('fragment')) reads.push(r.url()); });
+  await page.goto(base + '/?q=Travel');
+  const oldCard = page.locator(`.card[data-slug="${oldSlug}"]`);
+  const movedCard = page.locator(`.card[data-slug="${newSlug}"]`);
+  const search = page.locator('#q');
+  await oldCard.frameLocator('iframe').getByText('First budget').waitFor();
+  await search.fill('Alpha');
+  await oldCard.waitFor({ state: 'hidden' });
+  const before = reads.length;
+  await search.fill('Travel');
+  await oldCard.waitFor();
+  assert.equal(reads.length, before, 'an unchanged query reuses its cached results');
+  await search.fill('Alpha');
+  await oldCard.waitFor({ state: 'hidden' });
+
+  store.movePages(owner, [{ from: oldSlug, to: newSlug }]);
+  store.putVersion(owner, newSlug, Buffer.from('<title>Travel budget final</title><p>Revised budget</p>'));
+  await search.fill('final');
+  await movedCard.frameLocator('iframe').getByText('Revised budget').waitFor();
+  await search.fill('Travel');
+  await page.locator('.card:visible h2 mark').filter({ hasText: 'Travel' }).waitFor();
+  assert.equal(await oldCard.isVisible(), false);
+  assert.equal(await movedCard.isVisible(), true);
+});
+
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 /** Drop files on the page the way a browser does (a DataTransfer of Files), after dragging them in. */
 const drop = (files) => page.evaluate((files) => {
@@ -269,6 +361,14 @@ test('review version reads and comments cannot replace a newer selection', async
   assert.equal(await page.locator('#ctitle').textContent(), 'Comments on v2');
   assert.equal(await page.locator('#err').textContent(), '');
   assert.equal(new URL(page.url()).search, '?v=2');
+});
+
+test('the comments link on a historical note opens the version being read', async () => {
+  await page.goto(base + '/pages/versions.md?v=1');
+  await page.locator('.content-meta').getByRole('link', { name: 'comments' }).click();
+  await page.getByText(/^Comments on v\d/).waitFor();
+  assert.equal(await page.locator('#ver').inputValue(), '1');
+  assert.equal(new URL(page.url()).searchParams.get('v'), '1');
 });
 
 test('review ignores a previous diff after returning to page and requesting the same diff', async () => {

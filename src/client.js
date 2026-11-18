@@ -34,10 +34,10 @@ const clientLabel = () => callScope.getStore() || defaultClient;
 export class ClientError extends Error {}
 
 /**
- * Call the API. Returns parsed JSON, or the text of a non-JSON response.
+ * Call the API. Returns parsed JSON or text, or a Buffer when bytes are requested.
  * `auth: 'required'` fails early, with a hint, when there's no token.
  */
-export async function api(method, path, { body, auth = 'optional', json = false } = {}) {
+export async function api(method, path, { body, auth = 'optional', json = false, bytes = false } = {}) {
   const t = token();
   if (auth === 'required' && !t) throw new ClientError('not signed in: run `html-server login` (or set HTML_SERVER_TOKEN)');
   let r;
@@ -52,6 +52,7 @@ export async function api(method, path, { body, auth = 'optional', json = false 
   } catch {
     throw new ClientError(`can't reach ${SERVER} (is the server running?)`);
   }
+  if (r.ok && bytes) return Buffer.from(await r.arrayBuffer());
   const text = await r.text();
   const data = r.headers.get('content-type')?.includes('json') ? JSON.parse(text) : null;
   if (!r.ok) throw new ClientError(data?.error || `HTTP ${r.status}`);

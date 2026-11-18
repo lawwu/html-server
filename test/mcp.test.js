@@ -188,7 +188,9 @@ test('set_page_visibility publishes without new content and can revoke public ac
 
 test('MCP management tools preserve source history and enforce owner/author permissions', async () => {
   const name = 'management/mcp.md';
-  await call('publish_page', { name, markdown: '# Manage' });
+  const markdown = '\uFEFF# Manage';
+  await call('publish_page', { name, markdown });
+  assert.equal(data(await call('get_page', { name })).html, markdown);
   const shared = data(await call('get_share_link', { name }));
   const rotated = data(await call('rotate_share_link', { name }));
   assert.equal((await fetch(shared.share_url)).status, 404);
@@ -226,4 +228,21 @@ test('MCP management tools preserve source history and enforce owner/author perm
   assert.equal(data(await call('restore_page', { name })).state, 'active');
   assert.equal(data(await call('page_history', { name })).versions.length, 1);
   assert.equal(data(await call('get_page', { name })).visibility, 'private');
+});
+
+test('MCP treats an explicit version zero as a missing version', async () => {
+  const name = 'versions/start-at-one.md';
+  await call('publish_page', { name, markdown: '# First' });
+  const latest = data(await call('add_comment', { name, body: 'Latest version' }));
+  assert.equal(latest.version, 1);
+  for (const [tool, args] of [
+    ['restore_version', { version: 0 }], ['get_page', { version: 0 }],
+    ['diff_versions', { from: 0 }], ['diff_versions', { to: 0 }],
+    ['add_comment', { version: 0, body: 'Missing version' }],
+  ]) {
+    assert.equal((await call(tool, { name, ...args })).isError, true, tool);
+  }
+  assert.deepEqual(data(await call('list_comments', { name, version: 0 })), []);
+  assert.equal(data(await call('list_comments', { name })).length, 1);
+  assert.equal(data(await call('page_history', { name })).versions.length, 1);
 });

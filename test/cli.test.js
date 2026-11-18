@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { after, before, test } from 'node:test';
 import { createServer } from 'node:net';
 import { defaultAdminName } from '../src/cli.js';
@@ -23,16 +23,20 @@ let dir, home, db, server, url, store, serverDb, homeDb;
  * Run the CLI; resolves { code, out, err }. Asynchronous on purpose: the server
  * under test runs in this process, so a blocking spawnSync would deadlock it.
  */
-function cli(args, env = {}, { timeout } = {}) {
+function cli(args, env = {}, { timeout, encoding = 'utf8' } = {}) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [CLI, ...args], {
       timeout,
       env: { ...process.env, ...GIT_ENV, ...homeDb.env, HTML_SERVER_HOME: home, HTML_SERVER_URL: url, HTML_SERVER_TOKEN: '', ...env },
     });
-    let out = '', err = '';
-    p.stdout.on('data', (d) => { out += d; });
+    const chunks = [];
+    let err = '';
+    p.stdout.on('data', (d) => { chunks.push(d); });
     p.stderr.on('data', (d) => { err += d; });
-    p.on('close', (code) => resolve({ code, out, err }));
+    p.on('close', (code) => {
+      const bytes = Buffer.concat(chunks);
+      resolve({ code, out: encoding === null ? bytes : bytes.toString(encoding), err });
+    });
   });
 }
 
@@ -315,7 +319,7 @@ test('search: ranked results with highlighted titles, tag filter, JSON', async (
   assert.match((await cli(['search'], env)).err, /usage: search WORDS/);
 });
 
-test('sync: a Quartz repo — content/, ignorePatterns, Quartz paths, index pages, images, aliases, drafts, git notes, prune, hooks', async () => {
+test('sync: a Quartz repo — content/, ignorePatterns, Quartz paths, index pages, images, aliases, drafts, git notes, prune, hooks', async (t) => {
   const env = { HTML_SERVER_TOKEN: store.createUser('syncer') };
   const repo = join(dir, 'garden');
   const c = join(repo, 'content');
@@ -365,13 +369,20 @@ test('sync: a Quartz repo — content/, ignorePatterns, Quartz paths, index page
   assert.equal(store.find('features/Backlinks.md').state, 'trashed');
   assert.equal(store.find('plugins/Backlinks.md').state, 'active');
 
-  r = await cli(['sync', repo, '--install-hook'], env);
+  const hookHome = join(dir, "Sam's settings");
+  const hookEnv = { ...env, HTML_SERVER_HOME: hookHome, HTML_SERVER_URL: url };
+  r = await cli(['sync', relative(process.cwd(), repo), '--install-hook'], hookEnv);
   assert.match(r.out, /installed .*\.git\/hooks\/post-commit/);
   assert.match(r.out, /installed .*\.git\/hooks\/post-merge/);
   const hook = readFileSync(join(repo, '.git', 'hooks', 'post-commit'), 'utf8');
   assert.match(hook, /# html-server sync hook/);
-  assert.match(hook, /'sync' '[^']*\/garden\/content' '--prune'/);
   assert.equal(statSync(join(repo, '.git', 'hooks', 'post-commit')).mode & 0o111, 0o111);
+
+  writeFileSync(join(c, 'index.md'), '# From the hook');
+  await spawnGit(repo, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'Run the installed hook'], hookEnv);
+  await t.waitFor(() => assert.match(readFileSync(join(hookHome, 'sync.log'), 'utf8'), /^\d+ .*updated/m), { timeout: 10000 });
+  assert.equal(store.describe('index.md', null).versions.at(-1).note, 'Run the installed hook');
+  assert.equal((await fetch(url + '/pages/scratch.tmp.md')).status, 404);
 });
 
 test('sync --prune finds every page from the folder, past the 500 one request lists', async () => {
@@ -447,9 +458,9 @@ test('sync: a file renamed in case only renames its page, rather than making a s
   assert.match(r.out, /1 unchanged/); // and settled
 });
 
-function spawnGit(cwd, args) {
+function spawnGit(cwd, args, env = {}) {
   return new Promise((resolve, reject) => {
-    const p = spawn('git', args, { cwd, stdio: 'ignore', env: { ...process.env, ...GIT_ENV } });
+    const p = spawn('git', args, { cwd, stdio: 'ignore', env: { ...process.env, ...GIT_ENV, ...env } });
     p.on('close', (code) => (code ? reject(new Error(`git ${args.join(' ')} → ${code}`)) : resolve()));
   });
 }
@@ -605,6 +616,71 @@ test('sync skips file and directory symlinks, including cycles', async () => {
   for (const path of ['linked.md', 'linked-dir/secret.md', 'cycle/safe.md']) assert.equal((await fetch(url + '/safe-root/' + path)).status, 404);
 });
 
+test('sync reports a reappearing file whose page is still in the trash and holds off pruning', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('sync-reappeared') };
+  const root = join(dir, 'reappeared');
+  mkdirSync(root);
+  const sync = (...flags) => cli(['sync', root, '--prune', ...flags], env);
+  const reappeared = join(root, 'sync-reappeared.md');
+  const missing = join(root, 'sync-other.md');
+  writeFileSync(reappeared, '# Original');
+  writeFileSync(missing, '# Other');
+  assert.equal((await sync()).code, 0);
+  rmSync(reappeared);
+  assert.match((await sync()).out, /1 trashed/);
+
+  writeFileSync(reappeared, '# Original');
+  rmSync(missing);
+  for (const flags of [['--dry-run'], []]) {
+    const r = await sync(...flags);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.err, /failed +sync-reappeared\.md: .*html-server trash restore sync-reappeared\.md/);
+    assert.match(r.out, /1 failed/);
+    assert.doesNotMatch(r.out, /unchanged|would trash|trashed/);
+    assert.equal((await fetch(url + '/pages/sync-other.md')).status, 200);
+    assert.equal((await fetch(url + '/pages/sync-reappeared.md')).status, 404);
+  }
+
+  assert.equal((await cli(['trash', 'restore', 'sync-reappeared.md'], env)).code, 0);
+  assert.match((await sync()).out, /1 unchanged, 1 trashed/);
+});
+
+test('a reappearing source file identifies its moved page in the trash by its current address', async () => {
+  const env = { HTML_SERVER_TOKEN: store.createUser('moved-sync') };
+  const root = join(dir, 'moved-sync');
+  mkdirSync(join(root, 'notes'), { recursive: true });
+  const sync = (...flags) => cli(['sync', root, '--prune', ...flags], env);
+  const local = join(root, 'notes', 'a.md');
+  const body = '---\naliases: [moved-sync-alias.md]\n---\n# Note';
+  const spare = join(root, 'moved-sync-spare.md');
+  writeFileSync(local, body);
+  writeFileSync(spare, '# Spare');
+  assert.equal((await sync()).code, 0);
+  assert.equal((await cli(['mv', 'notes/a.md', 'archive/a.md'], env)).code, 0);
+  rmSync(local);
+  assert.match((await sync()).out, /1 trashed/);
+
+  writeFileSync(local, body);
+  rmSync(spare);
+  const otherFolder = ['--folder', 'different', '--migrate-paths'];
+  for (const flags of [['--dry-run'], [], ['--dry-run', ...otherFolder], otherFolder]) {
+    const r = await sync(...flags);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.err, /failed +notes\/a\.md: .*html-server trash restore archive\/a\.md/);
+    assert.doesNotMatch(r.out, /would (?:add|trash|move)|trashed/);
+  }
+  assert.equal((await fetch(url + '/pages/moved-sync-spare.md')).status, 200);
+  assert.equal((await fetch(url + '/different/notes/a.md')).status, 404);
+
+  // An unrelated local file can still publish under an alias of the trashed page.
+  rmSync(local);
+  writeFileSync(join(root, 'moved-sync-alias.md'), '# Separate page');
+  const separate = await cli(['sync', root], env);
+  assert.equal(separate.code, 0, separate.err);
+  assert.equal((await fetch(url + '/pages/moved-sync-alias.md')).status, 200);
+  assert.equal((await fetch(url + '/archive/a.md')).status, 404);
+});
+
 test('sync --prune trashes the last removed file from an existing empty root', async () => {
   const env = { HTML_SERVER_TOKEN: store.createUser('empty-prune') };
   const root = join(dir, 'empty-vault'); mkdirSync(root);
@@ -649,7 +725,7 @@ test('visibility changes access without a new version and enforces ownership', a
 test('management commands: exact downloads, JSON reads, share rotation, assets, comments and trash recovery', async () => {
   const token = store.createUser('management-cli');
   const owner = store.userForToken(token).id;
-  const name = 'management/日本.md', source = '# 日本\r\n\r\nOriginal ✓\n';
+  const name = 'management/日本.md', source = '\uFEFF# 日本\r\n\r\nOriginal ✓\n';
   store.putVersion(owner, name, Buffer.from(source), { visibility: 'private' });
   store.putVersion(owner, name, Buffer.from('# Changed'));
   const env = { HTML_SERVER_TOKEN: token };
@@ -661,6 +737,8 @@ test('management commands: exact downloads, JSON reads, share rotation, assets, 
   assert.notEqual((await run(['get', name, '--output', output])).code, 0);
   assert.equal(readFileSync(output, 'utf8'), source);
   assert.notEqual((await run(['get', name, '--version', '0'])).code, 0);
+  assert.notEqual((await run(['restore', name, '0'])).code, 0);
+  assert.equal(store.describe(name, owner).latest_version, 2);
   assert.notEqual((await run(['get', name, '--version', '999'])).code, 0);
   assert.equal((await run(['get', name, '--version=1'])).out, source);
   assert.equal((await json(['get', name])).source, '# Changed');
@@ -697,6 +775,20 @@ test('management commands: exact downloads, JSON reads, share rotation, assets, 
   assert.equal(store.describe(name, owner).visibility, 'private');
   assert.deepEqual(await json(['trash', 'ls']), []);
   for (const args of [['trash'], ['assets', 'ls', 'unexpected'], ['comments', 'unknown', '1'], ['share']]) assert.notEqual((await run(args)).code, 0);
+});
+
+test('get preserves source bytes in file and stdout for a legacy-encoded HTML page', async () => {
+  const token = store.createUser('download-owner');
+  const name = 'latin1.html';
+  const bytes = Buffer.from('<meta charset="windows-1252"><p>café</p>', 'latin1');
+  store.putVersion(store.userForToken(token).id, name, bytes);
+  const result = await cli(['get', name], { HTML_SERVER_TOKEN: token }, { encoding: null });
+  assert.equal(result.code, 0, result.err);
+  assert.deepEqual(result.out, bytes);
+  const output = join(dir, name);
+  const saved = await cli(['get', name, '--output', output, '--json'], { HTML_SERVER_TOKEN: token });
+  assert.equal(saved.code, 0, saved.err);
+  assert.deepEqual(readFileSync(output), bytes);
 });
 
 test('trash ls includes every owned page beyond one API batch', async () => {
