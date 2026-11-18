@@ -310,7 +310,8 @@ if (selectBtn && bulk) {
 // Pages go to this folder (on a folder's page) unless the dialog says otherwise.
 const uploadBtn = document.getElementById('upload');
 if (uploadBtn) {
-  const open = (files = []) => openUpload({ files, folder: uploadBtn.dataset.folder || '', onUploaded: () => search({ fresh: true }) });
+  const open = (files = []) => openUpload({ files, folder: uploadBtn.dataset.folder || '',
+    maxBytes: Number(uploadBtn.dataset.maxBytes), maxFiles: Number(uploadBtn.dataset.maxFiles), onUploaded: () => search({ fresh: true }) });
   uploadBtn.addEventListener('click', () => open());
   acceptDrops(open);
 }

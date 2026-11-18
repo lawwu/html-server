@@ -1,8 +1,9 @@
 // Real Chromium checks, run separately with `npm run test:browser` after installing
 // Playwright Chromium. Every server and browser belongs to this test, never a user's.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { before, after, beforeEach, afterEach, test } from 'node:test';
 import { chromium } from 'playwright';
@@ -523,7 +524,7 @@ test('upload: choose files, sign in, publish, fix a refused name, and drop more'
   await page.locator('#upload').click();
   const dialog = page.locator('.upload-dialog');
   assert.equal(await page.evaluate(() => document.activeElement.textContent), 'choose files');
-  await dialog.locator('input[type="file"]').setInputFiles([
+  await dialog.locator('input[type="file"]:not([webkitdirectory])').setInputFiles([
     { name: 'Browser Trip.html', mimeType: 'text/html', buffer: Buffer.from('<title>Browser trip</title><p>From the browser</p>') },
     { name: 'diagram.png', mimeType: 'image/png', buffer: PNG },
     { name: 'slides.pptx', mimeType: 'application/octet-stream', buffer: Buffer.from('x') },
@@ -712,7 +713,7 @@ for (const colorScheme of ['light', 'dark']) {
     // The upload dialog, with a file it can't take and an error showing.
     await page.goto(base + '/');
     await page.locator('#upload').click();
-    await page.locator('.upload-dialog input[type="file"]').setInputFiles([
+    await page.locator('.upload-dialog input[type="file"]:not([webkitdirectory])').setInputFiles([
       { name: 'A long file name for a phone screen.html', mimeType: 'text/html', buffer: Buffer.from('<p>x</p>') },
       { name: 'slides.pptx', mimeType: 'application/octet-stream', buffer: Buffer.from('x') },
     ]);
@@ -739,7 +740,55 @@ test("the graph draws a page's category as text, never as markup", async () => {
 test("Copy HTML never copies an error as if it were the page", async () => {
   await page.goto(base + '/pages/links.html');
   await page.route('**/api/artifacts/links.html/versions/*', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"sign in, or send a bearer token"}' }));
-  const button = page.locator('.copy-source');
+  const button = page.getByRole('button', { name: 'Copy HTML' });
   await button.click();
-  await button.getByText('Couldn’t load it').waitFor(); // was "Copied", with the error on the clipboard
+  await page.getByRole('button', { name: 'Couldn’t load it' }).waitFor(); // was "Copied", with the error on the clipboard
+});
+
+test('a browser folder upload and copied embed load the selected version’s modules, styles and data', async (t) => {
+  const folder = join(home, 'browser-site');
+  mkdirSync(join(folder, 'assets'), { recursive: true });
+  writeFileSync(join(folder, 'index.html'), '<title>Browser site</title><link rel="stylesheet" href="assets/site.css"><p>Loading</p><a href="details.html">Details</a><script type="module" src="assets/app.js"></script>');
+  writeFileSync(join(folder, 'assets/site.css'), 'p { color: rgb(17, 34, 51) }');
+  writeFileSync(join(folder, 'assets/app.js'), "document.querySelector('p').textContent = await (await fetch('./data.json')).json()");
+  writeFileSync(join(folder, 'details.html'), '<h1>Details of this report</h1>');
+  const data = join(folder, 'data.json');
+  writeFileSync(data, '"First"');
+  await page.goto(base);
+  await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
+  async function upload() {
+    await page.goto(base);
+    await page.getByRole('button', { name: 'Upload', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.locator('[webkitdirectory]').setInputFiles(folder);
+    await dialog.getByRole('button', { name: 'Upload', exact: true }).click();
+    await dialog.getByRole('link', { name: 'Open browser-site.html' }).waitFor();
+  }
+  await upload();
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto(base + '/pages/browser-site.html');
+  const frame = page.frameLocator('.page-frame');
+  await frame.getByText('First', { exact: true }).waitFor();
+  assert.equal(await frame.locator('p').evaluate((p) => getComputedStyle(p).color), 'rgb(17, 34, 51)');
+  await frame.getByRole('link', { name: 'Details' }).click();
+  await frame.getByRole('heading', { name: 'Details of this report' }).waitFor();
+  assert.equal(page.url(), base + '/pages/browser-site.html');
+  const copy = async () => {
+    await page.locator('[data-embed]').click();
+    return page.evaluate(() => navigator.clipboard.readText());
+  };
+  const live = await copy();
+  await page.getByLabel('Embed version').selectOption('1');
+  const pinned = await copy();
+  writeFileSync(data, '"Second"');
+  await upload();
+  const host = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(pinned + live);
+  });
+  await new Promise((ready) => host.listen(0, '127.0.0.1', ready));
+  t.after(() => { host.closeAllConnections(); host.close(); });
+  await page.goto(`http://127.0.0.1:${host.address().port}/report`);
+  await page.frameLocator('iframe').first().getByText('First', { exact: true }).waitFor();
+  await page.frameLocator('iframe').last().getByText('Second', { exact: true }).waitFor();
 });

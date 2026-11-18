@@ -26,17 +26,18 @@ let current = null; // the open dialog's add(), so files dropped while it's open
  * `folder` is where pages go unless changed; `onUploaded` runs after a batch that
  * published anything (to redraw the cards behind it).
  */
-export function openUpload({ files = [], folder = '', onUploaded = () => {} } = {}) {
+export function openUpload({ files = [], folder = '', maxBytes, maxFiles, onUploaded = () => {} } = {}) {
   const auth = browserSignIn();
   if (current) return current(files);
   const dialog = document.createElement('dialog');
   dialog.className = 'move-dialog upload-dialog';
   dialog.setAttribute('aria-labelledby', 'upload-title');
   dialog.innerHTML = `<form><h2 id="upload-title">Upload</h2>
-    <div class="drop-zone"><p>Drop files here, or <button type="button" data-choose>choose files</button></p>
+    <div class="drop-zone"><p>Drop files here, or <button type="button" data-choose>choose files</button> or <button type="button" data-choose-folder>publish a folder</button></p>
       <p class="meta">Pages: HTML, Markdown (.md) and notebooks (.ipynb). A page you already have gets a new version.
       Images and PDFs are kept by file name, for notes to embed.</p></div>
     <input type="file" multiple hidden accept=".html,.htm,.md,.markdown,.ipynb,.png,.jpg,.jpeg,.gif,.webp,.avif,.svg,.pdf">
+    <input type="file" webkitdirectory multiple hidden aria-label="Static site folder">
     <ul class="upload-list" aria-label="Files to upload"></ul>
     <label>Folder for pages <input name="folder" list="upload-folders" placeholder="leave empty for the top level" autocomplete="off"></label>
     <datalist id="upload-folders"></datalist>
@@ -69,18 +70,18 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
     const n = pending().length;
     submit.disabled = busy || !n;
     submit.textContent = busy ? 'Uploading…' : n > 1 ? `Upload ${n} files` : 'Upload';
-    dialog.querySelector('.upload-private').hidden = !rows.some((r) => r.kind === 'page');
+    dialog.querySelector('.upload-private').hidden = !rows.some((r) => r.kind === 'page' || r.kind === 'bundle');
   };
   const writing = singleAction(sync);
 
   function add(files) {
     for (const file of files) {
-      const kind = kindOf(file.name);
+      const kind = file.members ? 'bundle' : kindOf(file.name);
       const li = document.createElement('li');
       const row = { file, kind, li, state: kind ? 'queued' : 'skip' };
       const what = document.createElement('span');
       what.className = 'meta';
-      what.textContent = kind ? `${kind === 'page' ? 'page' : 'image or PDF'} · ${size(file.size)}` : `${file.name}: not a page, image or PDF`;
+      what.textContent = kind === 'bundle' ? `static site · ${file.members.length} files · ${size(file.size)}` : kind ? `${kind === 'page' ? 'page' : 'image or PDF'} · ${size(file.size)}` : `${file.name}: not a page, image or PDF`;
       if (kind) {
         row.name = Object.assign(document.createElement('input'), { value: cleanName(file.name), autocomplete: 'off', spellcheck: false });
         row.name.setAttribute('aria-label', `Name for ${file.name}`);
@@ -103,16 +104,29 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
   }
 
   async function send({ row, name }, { token, folder, note, private: privatePage }) {
-    let path;
-    if (row.kind === 'page') {
+    let path, body = row.file;
+    if (row.kind !== 'asset') {
       const q = new URLSearchParams();
       if (note) q.set('note', note);
       if (privatePage) q.set('visibility', 'private');
-      path = `/api/artifacts/${encodePath([folder, name].filter(Boolean).join('/'))}${q.size ? `?${q}` : ''}`;
+      if (row.kind === 'bundle') {
+        const files = [];
+        for (const file of row.file.members) {
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+          });
+          files.push({ path: file.webkitRelativePath.split('/').slice(1).join('/'), base64 });
+        }
+        body = JSON.stringify({ files });
+      }
+      path = `/api/${row.kind === 'bundle' ? 'bundles' : 'artifacts'}/${encodePath([folder, name].filter(Boolean).join('/'))}${q.size ? `?${q}` : ''}`;
     } else {
       path = `/api/assets/${encodeURIComponent(name)}`;
     }
-    const r = await auth.request(path, { method: 'PUT', body: row.file, token });
+    const r = await auth.request(path, { method: 'PUT', body, token });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(data.error || `${r.status} ${r.statusText}`), { status: r.status });
     return data;
@@ -124,7 +138,7 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
     row.remove.remove();
     const link = Object.assign(document.createElement('a'), { textContent: 'open', target: '_blank', rel: 'noopener' });
     let what;
-    if (row.kind === 'page') {
+    if (row.kind !== 'asset') {
       // A private page's own address needs the sign-in header, which a new tab doesn't send.
       link.href = data.visibility === 'private' && data.share_url ? data.share_url : data.url;
       link.setAttribute('aria-label', `Open ${data.slug}`);
@@ -180,6 +194,16 @@ export function openUpload({ files = [], folder = '', onUploaded = () => {} } = 
   });
 
   dialog.querySelector('[data-choose]').onclick = () => picker.click();
+  const directory = dialog.querySelector('[webkitdirectory]');
+  dialog.querySelector('[data-choose-folder]').onclick = () => directory.click();
+  directory.onchange = () => {
+    const members = Array.from(directory.files).filter((f) => f.webkitRelativePath.split('/').slice(1).every((part) => !part.startsWith('.') && part !== 'node_modules'));
+    directory.value = '';
+    const bytes = members.reduce((total, f) => total + f.size, 0);
+    if (members.length > maxFiles || 4 * Math.ceil(bytes / 3) > maxBytes) return say('This folder exceeds the server’s file count or upload size limit.', true);
+    if (!members.some((f) => f.webkitRelativePath.split('/').slice(1).join('/') === 'index.html')) return say('Choose a folder with index.html at its root.', true);
+    add([{ name: members[0].webkitRelativePath.split('/')[0] + '.html', members, size: bytes }]);
+  };
   picker.onchange = () => { add(picker.files); picker.value = ''; };
   dialog.querySelector('[data-cancel]').onclick = () => { if (!writing.pending) dialog.close(); };
   dialog.addEventListener('cancel', (e) => { if (writing.pending) e.preventDefault(); });

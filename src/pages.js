@@ -2,6 +2,7 @@
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { CLI_FROM_GITHUB, CLAIM_LINK_MINUTES, MAX_BODY_BYTES, POPULAR_CHOICES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
+import { MAX_BUNDLE_FILES } from './bundle.js';
 import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, heroTile, sparkline, stackedColumnChart } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
@@ -80,6 +81,9 @@ const inlined = () => (SCRIPTS ??= { search: inlineScript('search.js'), popover:
 const sourceData = (text) => `<script id="page-source" type="application/json">${JSON.stringify(text).replace(/</g, '\\u003c')}</script>`;
 const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
 const copyButton = (label = 'Copy markdown') => `<button type="button" class="copy-source" data-copy-source="page-source">${COPY_ICON}<span>${label}</span></button>`;
+
+const embedControl = (slug, n, title, pinned) => isStaticSite() ? '' : `<span class="embed-control"><select aria-label="Embed version"><option value="">Latest version</option><option value="${n}"${pinned ? ' selected' : ''}>Fixed at v${n}</option></select>
+<button type="button" class="copy-source" data-embed="/pages/${encodePath(slug)}" data-title="${esc(title)}"><span>Copy embed</span></button></span>`;
 
 /**
  * Every page the server draws itself, in Quartz's frame under a bar across the top: the
@@ -295,7 +299,7 @@ ${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : '
 ${sort ? `<input type="hidden" name="sort" value="${esc(sort)}">` : ''}</form>
 <div class="bar2"><nav class="chips" aria-label="Categories">${chip('', 'All')}${categories.map((c) => chip(c.category, categoryLabel(c.category), c.count)).join('')}</nav>
 <div class="tools">${section === 'pages' ? sortControl({ q, category, view, sort, base, recursive })
-  + `<button type="button" id="upload" class="select-btn"${folder ? ` data-folder="${esc(folder)}"` : ''}>Upload</button>`
+  + `<button type="button" id="upload" class="select-btn" data-max-bytes="${MAX_BODY_BYTES}" data-max-files="${MAX_BUNDLE_FILES}"${folder ? ` data-folder="${esc(folder)}"` : ''}>Upload</button>`
   + '<button type="button" id="select" class="select-btn">Select</button>' : ''}
 <div class="views" role="group" aria-label="Layout">${toggle('grid', 'Grid view', grid)}${toggle('list', 'List view', list)}</div></div></div>`;
   return shell(folder ? `${folder} · HTML Server` : section === 'gallery' ? 'Gallery · HTML Server' : 'HTML Server', `${siteNav(section, { explorer })}<main class="wrap">
@@ -544,7 +548,7 @@ const noteCss = () => (NOTE_CSS ??= ['style.css', 'note.css']
  * styles are inlined. `chrome: false` (gallery-card previews) is just the note. Links
  * that leave the note use target="_top", so they work inside the review page's frame too.
  */
-export function notePage({ slug, title, tags = [], html, backlinks = [], updated, version, latest, description, chrome = true,
+export function notePage({ slug, title, tags = [], html, backlinks = [], updated, version, latest, description, chrome = true, canEmbed = false, embedPinned = false,
   explorer = [], path = '', graph = null, theme = null, sidebar = null, previews = {}, source = null, copyLabel, extra = '' }) {
   const S = encodePath(slug);
   const day = updated ? new Date(updated * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
@@ -557,7 +561,7 @@ export function notePage({ slug, title, tags = [], html, backlinks = [], updated
   const head = `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(path, title, explorer)}</nav>
 <h1 class="article-title">${esc(title)}</h1>
 <p class="content-meta">${day ? `${esc(day)}, ` : ''}${Math.max(1, Math.round(words / 200))} min read${extra ? ` · ${esc(extra)}` : ''}${versions}</p>
-${source != null ? `<p class="page-actions">${copyButton(copyLabel)} ${isStaticSite() ? '' : `<a href="/review/${S}?move=1" target="_top">Move…</a>`}</p>` : ''}
+${source != null ? `<p class="page-actions">${copyButton(copyLabel)} ${canEmbed ? embedControl(slug, version, title, embedPinned) : ''} ${isStaticSite() ? '' : `<a href="/review/${S}?move=1" target="_top">Move…</a>`}</p>` : ''}
 ${tags.length ? `<ul class="note-tags">${tags.map((t) => `<li>${tag(t)}</li>`).join('')}</ul>` : ''}`;
   const toc = [...html.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h\1>/g)]
     .map(([, d, id, inner]) => `<li class="d${d}"><a href="#${esc(id)}">${inner.replace(/<[^>]+>/g, '')}</a></li>`);
@@ -586,11 +590,11 @@ const previewData = (previews) => `<script id="page-previews" type="application/
  * sized to the window so its own scrolling, sticky headers and full-height layouts work.
  * Below it, its local graph and backlinks. ?raw=1 is the page alone.
  */
-export function htmlFramePage({ page, n, backlinks, explorer, graph, previews = {} }) {
+export function htmlFramePage({ page, n, pinned = false, canEmbed = false, backlinks, explorer, graph, previews = {} }) {
   const S = encodePath(page.slug);
   const old = n !== page.latest_version;
-  const src = `/pages/${S}${old ? `?v=${n}` : ''}`;
-  const embed = `/pages/${S}?${old ? `v=${n}&` : ''}embed=1`;
+  const src = `/pages/${S}${pinned || old ? `?v=${n}` : ''}`;
+  const embed = `/pages/${S}?${pinned || old ? `v=${n}&` : ''}embed=1`;
   const day = new Date(page.updated_at * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   return shell(`${page.title} · HTML Server`, `${siteNav('pages', { explorer, current: page.slug })}<main class="center framed">
 <header class="frame-head"><div class="frame-title">
@@ -598,8 +602,8 @@ export function htmlFramePage({ page, n, backlinks, explorer, graph, previews = 
 <h1 class="article-title">${esc(page.title)}</h1>
 <p class="content-meta">${old ? '' : `${esc(day)} · `}v${n}${old ? ` of ${page.latest_version}` : ''} · ${plural(page.views ?? 0, 'view')}
   · <a href="/history/${S}">history</a> · <a href="/review/${S}${old ? `?v=${n}` : ''}">comments</a>
-  · <a href="${src}${old ? '&amp;' : '?'}raw=1">full page ↗</a></p>
-<p class="page-actions"><button type="button" class="copy-source" data-src="/api/artifacts/${S}/versions/${n}">${COPY_ICON}<span>Copy HTML</span></button> <a href="/review/${S}?move=1">Move…</a></p>
+  · <a href="${src}${pinned || old ? '&amp;' : '?'}raw=1">full page ↗</a></p>
+<p class="page-actions"><button type="button" class="copy-source" data-src="/api/artifacts/${S}/versions/${n}">${COPY_ICON}<span>Copy HTML</span></button> ${canEmbed ? embedControl(page.slug, n, page.title, pinned) : ''} <a href="/review/${S}?move=1">Move…</a></p>
 </div>${page.tags.length ? `<ul class="note-tags">${page.tags.map((t) => `<li><a class="tag-link" href="/?category=${encodeURIComponent(t)}">${esc(t)}</a></li>`).join('')}</ul>` : ''}</header>
 <iframe class="page-frame auto" src="${esc(embed)}" title="${esc(page.title)}"></iframe>
 <div class="frame-foot">${graph ? localGraph(graph, page.slug) : ''}${backlinksSection(backlinks)}</div>
@@ -983,6 +987,8 @@ changelog and every release: [${REPO_URL.replace('https://', '')}](${REPO_URL}).
 Press **Upload** on your server's home page, or drop files on it. HTML, Markdown and notebooks become pages (a file you
 already have gets a new version); images and PDFs become assets that notes embed by name. Paste your token the first
 time; the browser keeps it for this site. It sends the same requests as \`html-server put\` and \`PUT /api/assets/<name>\`.
+
+Choose **Publish a folder** inside Upload for a static site with a root index.html. Each publish keeps a complete version of the site and its files. On a public page, **Copy embed** copies an iframe that follows the latest version or stays fixed at the version you choose.
 
 ## Command line
 

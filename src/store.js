@@ -5,7 +5,7 @@
 // file's SQL and brings its own search index (a database's `search`; see sqliteSearch). Each request's handler runs to completion against a
 // synchronous database, so each method is atomic without locks; multi-statement writes
 // still go through tx() so a failure leaves nothing half-done.
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   API_CALL_RETENTION_DAYS, ASSET_TYPES, BOT_UA_RE, CLAIM_LINK_MINUTES, CLIENT_KINDS, GITHUB_LOGIN_RE, MAX_ASSET_BYTES, MAX_TAGS_PER_PAGE, SEARCH_WEIGHTS, TAG_RE, DEFAULT_EDITING, DEFAULT_USERNAMES, DEFAULT_VISIBILITY, EDITING_MODES, MASK_EMAILS_FOR_ANONYMOUS, MAX_COMMENT_CHARS,
   PAGE_EXT_RE, POPULAR_WEEKS, SEARCH_SORT, SLUG_HINT, SLUG_RE, SORTS, USERNAME_RULES,
@@ -120,6 +120,15 @@ CREATE TABLE IF NOT EXISTS versions (
     note TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL,
     PRIMARY KEY (artifact_id, n)
+);
+CREATE TABLE IF NOT EXISTS bundle_files (
+    artifact_id INTEGER NOT NULL,
+    n INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    data BLOB NOT NULL,
+    sha256 TEXT NOT NULL,
+    PRIMARY KEY (artifact_id, n, path),
+    FOREIGN KEY (artifact_id, n) REFERENCES versions(artifact_id, n) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS versions_by_time ON versions (created_at);
 CREATE TABLE IF NOT EXISTS views (
@@ -1083,7 +1092,7 @@ export class Store {
    * `base`: the version the uploader started from; refuse if someone has added one since.
    * `renameFrom`: the uploader's page that this is, renamed in case only (sync sends it).
    */
-  putVersion(userId, slug, doc, { title, note = '', visibility, base, source, nameKey, path, renameFrom, basePath } = {}) {
+  putVersion(userId, slug, doc, { title, note = '', visibility, base, source, nameKey, path, renameFrom, basePath, bundle, restoreFilesFrom } = {}) {
     validatePath(slug);
     if (this.oldAddress(slug)) throw new ApiError(409, 'this address has moved; fetch the current page address before publishing');
     if (visibility != null && !VISIBILITIES.includes(visibility)) {
@@ -1148,6 +1157,18 @@ export class Store {
       }
       this.run('INSERT INTO versions (artifact_id, n, html, sha256, size, note, created_at, author_id, base_path) VALUES (?,?,?,?,?,?,?,?,?)',
         id, n, doc, sha256(doc), doc.length, note, t, userId, authoredPath);
+      if (bundle) {
+        for (const [file, bytes] of bundle) {
+          // The entry already lives in versions.html for source, review and search.
+          this.run('INSERT INTO bundle_files (artifact_id, n, path, data, sha256) VALUES (?,?,?,?,?)',
+            id, n, file, file === 'index.html' ? Buffer.alloc(0) : bytes, file === 'index.html' ? '' : sha256(bytes));
+        }
+      } else if (a) {
+        // Editing just the entry page keeps its supporting files. A restore takes
+        // precisely the selected version’s files, even if it was a standalone page.
+        this.run('INSERT INTO bundle_files (artifact_id, n, path, data, sha256) SELECT artifact_id, ?, path, data, sha256 FROM bundle_files WHERE artifact_id = ? AND n = ?',
+          n, id, restoreFilesFrom ?? a.latest_version);
+      }
       this.run('DELETE FROM aliases WHERE artifact_id = ?', id);
       for (const al of meta.aliases ?? []) this.run('INSERT OR IGNORE INTO aliases (artifact_id, alias) VALUES (?, ?)', id, al);
       if (source != null) this.run('UPDATE artifacts SET source = ? WHERE id = ?', source, id);
@@ -1293,7 +1314,7 @@ export class Store {
   /** Make version n current again by appending a copy of it; history is never rewritten. */
   restoreVersion(userId, slug, n) {
     const a = this.editable(slug, userId);
-    return this.putVersion(userId, a.slug, this.version(a, n), { note: `restored from v${n}`, basePath: this.versionBase(a, n) });
+    return this.putVersion(userId, a.slug, this.version(a, n), { note: `restored from v${n}`, basePath: this.versionBase(a, n), restoreFilesFrom: n });
   }
 
   // --- reads -----------------------------------------------------------------------
@@ -1675,6 +1696,26 @@ export class Store {
     return Buffer.from(row.html);
   }
 
+  // A sandboxed document can fetch only this version’s files. Rotating the share
+  // or enabling SSO invalidates previously issued file URLs.
+  bundleKey(page, n, sso) {
+    return createHmac('sha256', this.visitorSecret).update(`bundle/${page.id}/${page.share_id}/${n}/${!!sso}`).digest('hex');
+  }
+
+  bundleBase(page, n, sso) {
+    if (!this.one("SELECT 1 FROM bundle_files WHERE artifact_id = ? AND n = ? AND path = 'index.html'", page.id, n)) return null;
+    return `/_bundle/${page.id}/${n}/${this.bundleKey(page, n, sso)}/`;
+  }
+
+  bundleFile(id, n, key, path, sso) {
+    if (!Number.isSafeInteger(id) || !Number.isSafeInteger(n) || !/^[0-9a-f]{64}$/.test(key)) throw new ApiError(404, 'no such file');
+    const page = this.one('SELECT id, share_id FROM artifacts WHERE id = ? AND state = ?', id, ACTIVE);
+    if (!page || !timingSafeEqual(Buffer.from(key), Buffer.from(this.bundleKey(page, n, sso)))) throw new ApiError(404, 'no such file');
+    const file = this.one('SELECT data FROM bundle_files WHERE artifact_id = ? AND n = ? AND path = ?', id, n, path);
+    if (!file) throw new ApiError(404, 'no such file');
+    return path === 'index.html' ? this.version(page, n) : Buffer.from(file.data);
+  }
+
   /** Raw source; trashed pages still readable here by their owner. */
   versionHtml(slug, n, viewerId) { return this.version(this.readable(slug, viewerId), n); }
 
@@ -1910,7 +1951,12 @@ export class Store {
     // "Visible text" for a note is its Markdown source, which already reads as text.
     const lines = of === 'source' ? (d) => d.split(/\r?\n/) : isMarkdown(a.slug) ? noteLines
       : isNotebook(a.slug) ? (d) => noteLines(notebookMarkdown(parseNotebook(d))) : extractLines; // a notebook: its cells, read as Markdown
-    return [fromN, toN, lines(oldDoc), lines(newDoc)];
+    const documents = [oldDoc, newDoc].map(lines);
+    for (const [i, version] of [fromN, toN].entries()) {
+      const files = this.all("SELECT path, sha256 FROM bundle_files WHERE artifact_id = ? AND n = ? AND path != 'index.html' ORDER BY path", a.id, version);
+      if (files.length) documents[i].push('', 'Bundled files', ...files.map((f) => `${f.path}  ${f.sha256}`));
+    }
+    return [fromN, toN, ...documents];
   }
 
   // --- comments --------------------------------------------------------------------
