@@ -1,5 +1,6 @@
 // Server-rendered pages: your pages at /, the example gallery at /gallery, history,
 // the API docs, the review shell, and the side-by-side diff. Browser behaviour lives in public/*.js; shared styles in public/style.css.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { CLI_FROM_GITHUB, CLAIM_LINK_MINUTES, MAX_BODY_BYTES, POPULAR_CHOICES, RELEASE_URL, REPO_URL, RESERVED_SLUGS, SEARCH_SORT, SORTS, VERSION } from './config.js';
 import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, heroTile, sparkline, stackedColumnChart } from './charts.js';
@@ -25,11 +26,12 @@ const CATEGORY_LABELS = {
 export const categoryLabel = (c) => CATEGORY_LABELS[c] || c.replace(/-/g, ' ').replace(/^./, (x) => x.toUpperCase());
 
 // The docs site on GitHub Pages (scripts/build-site.js) is drawn by these same templates,
-// with no server behind it. setStaticSite(true) leaves out what needs one: search, page
+// with no server behind it. withStaticSite leaves out what needs one: search, page
 // versions, history and comments, the Pages, Graph and Stats sections, and the gallery's
 // search, filters and layouts. The build makes the remaining links relative.
-let STATIC_SITE = false;
-export const setStaticSite = (on) => { STATIC_SITE = !!on; };
+const staticRendering = new AsyncLocalStorage();
+export const withStaticSite = (render) => staticRendering.run(true, render);
+const isStaticSite = () => staticRendering.getStore() === true;
 
 /** On every page the server draws itself (never on uploaded pages): which version is running (its release notes), and the docs. */
 export const footer = () => `<footer class="site-foot"><a href="${RELEASE_URL}">HTML Server v${esc(VERSION)}</a>
@@ -88,7 +90,7 @@ const copyButton = (label = 'Copy markdown') => `<button type="button" class="co
 const shell = (title, body, { scripts = [], bodyAttrs = '', frame = true, search = frame } = {}) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>${PREFS_HEAD}<link rel="stylesheet" href="/_static/style.css"><link rel="stylesheet" href="/_static/note.css"></head>
-<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${SIDEBAR_SCRIPT}${search && !STATIC_SITE ? inlined().search : ''}${(STATIC_SITE ? scripts : ['session.js', ...scripts]).map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
+<body ${bodyAttrs}>${frame ? `<div class="page">${body}${footer()}</div>` : body + footer()}${SIDEBAR_SCRIPT}${search && !isStaticSite() ? inlined().search : ''}${(isStaticSite() ? scripts : ['session.js', ...scripts]).map((s) => `<script src="/_static/${s}" type="module"></script>`).join('')}</body></html>`;
 
 const day = (t) => new Date(t * 1000).toLocaleDateString('en-CA');
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('ch') ? 'es' : 's'}`;
@@ -112,16 +114,16 @@ const ICONS = {
  * contents sit in the same place on every page.
  */
 export function topBar(active, { sidebar = true } = {}) {
-  const search = !STATIC_SITE;
+  const search = !isStaticSite();
   const item = (href, label, key) => `<li><a href="${href}" target="_top"${key === active ? ' class="on" aria-current="page"' : ''}>${label}</a></li>`;
-  const live = STATIC_SITE ? '' : item('/', 'Pages', 'pages') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
+  const live = isStaticSite() ? '' : item('/', 'Pages', 'pages') + item('/graph', 'Graph', 'graph') + item('/stats', 'Stats', 'stats');
   const theme = `<button type="button" class="icon-btn" data-theme-toggle aria-label="Switch light or dark">${ICONS.sun}${ICONS.moon}</button>`;
   const hide = sidebar ? `<button type="button" class="icon-btn sidebar-toggle" data-sidebar-toggle aria-controls="left-sidebar" aria-expanded="true"
   aria-label="Hide the sidebar" title="Hide the sidebar">${ICONS.sidebar}</button>` : '<span class="icon-btn sidebar-toggle toggle-slot" aria-hidden="true"></span>'; // its room, so the name stays put
   const find = search ? `<form class="side-search" action="/" method="get" target="_top" role="search">${ICONS.search}<input name="q" placeholder="Search" aria-label="Search pages (⌘K)" autocomplete="off"><kbd>⌘K</kbd></form>` : '';
   return `<header class="topbar">${hide}<a class="brand" href="/" target="_top">HTML Server</a>
 <nav class="site-nav" aria-label="Site"><ul>${live}${item('/gallery', 'Gallery', 'gallery')}${item('/docs', 'Docs', 'docs')}${item('/about', 'About', 'about')}</ul></nav>
-<div class="top-tools">${find}${theme}${STATIC_SITE ? '' : SESSION_LINE}</div></header>`;
+<div class="top-tools">${find}${theme}${isStaticSite() ? '' : SESSION_LINE}</div></header>`;
 }
 
 /**
@@ -178,8 +180,10 @@ export function galleryCards(items, q, { base = '/' } = {}) {
     const title = hits?.title ? markHits(esc(hits.title)) : esc(i.title);
     const snippet = hits?.snippet ? markHits(esc(hits.snippet)) : esc(i.description);
     const S = encodePath(i.slug);
+    // A purged name may be published again as v1, so distinguish the page as well as its version.
+    const preview = `${i.url}?preview=1${i.example ? '' : `&v=${i.latest_version}&created=${i.created_at}`}`;
     const tags = i.tags ?? (i.category ? [i.category] : []);
-    const chip = (t) => (STATIC_SITE ? `<span class="tag">${esc(categoryLabel(t))}</span>`
+    const chip = (t) => (isStaticSite() ? `<span class="tag">${esc(categoryLabel(t))}</span>`
       : `<a class="tag" href="${base}?category=${encodeURIComponent(t)}">${esc(categoryLabel(t))}</a>`);
     const meta = i.example
       ? `example page · ${esc(i.slug)}`
@@ -187,8 +191,8 @@ export function galleryCards(items, q, { base = '/' } = {}) {
     · <a href="/review/${S}">review</a> · <a href="/history/${S}">history</a>`;
     return `<article class="card${i.pinned ? ' pinned' : ''}" data-slug="${esc(i.slug)}">
   ${i.example ? '' : `<label class="pick"><input type="checkbox" value="${esc(i.slug)}" aria-label="Select ${esc(i.title)}"></label>`}
-  <a class="thumb" href="${esc(i.url)}" tabindex="-1" aria-hidden="true"><iframe src="${esc(i.url)}?preview=1" loading="lazy"
-    scrolling="no" title="" tabindex="-1"></iframe></a>
+  <a class="thumb" href="${esc(i.url)}" tabindex="-1" aria-hidden="true"><iframe src="${esc(preview)}" loading="lazy"
+    ${i.example ? '' : `data-created="${esc(i.created_at)}" `}scrolling="no" title="" tabindex="-1"></iframe></a>
   <div class="head"><h2>${i.pinned ? PIN : ''}<a href="${esc(i.url)}">${title}</a></h2>
   ${tags.length ? `<span class="tags">${tags.slice(0, 3).map(chip).join('')}${tags.length > 3 ? `<span class="more">+${tags.length - 3}</span>` : ''}</span>` : ''}</div>
   ${snippet ? `<p class="desc">${snippet}</p>` : ''}
@@ -284,7 +288,7 @@ export function galleryPage(items, { q = '', category = '', categories = [], vie
     ? `<p class="intro">Example pages that ship with HTML Server: what single-file HTML can do, from explainers and diagrams to small tools. Many were made with the <a href="${SKILLS_REPO}" target="_blank" rel="noopener">effective-html</a> skills, and those name their skill at the top. Open one, or use it as a starting point for your own. <a href="/about">Why HTML?</a></p>`
     : '';
   // Search, filters, sorting and layouts ask the server for the cards again.
-  const controls = STATIC_SITE ? '' : `<form id="search" role="search" data-base="${base}"><input id="q" name="q" value="${esc(q)}" placeholder="${folder ? 'Search this folder' : section === 'gallery' ? 'Search examples' : 'Search pages'}" autocomplete="off" autofocus>
+  const controls = isStaticSite() ? '' : `<form id="search" role="search" data-base="${base}"><input id="q" name="q" value="${esc(q)}" placeholder="${folder ? 'Search this folder' : section === 'gallery' ? 'Search examples' : 'Search pages'}" autocomplete="off" autofocus>
 ${recursive ? '<input type="hidden" name="recursive" value="1">' : ''}
 ${category ? `<input type="hidden" name="category" value="${esc(category)}">` : ''}
 ${view !== 'grid' ? `<input type="hidden" name="view" value="${esc(view)}">` : ''}
@@ -309,7 +313,7 @@ ${section === 'pages' ? `<div id="bulk" class="bulk" hidden role="region" aria-l
   <button type="button" data-act="move">Move…</button>
   <button type="button" data-act="done" class="ghost">Done</button>
   <p id="bulk-msg" class="bulk-msg"></p>
-</div>` : ''}</main>`, { scripts: STATIC_SITE ? [] : ['gallery.js'] });
+</div>` : ''}</main>`, { scripts: isStaticSite() ? [] : ['gallery.js'] });
 }
 
 /**
@@ -546,13 +550,14 @@ export function notePage({ slug, title, tags = [], html, backlinks = [], updated
   const day = updated ? new Date(updated * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
   const words = html.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
   const top = (s) => s.replace(/<a (?![^>]*target=)/g, '<a target="_top" '); // site links break out of any frame
-  const versions = STATIC_SITE ? '' : `
-  · v${version}${latest && version < latest ? ` of ${latest}` : ''} · <a href="/history/${S}" target="_top">history</a> · <a href="/review/${S}" target="_top">comments</a>`;
-  const tag = (t) => (STATIC_SITE ? `<span class="tag-link">${esc(t)}</span>` : `<a class="tag-link" href="/?category=${encodeURIComponent(t)}" target="_top">${esc(t)}</a>`);
+  const old = version < latest;
+  const versions = isStaticSite() ? '' : `
+  · v${version}${old ? ` of ${latest}` : ''} · <a href="/history/${S}" target="_top">history</a> · <a href="/review/${S}${old ? `?v=${version}` : ''}" target="_top">comments</a>`;
+  const tag = (t) => (isStaticSite() ? `<span class="tag-link">${esc(t)}</span>` : `<a class="tag-link" href="/?category=${encodeURIComponent(t)}" target="_top">${esc(t)}</a>`);
   const head = `<nav class="breadcrumbs" aria-label="Breadcrumbs">${crumbs(path, title, explorer)}</nav>
 <h1 class="article-title">${esc(title)}</h1>
 <p class="content-meta">${day ? `${esc(day)}, ` : ''}${Math.max(1, Math.round(words / 200))} min read${extra ? ` · ${esc(extra)}` : ''}${versions}</p>
-${source != null ? `<p class="page-actions">${copyButton(copyLabel)} ${STATIC_SITE ? '' : `<a href="/review/${S}?move=1" target="_top">Move…</a>`}</p>` : ''}
+${source != null ? `<p class="page-actions">${copyButton(copyLabel)} ${isStaticSite() ? '' : `<a href="/review/${S}?move=1" target="_top">Move…</a>`}</p>` : ''}
 ${tags.length ? `<ul class="note-tags">${tags.map((t) => `<li>${tag(t)}</li>`).join('')}</ul>` : ''}`;
   const toc = [...html.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h\1>/g)]
     .map(([, d, id, inner]) => `<li class="d${d}"><a href="#${esc(id)}">${inner.replace(/<[^>]+>/g, '')}</a></li>`);
@@ -566,7 +571,7 @@ ${backlinksSection(backlinks)}
 <title>${esc(title)} · HTML Server</title>${description ? `<meta name="description" content="${esc(description)}">` : ''}
 ${PREFS_HEAD}<style>${noteCss()}</style></head>
 <body class="note-body">${chrome ? `<div class="page">${siteNav('pages', { explorer, current: slug })}${main}${right}${top(footer())}</div>${SIDEBAR_SCRIPT}
-${previewData(previews)}${source != null ? sourceData(source) + inlined().copy : ''}${STATIC_SITE ? '' : inlined().search}${inlined().popover}` : main}</body></html>`;
+${previewData(previews)}${source != null ? sourceData(source) + inlined().copy : ''}${isStaticSite() ? '' : inlined().search}${inlined().popover}` : main}</body></html>`;
 }
 
 const backlinksSection = (backlinks) => `<section class="backlinks"><h3>Backlinks</h3>${backlinks.length
@@ -685,7 +690,7 @@ export function localGraph(data, slug) {
 <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${n === me ? 5.5 : 4}"/><text x="${x.toFixed(1)}" y="${(y + 13).toFixed(1)}">${esc(short(n.title))}</text></a>`;
   };
   // The full graph is a page of the server's (the overlay the button opens links to it too).
-  const expand = STATIC_SITE ? '' : `<a class="graph-expand" href="/graph?page=${encodeURIComponent(slug)}" target="_top" aria-label="Open the full graph" title="Open the full graph">${ICONS.expand}</a>`;
+  const expand = isStaticSite() ? '' : `<a class="graph-expand" href="/graph?page=${encodeURIComponent(slug)}" target="_top" aria-label="Open the full graph" title="Open the full graph">${ICONS.expand}</a>`;
   return `<section class="graph-view"><h3>Graph View</h3><div class="graph-box${two ? ' crowded' : ''}">
 ${expand}
 <svg viewBox="0 0 ${W} ${H}" role="group" aria-label="Pages linked to or from this one"><g class="edges">${edges}</g><g class="nodes">${others.map(node).join('')}${node(me)}</g></svg>
@@ -981,10 +986,10 @@ time; the browser keeps it for this site. It sends the same requests as \`html-s
 
 ## Command line
 
-Install it (Node.js 24 or newer${cliHere && !STATIC_SITE ? '; from this server, the version it runs' : ''}), sign in once, and publish:
+Install it (Node.js 24 or newer${cliHere && !isStaticSite() ? '; from this server, the version it runs' : ''}), sign in once, and publish:
 
 \`\`\`sh
-${cliInstall(base, cliHere && !STATIC_SITE)}
+${cliInstall(base, cliHere && !isStaticSite())}
 html-server login --url ${base}      # asks for your token, checks it, saves it
 html-server put trip-plan.html "first draft"
 \`\`\`

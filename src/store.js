@@ -1231,7 +1231,7 @@ export class Store {
   }
 
   versionBase(a, n) {
-    return this.one('SELECT base_path FROM versions WHERE artifact_id = ? AND n = ?', a.id, n || a.latest_version)?.base_path || a.slug;
+    return this.one('SELECT base_path FROM versions WHERE artifact_id = ? AND n = ?', a.id, n ?? a.latest_version)?.base_path || a.slug;
   }
 
   /** Navigation follows published folders after a move; legacy flat syncs keep their source tree. */
@@ -1670,7 +1670,7 @@ export class Store {
   }
 
   version(a, n) {
-    const row = this.one('SELECT html FROM versions WHERE artifact_id = ? AND n = ?', a.id, n || a.latest_version);
+    const row = this.one('SELECT html FROM versions WHERE artifact_id = ? AND n = ?', a.id, n ?? a.latest_version);
     if (!row) throw new ApiError(404, 'no such version');
     return Buffer.from(row.html);
   }
@@ -1683,18 +1683,20 @@ export class Store {
   render(slug, n, viewerId, visit) {
     const a = this.readable(slug, viewerId);
     if (a.state !== ACTIVE) throw new ApiError(404, 'no such artifact');
+    n ??= a.latest_version;
     const body = this.version(a, n);
     this.countView(a, n, visit, 'url', viewerId);
-    return { body, slug: a.slug, n: n || a.latest_version, latest: a.latest_version, page: a };
+    return { body, slug: a.slug, n, latest: a.latest_version, page: a };
   }
 
   /** Capability link: works for private artifacts too, never for trashed ones. */
   renderShare(shareId, n, visit, viewerId = null) {
     const a = this.one('SELECT * FROM artifacts WHERE share_id = ?', shareId);
     if (!a || a.state !== ACTIVE) throw new ApiError(404, 'not found');
+    n ??= a.latest_version;
     const body = this.version(a, n);
     this.countView(a, n, visit, 'share', viewerId);
-    return { body, slug: a.slug, n: n || a.latest_version, latest: a.latest_version, page: a };
+    return { body, slug: a.slug, n, latest: a.latest_version, page: a };
   }
 
   /**
@@ -1872,7 +1874,7 @@ export class Store {
     const t = now();
     const visitor = sha256(`${this.visitorSecret}|${localDay(t)}|${ip}|${ua}`).slice(0, 16);
     this.run('INSERT INTO views (artifact_id, n, at, visitor, via, viewer_id) VALUES (?,?,?,?,?,?)',
-      a.id, n || a.latest_version, t, visitor, via, viewerId != null && this.trackPeople ? viewerId : null);
+      a.id, n ?? a.latest_version, t, visitor, via, viewerId != null && this.trackPeople ? viewerId : null);
   }
 
   /** Owner-only traffic report for one page (a read: found by name as pages are). */
@@ -1902,8 +1904,8 @@ export class Store {
   diff(slug, viewerId, fromN, toN, of = 'text') {
     if (!['text', 'source'].includes(of)) throw new ApiError(400, 'of must be text or source');
     const a = this.readable(slug, viewerId);
-    toN ||= a.latest_version;
-    fromN ||= Math.max(toN - 1, 1);
+    toN ??= a.latest_version;
+    fromN ??= Math.max(toN - 1, 1);
     const [oldDoc, newDoc] = [this.version(a, fromN), this.version(a, toN)].map((b) => b.toString('utf8'));
     // "Visible text" for a note is its Markdown source, which already reads as text.
     const lines = of === 'source' ? (d) => d.split(/\r?\n/) : isMarkdown(a.slug) ? noteLines
@@ -1914,7 +1916,7 @@ export class Store {
   // --- comments --------------------------------------------------------------------
   comments(slug, viewerId, n) {
     const a = this.readable(slug, viewerId);
-    return (n
+    return (n != null
       ? this.all(`${COMMENT_SELECT} WHERE c.artifact_id = ? AND c.n = ? ORDER BY c.id`, a.id, n)
       : this.all(`${COMMENT_SELECT} WHERE c.artifact_id = ? ORDER BY c.id`, a.id))
       .map((c) => ({ ...c, author: displayName(c.author, viewerId) }));
@@ -1931,7 +1933,7 @@ export class Store {
       if (parent.parent_id) throw new ApiError(400, 'reply to the top-level comment, not to a reply');
       n = parent.n;
     }
-    n ||= a.latest_version;
+    n ??= a.latest_version;
     if (n < 1 || n > a.latest_version) throw new ApiError(404, 'no such version');
     const id = this.run('INSERT INTO comments (artifact_id, n, parent_id, author_id, body, created_at) VALUES (?,?,?,?,?,?)',
       a.id, n, parentId || null, userId, body, now()).lastInsertRowid;

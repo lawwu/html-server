@@ -3,10 +3,10 @@
 export function syncRemote(api) {
   const enc = encodeURIComponent;
   return {
-    async listSourcePages(source) {
+    async listSourcePages(source, state = 'active') {
       const pages = [];
       for (let offset = 0; ; offset += 500) {
-        const batch = await api('GET', `/api/artifacts?source=${enc(source)}&limit=500&offset=${offset}`, { auth: 'required' });
+        const batch = await api('GET', `/api/artifacts?state=${enc(state)}&source=${enc(source)}&limit=500&offset=${offset}`, { auth: 'required' });
         pages.push(...batch);
         if (batch.length < 500) return pages;
       }

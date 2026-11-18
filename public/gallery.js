@@ -78,6 +78,7 @@ function fragmentUrl(q = box.value.trim()) {
 // Results already fetched on this visit, so going back to an earlier query (backspace) is instant.
 const cache = new Map();
 let cached = 0;
+function clearCache() { cache.clear(); cached = 0; }
 function remember(key, html) {
   cache.delete(key);
   cache.set(key, html);
@@ -98,13 +99,25 @@ function show(html) {
   if (!grid) results.prepend(grid = Object.assign(document.createElement('div'), { className: 'cards' }));
   const key = (el) => el.dataset.slug || el.dataset.section || '';
   const shown = new Map([...grid.children].map((el) => [key(el), el]));
+  const knownCreationTimes = new Set([...grid.querySelectorAll('iframe[data-created]')].map((frame) => frame.dataset.created));
   const parts = (card) => [...card.children].filter((el) => !el.matches('.thumb, .pick')); // all but the preview and the checkbox
   const seen = new Set();
   [...(next.content.querySelector('.cards')?.children ?? [])].forEach((el, i) => {
     let cur = shown.get(key(el));
-    if (!cur) grid.append(cur = el);
-    else if (el.matches('.card')) {
+    if (!cur) {
+      // A new address with a creation time already on the page may be a move.
+      // Coincident creation times only invalidate the cache; slugs still identify the DOM cards.
+      const created = el.querySelector('iframe[data-created]')?.dataset.created;
+      if (knownCreationTimes.has(created)) clearCache();
+      grid.append(cur = el);
+    } else if (el.matches('.card')) {
       cur.classList.toggle('pinned', el.classList.contains('pinned'));
+      const preview = cur.querySelector('.thumb iframe');
+      const nextPreview = el.querySelector('.thumb iframe');
+      if (preview && preview.getAttribute('src') !== nextPreview.getAttribute('src')) {
+        preview.replaceWith(nextPreview); // re-pointing a live iframe would add a Back entry
+        clearCache(); // older queries may still describe this page before the change
+      }
       const [now, then] = [parts(cur), parts(el)];
       if (now.map((n) => n.outerHTML).join('') !== then.map((n) => n.outerHTML).join('')) { now.forEach((n) => n.remove()); cur.append(...then); }
     }
@@ -131,7 +144,7 @@ async function search({ fresh = false, keepPage = false } = {}) {
   if (!keepPage) page = '';
   syncSort(q);
   syncUrl();
-  if (fresh) { cache.clear(); cached = 0; }
+  if (fresh) clearCache();
   const key = fragmentUrl(q);
   results.setAttribute('aria-busy', 'true');
   try {
@@ -141,9 +154,9 @@ async function search({ fresh = false, keepPage = false } = {}) {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       html = await r.text();
       if (!request.current) return;
-      remember(key, html);
     }
-    if (request.current) count.textContent = show(html);
+    count.textContent = show(html);
+    if (!cache.has(key)) remember(key, html);
   } catch {
     if (request.current) count.textContent = 'Search failed. Try again.';
   } finally {
