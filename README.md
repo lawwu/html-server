@@ -1149,6 +1149,8 @@ With MCP, call `set_page_visibility` with
 
 ## Design notes
 
+The [architecture map](EGM.md) links each component to its entry points, invariants, side effects and tests.
+
 - **Stateful workflows.** [STATE-MACHINES.md](STATE-MACHINES.md) maps browser, domain,
   server and command workflows to their states, guards and tests. Shared browser reads
   accept only the latest response; writes ignore duplicate submissions while pending.
