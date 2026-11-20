@@ -8,7 +8,7 @@
 # SQLite in the /data volume by default; set DATABASE_URL for PostgreSQL (README: Docker).
 
 # Build: production dependencies only, with pg-native compiled against Debian's libpq.
-FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d AS build
+FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential python3 libpq-dev \
  && rm -rf /var/lib/apt/lists/*
@@ -20,7 +20,7 @@ RUN npm ci --omit=dev --no-audit --no-fund \
  && node -e "require('pg-native')"
 
 # Run: the code, its dependencies, libpq, and nothing to build with.
-FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
+FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0
 # libpq5 for PostgreSQL, ca-certificates for its sslrootcert=system, tini to pass
 # `docker stop` on to Node (as PID 1, Node would ignore it and be killed 10 s later).
 RUN apt-get update \
