@@ -265,8 +265,9 @@ Any single-file HTML page: reports, explainers, dashboards, small tools. A page'
 JavaScript runs, in a sandbox that keeps it away from the API and your sign-in.
 
 **Opened from a link outside the site** (typed, bookmarked, shared in chat or email, or a link
-inside another page) a page is shown on its own, as it was written. **Opened from the site's own
-pages** (the sidebar, search, gallery cards, backlinks, the graph), or with `?frame=1`, it sits
+inside another page), or from a card on the home page or the gallery, a page is shown on its own,
+as it was written. **Opened from the site's other links** (the sidebar, search, backlinks, the
+graph), or with `?frame=1`, it sits
 in the site's frame: the top bar and sidebar, a title bar with its
 tags, history, comments, **Copy HTML** and "full page ↗", then the page itself in its own
 design, then its local graph and backlinks. The frame grows to the page's full height, so
@@ -510,8 +511,8 @@ From then on a view made while signed in also records who made it, kept as long 
 
 **Gallery** (`/gallery`) shows the example pages that ship in this package's `gallery/`
 folder, read-only, so every install has them and they never mix with your own. In a browser
-tab an example opened from the gallery sits in the site's frame, as your pages do; a link to it from
-elsewhere shows the example alone (`?frame=1` and `?raw=1` choose).
+tab an example opened from its card shows on its own, as your pages do; opened from the sidebar or
+search, or with `?frame=1`, it sits in the site's frame.
 Sixteen of them show the skills of [effective-html](https://github.com/plannotator/effective-html),
 two per skill: filter by **Effective HTML**, or open them from the table on **About**. To make
 one your own, copy it and `html-server put` it.

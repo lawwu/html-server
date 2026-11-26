@@ -88,6 +88,11 @@ test('a page opened from outside the site is shown alone; opened from the site, 
   await page.frameLocator('.page-frame').locator('#local').waitFor();
   await page.reload(); // a reload keeps the frame
   await page.frameLocator('.page-frame').locator('#local').waitFor();
+  await page.goto(base + '/'); // a card on the home page opens the page alone
+  await page.locator('article.card .head a', { hasText: 'Links' }).first().click();
+  await page.waitForURL(base + '/pages/links.html?raw=1');
+  await page.locator('#local').waitFor();
+  assert.equal(await page.locator('.page-frame').count(), 0);
 });
 
 test('frame navigation ignores spoofed sources, unsafe protocols, and messages without a gesture', async () => {
