@@ -504,7 +504,7 @@ test('/gallery: the bundled example pages, filterable and searchable', async () 
   assert.match(page, /<title>Gallery · HTML Server<\/title>/);
   assert.equal(page.match(/<article class="card[^"]*"/g).length, examples().length);
   assert.match(page, /Machine learning <span>2<\/span>/);
-  assert.match(page, /href="\/gallery\/kmeans-step-through.html"/);
+  assert.match(page, /href="\/gallery\/kmeans-step-through.html\?raw=1"/);
   assert.match(page, /data-base="\/gallery"/);
   const [, ml] = await req('GET', '/gallery?category=machine-learning');
   assert.equal(ml.match(/<article class="card[^"]*"/g).length, 2);
@@ -574,7 +574,7 @@ test('footer and docs link to the GitHub release that is running, not the reposi
 test('cards put the category chip beside the title', async () => {
   await put('c.html', '<title>Chart</title><meta name="category" content="data-viz">');
   assert.match((await req('GET', '/'))[1],
-    /<div class="head"><h2><a href="\/pages\/c.html">Chart<\/a><\/h2>\s*<span class="tags"><a class="tag" href="\/\?category=data-viz">Data visualization<\/a><\/span><\/div>/);
+    /<div class="head"><h2><a href="\/pages\/c.html\?raw=1">Chart<\/a><\/h2>\s*<span class="tags"><a class="tag" href="\/\?category=data-viz">Data visualization<\/a><\/span><\/div>/);
 });
 
 test('graph: pages and the links between them, visibility-aware, local or global', async () => {
@@ -632,7 +632,7 @@ test('search highlights matched words in titles and snippets, typos included', a
   assert.equal(hits[0].title_highlight, '[Draft] Family [budget]'); // the API: [brackets]
   assert.match(hits[0].snippet, /monthly \[budget\] review/);
   const [, frag] = await req('GET', '/?q=budgt&fragment=1');
-  assert.match(frag, /<h2><a href="\/pages\/fam.html">\[Draft\] Family <mark>budget<\/mark><\/a><\/h2>/); // literal [Draft] stays text
+  assert.match(frag, /<h2><a href="\/pages\/fam.html\?raw=1">\[Draft\] Family <mark>budget<\/mark><\/a><\/h2>/); // literal [Draft] stays text
   assert.match(frag, /monthly <mark>budget<\/mark> review/);
   assert.equal((await req('GET', '/api/artifacts'))[1][0].title_highlight, undefined); // not searching: no highlight fields
 });
@@ -1605,8 +1605,8 @@ test('search puts pages with the words in their title first, in whatever order i
   }
   assert.deepEqual(await top('sort=updated'), ['ticket.html', 'ticket-2.html', 'board-7.html']); // then the order chosen
   const [, cards] = await req('GET', '/?q=ACC-18&sort=updated&fragment=1'); // the home page, with a sort it remembered
-  assert.match(cards, /^[^]*?href="\/pages\/ticket\.html"/);
-  assert.equal(cards.indexOf('href="/pages/ticket.html"') < cards.indexOf('href="/pages/board-7.html"'), true);
+  assert.match(cards, /^[^]*?href="\/pages\/ticket\.html\?raw=1"/);
+  assert.equal(cards.indexOf('href="/pages/ticket.html?raw=1"') < cards.indexOf('href="/pages/board-7.html?raw=1"'), true);
 });
 
 test('diffs: big versions with a few changes are quick; versions too far apart say so instead of using GBs', async () => {

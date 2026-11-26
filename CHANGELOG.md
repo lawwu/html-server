@@ -8,6 +8,10 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.21.1 (2026-11-26)
+
+- **Cards open pages on their own.** Clicking a card on the home page or in the gallery now shows the HTML page alone, as a shared link does. The sidebar, search and backlinks still open it in the site's frame.
+
 ## 0.21.0 (2026-11-26)
 
 - **Pages open on their own by default.** A link to an HTML page from outside the site (typed, bookmarked, shared in chat or email, or followed from another page) now shows just the page. The site's frame (sidebar, title bar, graph, backlinks) appears when you open a page from the site itself, such as the sidebar, search, or gallery, or when the link has `?frame=1`. `?raw=1` still always shows the page alone.

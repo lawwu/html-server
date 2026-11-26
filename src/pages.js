@@ -7,6 +7,7 @@ import { fileBytes, fileText } from './files.js';
 import { barList, columnChart, heroTile, sparkline, stackedColumnChart } from './charts.js';
 import { HIT, escapeHtml as esc, groupedOpcodes, markHits } from './text.js';
 import { renderMarkdown } from './markdown.js';
+import { isNote } from './notebook.js';
 import { SKILLS, SKILLS_REPO } from './examples.js';
 import { encodePath } from './paths.js';
 import { usage } from './usage.js';
@@ -184,6 +185,8 @@ export function galleryCards(items, q, { base = '/' } = {}) {
     const title = hits?.title ? markHits(esc(hits.title)) : esc(i.title);
     const snippet = hits?.snippet ? markHits(esc(hits.snippet)) : esc(i.description);
     const S = encodePath(i.slug);
+    // A card opens an HTML page on its own, as a link from outside the site would; a note has only the site's view.
+    const open = isStaticSite() || isNote(i.slug) ? i.url : `${i.url}?raw=1`;
     // A purged name may be published again as v1, so distinguish the page as well as its version.
     const preview = `${i.url}?preview=1${i.example ? '' : `&v=${i.latest_version}&created=${i.created_at}`}`;
     const tags = i.tags ?? (i.category ? [i.category] : []);
@@ -195,9 +198,9 @@ export function galleryCards(items, q, { base = '/' } = {}) {
     · <a href="/review/${S}">review</a> · <a href="/history/${S}">history</a>`;
     return `<article class="card${i.pinned ? ' pinned' : ''}" data-slug="${esc(i.slug)}">
   ${i.example ? '' : `<label class="pick"><input type="checkbox" value="${esc(i.slug)}" aria-label="Select ${esc(i.title)}"></label>`}
-  <a class="thumb" href="${esc(i.url)}" tabindex="-1" aria-hidden="true"><iframe src="${esc(preview)}" loading="lazy"
+  <a class="thumb" href="${esc(open)}" tabindex="-1" aria-hidden="true"><iframe src="${esc(preview)}" loading="lazy"
     ${i.example ? '' : `data-created="${esc(i.created_at)}" `}scrolling="no" title="" tabindex="-1"></iframe></a>
-  <div class="head"><h2>${i.pinned ? PIN : ''}<a href="${esc(i.url)}">${title}</a></h2>
+  <div class="head"><h2>${i.pinned ? PIN : ''}<a href="${esc(open)}">${title}</a></h2>
   ${tags.length ? `<span class="tags">${tags.slice(0, 3).map(chip).join('')}${tags.length > 3 ? `<span class="more">+${tags.length - 3}</span>` : ''}</span>` : ''}</div>
   ${snippet ? `<p class="desc">${snippet}</p>` : ''}
   <p class="meta">${meta}</p>
@@ -1059,8 +1062,8 @@ curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"
   outputs. Images and PDFs that notes embed are assets (\`/api/assets\`).
 - **Everything is public** unless uploaded with \`X-Visibility: private\`. **anyone\*** below means anyone for
   public pages, and only the owner (by token) for private or trashed ones.
-- **Opened from outside the site** (a typed or shared link) an HTML page is shown on its own. Opened from the
-  site's own pages (sidebar, search, gallery, backlinks), or with \`?frame=1\`, it sits in the site's frame
+- **Opened from outside the site** (a typed or shared link) or from a card on the home page, an HTML page is
+  shown on its own. Opened from the site's other links (sidebar, search, backlinks), or with \`?frame=1\`, it sits in the site's frame
   (sidebar, title bar, graph, backlinks), sized to the page; ⌘K inside the page opens search, and links it
   follows open in the tab. Iframes, curl and other clients always get the page itself, as does \`?raw=1\`.
 - **Gallery:** a page's \`<meta name="description">\` and \`<meta name="category">\` become its card text and

@@ -193,7 +193,7 @@ export class PageDelivery {
   /**
    * An HTML page opened in a browser tab is shown on its own by default. It gets the site's
    * frame around it (see frame) only when asked for: by ?frame=1, or by following a link on
-   * one of the site's own pages (the sidebar, search, gallery cards, backlinks: the browser
+   * one of the site's own pages (the sidebar, search, backlinks; cards add ?raw=1: the browser
    * says the navigation is same-origin; a page's own links come from its sandbox, so they
    * don't count). Never for the frame's own iframe, gallery previews, the review page, curl
    * and other clients (which send no Sec-Fetch-Dest), or ?raw=1.
