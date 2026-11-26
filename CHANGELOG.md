@@ -8,8 +8,11 @@ couldn't be migrated would be a major version.
 
 ## Unreleased
 
+## 0.21.0 (2026-11-26)
+
 - **Pages open on their own by default.** A link to an HTML page from outside the site (typed, bookmarked, shared in chat or email, or followed from another page) now shows just the page. The site's frame (sidebar, title bar, graph, backlinks) appears when you open a page from the site itself, such as the sidebar, search, or gallery, or when the link has `?frame=1`. `?raw=1` still always shows the page alone.
 - **Open a search result on its own.** In ⌘K search, ⌘Enter, Ctrl+Enter, ⌘-click or a middle click opens the result in a new tab. An HTML page opens there by itself, without the frame.
+- **Dependencies.** The Docker image uses Node 24.22.3, and marked, openid-client and parse5 are updated.
 
 ## 0.20.0 (2026-11-17)
 
