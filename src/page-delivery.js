@@ -13,14 +13,15 @@ import { pageMeta, summary } from './store.js';
 import { ApiError, decodeEntities, escapeHtml, extractText, metaContent } from './text.js';
 
 export class PageDelivery {
-  #store; #origin; #query; #document; #viewerId; #visit; #theme; #sidebar; #sso; #search;
+  #store; #origin; #query; #document; #fromSite; #viewerId; #visit; #theme; #sidebar; #sso; #search;
 
-  constructor(store, { origin, query = '', document = false, viewer = null, visit = null, theme, sidebar, sso = false } = {}) {
+  constructor(store, { origin, query = '', document = false, fromSite = false, viewer = null, visit = null, theme, sidebar, sso = false } = {}) {
     this.#store = store;
     this.#origin = origin;
     this.#query = new URLSearchParams(query);
     this.#search = query ? (String(query).startsWith('?') ? String(query) : `?${query}`) : '';
     this.#document = document;
+    this.#fromSite = fromSite;
     this.#viewerId = viewer;
     this.#visit = visit;
     this.#theme = theme;
@@ -190,13 +191,16 @@ export class PageDelivery {
   }
 
   /**
-   * An HTML page opened directly in a browser tab gets the site's frame around it (see
-   * frame). Everything else gets the page itself: the frame's own iframe, gallery
-   * previews and the review page (all iframe loads), curl and other clients (which send
-   * no Sec-Fetch-Dest), and ?raw=1.
+   * An HTML page opened in a browser tab is shown on its own by default. It gets the site's
+   * frame around it (see frame) only when asked for: by ?frame=1, or by following a link on
+   * one of the site's own pages (the sidebar, search, gallery cards, backlinks: the browser
+   * says the navigation is same-origin; a page's own links come from its sandbox, so they
+   * don't count). Never for the frame's own iframe, gallery previews, the review page, curl
+   * and other clients (which send no Sec-Fetch-Dest), or ?raw=1.
    */
   #wantsFrame() {
-    return this.#document && !this.#query.get('raw') && !this.#query.get('embed') && !this.#preview();
+    return this.#document && !this.#query.get('raw') && !this.#query.get('embed') && !this.#preview()
+      && (this.#fromSite || !!this.#query.get('frame'));
   }
 
   /**

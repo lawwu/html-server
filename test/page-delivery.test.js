@@ -30,10 +30,12 @@ test('HTML presentation modes own version selection, decorations and view counti
     { query: '?v=1&embed=1', kind: 'artifact', count: 1, embed: true },
     { query: '?v=1&embed=1&preview=1', kind: 'artifact', count: 0, preview: true },
     { query: '?v=1&raw=1&toc=0', kind: 'artifact', count: 1, badge: true },
+    { query: '?v=1', outside: true, kind: 'artifact', count: 1, toc: true, badge: true },
+    { query: '?v=1&frame=1', outside: true, kind: 'site', count: 0 },
   ];
   let views = 0;
   for (const c of cases) {
-    const r = new PageDelivery(store, { document: true, query: c.query, visit: ['127.0.0.1', 'Mozilla/5.0'] }).named('report.html');
+    const r = new PageDelivery(store, { document: true, fromSite: !c.outside, query: c.query, visit: ['127.0.0.1', 'Mozilla/5.0'] }).named('report.html');
     assert.equal(r.kind, c.kind, c.query);
     const body = r.body.toString();
     if (c.kind === 'site') {
@@ -50,7 +52,7 @@ test('HTML presentation modes own version selection, decorations and view counti
     views += c.count;
     assert.equal(store.views(owner, 'report.html').views, views, c.query);
   }
-  assert.throws(() => new PageDelivery(store, { document: true, query: '?v=99' }).named('report.html'), { status: 404 });
+  assert.throws(() => new PageDelivery(store, { document: true, fromSite: true, query: '?v=99' }).named('report.html'), { status: 404 });
   assert.equal(store.views(owner, 'report.html').views, views);
 });
 
@@ -73,7 +75,7 @@ test('shared HTML remains sandboxed, keeps authored links and grants assets even
   put('source/report.html', html + '<!-- v2 -->');
   store.movePages(owner, [{ from: 'source/report.html', to: 'archive/report.html' }]);
   const page = store.find('archive/report.html');
-  const result = new PageDelivery(store, { document: true, sso: true, query: '?v=1', viewer: rejectedViewer }).shared(page.share_id);
+  const result = new PageDelivery(store, { document: true, fromSite: true, sso: true, query: '?v=1', viewer: rejectedViewer }).shared(page.share_id);
   assert.equal(result.kind, 'artifact');
   const body = result.body.toString();
   assert.ok(body.startsWith('<!doctype html>'));
@@ -99,7 +101,7 @@ test('note and notebook delivery isolates surrounding data while preserving page
     put(name, source, { visibility: 'private' });
     const page = store.find(name);
     for (const query of ['', '?preview=1', '?embed=1']) {
-      const result = new PageDelivery(store, { viewer, query, document: true }).shared(page.share_id);
+      const result = new PageDelivery(store, { viewer, query, document: true, fromSite: true }).shared(page.share_id);
       assert.equal(result.kind, 'artifact');
       const body = result.body.toString();
       for (const hidden of ['Unrelated private title', 'private-preview-marker', Buffer.from('<svg>private-asset-marker</svg>').toString('base64')]) {
@@ -113,7 +115,7 @@ test('note and notebook delivery isolates surrounding data while preserving page
     }
   }
   put('frame.html', article('Trusted frame'));
-  assert.ok(new PageDelivery(store, { viewer, document: true }).named('frame.html').body.includes('Unrelated private title'));
+  assert.ok(new PageDelivery(store, { viewer, document: true, fromSite: true }).named('frame.html').body.includes('Unrelated private title'));
 });
 
 test('examples ignore version parameters and need a viewer only for the trusted frame', async (t) => {
@@ -123,6 +125,6 @@ test('examples ignore version parameters and need a viewer only for the trusted 
   assert.equal(raw.kind, 'artifact');
   assert.equal(raw.preview, true);
   assert.equal(raw.body.toString(), exampleHtml(file).toString());
-  assert.throws(() => new PageDelivery(store, { document: true, viewer: rejectedViewer }).example(file), { status: 401 });
-  assert.throws(() => new PageDelivery(store, { document: true, viewer: rejectedViewer }).example('missing.html'), { status: 404 });
+  assert.throws(() => new PageDelivery(store, { document: true, fromSite: true, viewer: rejectedViewer }).example(file), { status: 401 });
+  assert.throws(() => new PageDelivery(store, { document: true, fromSite: true, viewer: rejectedViewer }).example('missing.html'), { status: 404 });
 });

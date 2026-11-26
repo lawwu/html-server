@@ -945,7 +945,7 @@ test('about and skills: /about lists effective-html\'s skills with their example
 
   // An example in a browser tab gets the frame, its skill's folder open; the frame's iframe gets it sized to fit.
   const get = async (path, dest) => {
-    const r = await fetch(`${base}${path}`, { headers: { 'user-agent': BROWSER, 'sec-fetch-dest': dest } });
+    const r = await fetch(`${base}${path}`, { headers: { 'user-agent': BROWSER, 'sec-fetch-dest': dest, 'sec-fetch-site': 'same-origin' } });
     return [r.status, await r.text(), r.headers.get('content-security-policy')];
   };
   const [status, frame, frameCsp] = await get('/gallery/ab-test-readout.html', 'document');
@@ -1091,11 +1091,11 @@ test('notes: rendered hover previews of linked notes, the site graph for the liv
   assert.match(await gz.text(), /<h1 class="article-title">Alpha<\/h1>/);
 });
 
-test('an HTML page opened in a browser tab gets the frame; iframes, clients and ?raw=1 get the page', async () => {
+test('an HTML page opened from the site or with ?frame=1 gets the frame; other tabs, iframes, clients and ?raw=1 get the page', async () => {
   await put('framed.html', '<title>Framed</title><meta name="category" content="trips"><p>inside</p>');
   await put('Points.md', 'See [[framed]]');
-  const get = async (path, dest) => {
-    const r = await fetch(`${base}${path}`, { headers: { 'user-agent': 'Mozilla/5.0', ...(dest ? { 'sec-fetch-dest': dest } : {}) } });
+  const get = async (path, dest, site = 'same-origin') => {
+    const r = await fetch(`${base}${path}`, { headers: { 'user-agent': 'Mozilla/5.0', ...(dest ? { 'sec-fetch-dest': dest } : {}), ...(site ? { 'sec-fetch-site': site } : {}) } });
     return [await r.text(), r.headers];
   };
   const [frame, fh] = await get('/pages/framed', 'document');
@@ -1116,6 +1116,13 @@ test('an HTML page opened in a browser tab gets the frame; iframes, clients and 
     assert.match(h.get('content-security-policy'), /sandbox/);
     assert.doesNotMatch(raw, /data-html-server-in-frame/, `${path} ${dest}`); // only in the frame
   }
+  // Opened from outside the site (typed, shared, or a link inside a sandboxed page): the page on its own.
+  for (const site of ['none', 'cross-site', null]) {
+    const [alone, h] = await get('/pages/framed', 'document', site);
+    assert.match(alone, /<p>inside<\/p>/, String(site));
+    assert.match(h.get('content-security-policy'), /sandbox/);
+  }
+  assert.match((await get('/pages/framed?frame=1', 'document', 'none'))[0], /<iframe class="page-frame auto"/);
   // In the frame, the page opts in to responsive iframes and reports its height.
   const [embedded] = await get('/pages/framed?embed=1', 'iframe');
   assert.match(embedded, /<meta name="responsive-embedded-sizing" content="allow-origins=\*">/);

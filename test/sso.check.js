@@ -91,7 +91,7 @@ test('SSO in Chromium: sign in, upload without a token, and an uploaded page get
   assert.deepEqual(axe.violations.map((v) => ({ id: v.id, targets: v.nodes.map((n) => n.target) })), [], 'the account page');
 
   // A hostile uploaded page, opened while signed in: its requests carry nothing of the session.
-  await page.goto(`${base}/pages/hostile.html`);
+  await page.goto(`${base}/pages/hostile.html?frame=1`);
   const frame = page.frameLocator('.page-frame');
   const results = JSON.parse(await frame.locator('#out').filter({ hasNotText: 'running' }).textContent());
   assert.notEqual(results.me, 200, JSON.stringify(results));
