@@ -53,7 +53,7 @@ export const ROUTES = [
     'The graph as JSON: `nodes` (pages, with links in and out) and `edges` (`source` → `target` page ids); same `?page=` and `?depth=`'],
   ['GET', '/gallery/?', 'examples', 'anyone', 'The example pages that ship with HTML Server, with the same filters and search'],
   ['GET', '/gallery/(?<file>[A-Za-z0-9][\\w.-]*\\.html)', 'example', 'anyone',
-    'One example page: in a browser tab, in the site\'s frame, as a page is; `?raw=1` for the example alone'],
+    'One example page, as a page is: on its own, or in the site\'s frame when opened from the site or with `?frame=1`'],
   ['GET', '/docs/?', 'docs', 'anyone', 'This page: using HTML Server from the command line, MCP and HTTP'],
   ['GET', '/api/?', 'docs', 'anyone', 'The same page'],
   ['GET', '/docs\\.md', 'docsSource', 'anyone', 'This page as Markdown'],
@@ -74,8 +74,8 @@ export const ROUTES = [
   ['GET', '/robots\\.txt', 'notFound', 'anyone', null],
   ['GET', `/pages/${SLUG}`, 'render', 'anyone*',
     'The page itself, e.g. `/pages/trip-plan` or `/pages/trip-plan.html` (`.html` optional). `?v=n` for an old version.'
-    + ' A note always renders in the site layout; an HTML page opened in a browser tab gets the site\'s frame, everything'
-    + ' else (iframes, curl, `?raw=1`) the page alone. `?embed=1`: the page as the frame shows it, sized to fit'],
+    + ' A note always renders in the site layout; an HTML page is shown on its own, and gets the site\'s frame in a browser'
+    + ' tab only when opened from the site\'s own pages or with `?frame=1` (`?raw=1` never). `?embed=1`: the page as the frame shows it, sized to fit'],
   ['GET', `/${SLUG}`, 'render', 'anyone*', 'Short alias for `/pages/<slug>`, e.g. `/trip-plan.html`'],
   ['GET', '/v/(?<share>[\\w-]+)', 'renderShare', 'anyone with the link',
     'A page by its `share_url`; works for private pages. `?v=n` for an old version'],
@@ -256,6 +256,7 @@ class Ctx {
     const cookie = this.req.headers.cookie || '';
     const delivery = new PageDelivery(this.store, {
       origin: this.origin(), query: this.url.search, document: this.req.headers['sec-fetch-dest'] === 'document',
+      fromSite: this.req.headers['sec-fetch-site'] === 'same-origin',
       viewer: () => this.viewerId(), visit: this.visit(), sso: !!sso(),
       theme: cookie.match(/(?:^|;\s*)theme=(dark|light)/)?.[1],
       sidebar: cookie.match(/(?:^|;\s*)sidebar=(hidden)(?:;|$)/)?.[1],

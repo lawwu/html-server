@@ -52,7 +52,7 @@ afterEach(async () => { await context.close(); assert.deepEqual(errors, []); });
 test('HTML, Markdown and notebook scripts cannot read sign-in storage or parent chrome', async () => {
   await page.goto(base + '/docs');
   await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
-  await page.goto(base + '/pages/hostile.html');
+  await page.goto(base + '/pages/hostile.html?frame=1');
   const child = page.frameLocator('.page-frame');
   await child.locator('p').waitFor();
   const frame = page.frames().find((f) => f.url().includes('embed=1'));
@@ -72,24 +72,36 @@ test('anonymous and private reviews render, and generated frame links navigate t
   await page.evaluate((t) => localStorage.setItem('artifact_token', t), token);
   await page.goto(base + '/review/private.md');
   await page.frameLocator('#frame').getByText('Private content', { exact: true }).waitFor();
-  await page.goto(base + '/pages/links.html');
+  await page.goto(base + '/pages/links.html?frame=1');
   await page.frameLocator('.page-frame').locator('#local').click();
   await page.waitForURL(base + '/pages/beta.md');
   assert.equal(await page.locator('h1.article-title').textContent(), 'Beta');
 });
 
+test('a page opened from outside the site is shown alone; opened from the site, it gets the frame', async () => {
+  await page.goto(base + '/pages/links.html'); // typed, bookmarked or shared
+  await page.locator('#local').waitFor();
+  assert.equal(await page.locator('.page-frame').count(), 0);
+  await page.goto(base + '/');
+  await page.locator('#left-sidebar').getByRole('link', { name: 'Links', exact: true }).first().click();
+  await page.waitForURL(base + '/pages/links.html');
+  await page.frameLocator('.page-frame').locator('#local').waitFor();
+  await page.reload(); // a reload keeps the frame
+  await page.frameLocator('.page-frame').locator('#local').waitFor();
+});
+
 test('frame navigation ignores spoofed sources, unsafe protocols, and messages without a gesture', async () => {
-  await page.goto(base + '/pages/no-gesture.html');
+  await page.goto(base + '/pages/no-gesture.html?frame=1');
   await page.waitForTimeout(250); // the artifact's own timer posts without a DevTools-created gesture
-  assert.equal(page.url(), base + '/pages/no-gesture.html');
-  await page.goto(base + '/pages/links.html');
+  assert.equal(page.url(), base + '/pages/no-gesture.html?frame=1');
+  await page.goto(base + '/pages/links.html?frame=1');
   await page.frameLocator('.page-frame').locator('#local').waitFor();
   const frame = page.frames().find((f) => f.url().includes('embed=1'));
   await page.mouse.click(1, 1); // a gesture cannot authorize the wrong message source
   await page.evaluate(() => postMessage({ htmlServer: 'go', href: location.origin + '/docs' }, '*'));
   await frame.evaluate(() => parent.postMessage({ htmlServer: 'go', href: 'javascript:window.pwned=1' }, '*'));
   await page.waitForTimeout(100);
-  assert.equal(page.url(), base + '/pages/links.html');
+  assert.equal(page.url(), base + '/pages/links.html?frame=1');
   assert.equal(await page.evaluate(() => !!window.pwned), false);
 });
 
@@ -108,6 +120,27 @@ test('search contains keyboard focus, restores it, and activates a result', asyn
   await page.locator('.search-results a').first().waitFor();
   await page.keyboard.press('Enter');
   await page.waitForURL(base + '/pages/beta.md');
+});
+
+test('⌘Enter, ⌘-click and a middle click on a search result open it alone in a new tab', async () => {
+  const search = async () => {
+    await page.goto(base + '/docs');
+    await page.keyboard.press('Control+k');
+    await page.locator('.search-modal input').fill('Links');
+    await page.locator('.search-results a', { hasText: 'Links' }).first().waitFor();
+  };
+  for (const how of ['enter', 'click', 'middle']) {
+    await search();
+    const opened = context.waitForEvent('page');
+    if (how === 'enter') await page.keyboard.press('ControlOrMeta+Enter');
+    else await page.locator('.search-results a', { hasText: 'Links' }).first().click(how === 'click' ? { modifiers: ['ControlOrMeta'] } : { button: 'middle' });
+    const tab = await opened;
+    await tab.waitForLoadState();
+    assert.equal(tab.url(), base + '/pages/links.html?raw=1', how);
+    assert.equal(await tab.locator('#local').count(), 1, how);
+    assert.equal(page.url(), base + '/docs', how); // this tab stays where it was
+    await tab.close();
+  }
 });
 
 test('graph links activate with Enter and its dialog restores focus', async () => {
@@ -611,7 +644,7 @@ test('sign out: the top bar names who is signed in and forgets the token; notes 
 test('the top bar: the same sections on every page, and still there with the sidebar hidden', async () => {
   const sections = () => page.getByRole('navigation', { name: 'Site' }).getByRole('link').allTextContents();
   const want = ['Pages', 'Graph', 'Stats', 'Gallery', 'Docs', 'About'];
-  for (const path of ['/', '/stats', '/docs', '/pages/alpha.md', '/pages/links.html', '/review/alpha.md']) {
+  for (const path of ['/', '/stats', '/docs', '/pages/alpha.md', '/pages/links.html?frame=1', '/review/alpha.md']) {
     await page.goto(base + path);
     assert.deepEqual(await sections(), want, path);
   }
@@ -632,7 +665,7 @@ test('moving between pages shifts nothing: the bar, its links and the page start
   });
   await page.goto(base + '/');
   const home = await where();
-  for (const path of ['/pages/alpha.md', '/pages/links.html', '/gallery', '/gallery/ab-test-readout.html', '/stats', '/graph', '/docs', '/about', '/history/alpha.md']) {
+  for (const path of ['/pages/alpha.md', '/pages/links.html?frame=1', '/gallery', '/gallery/ab-test-readout.html?frame=1', '/stats', '/graph', '/docs', '/about', '/history/alpha.md']) {
     await page.goto(base + path);
     assert.deepEqual(await where(), home, path);
   }
@@ -738,7 +771,7 @@ test("the graph draws a page's category as text, never as markup", async () => {
 });
 
 test("Copy HTML never copies an error as if it were the page", async () => {
-  await page.goto(base + '/pages/links.html');
+  await page.goto(base + '/pages/links.html?frame=1');
   await page.route('**/api/artifacts/links.html/versions/*', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"sign in, or send a bearer token"}' }));
   const button = page.getByRole('button', { name: 'Copy HTML' });
   await button.click();
@@ -766,13 +799,13 @@ test('a browser folder upload and copied embed load the selected version’s mod
   }
   await upload();
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.goto(base + '/pages/browser-site.html');
+  await page.goto(base + '/pages/browser-site.html?frame=1');
   const frame = page.frameLocator('.page-frame');
   await frame.getByText('First', { exact: true }).waitFor();
   assert.equal(await frame.locator('p').evaluate((p) => getComputedStyle(p).color), 'rgb(17, 34, 51)');
   await frame.getByRole('link', { name: 'Details' }).click();
   await frame.getByRole('heading', { name: 'Details of this report' }).waitFor();
-  assert.equal(page.url(), base + '/pages/browser-site.html');
+  assert.equal(page.url(), base + '/pages/browser-site.html?frame=1');
   const copy = async () => {
     await page.locator('[data-embed]').click();
     return page.evaluate(() => navigator.clipboard.readText());

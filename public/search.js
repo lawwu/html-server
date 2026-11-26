@@ -1,6 +1,7 @@
 // Search from anywhere, like Quartz: ⌘K or Ctrl+K (or / when not typing), or click the
 // sidebar's search box. Results come from /api/search as you type; arrows move, Enter
-// opens. Where the page can't fetch (some browsers block a sandboxed note's requests), it
+// opens. ⌘/Ctrl+Enter, ⌘/Ctrl-click or a middle click opens the result in a new tab, an HTML
+// page on its own (?raw=1) rather than in the site's frame. Where the page can't fetch (some browsers block a sandboxed note's requests), it
 // matches titles from the explorer already on the page, and Enter searches everything.
 import { trapModal } from './modal.js';
 import { latestRequest } from './async-state.js';
@@ -11,6 +12,13 @@ const reading = latestRequest();
 const cache = new Map(); // query → results, for this visit: going back to an earlier query is instant
 
 const go = (url) => { try { window.top.location.href = url; } catch { location.href = url; } };
+// An HTML page alone; a note has no view but the site's, so it opens as it is.
+const alone = (url) => {
+  const u = new URL(url, location.href);
+  if (u.origin === location.origin && !/\.(md|ipynb)$/i.test(u.pathname)) u.searchParams.set('raw', '1');
+  return u.href;
+};
+const goAlone = (url) => window.open(alone(url), '_blank', 'noopener');
 const marked = (s) => {
   // The API brackets matched words: "the [graph] view" → mark them.
   const frag = document.createDocumentFragment();
@@ -47,7 +55,8 @@ function open() {
         select(Math.max(0, Math.min(items.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1))));
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (items[at]) go(items[at].url);
+        if (items[at] && (e.metaKey || e.ctrlKey)) goAlone(items[at].url);
+        else if (items[at]) go(items[at].url);
         else if (input.value.trim()) go(`/?q=${encodeURIComponent(input.value.trim())}`);
       }
     });
@@ -102,6 +111,8 @@ function show(results, message) {
       p.append(marked(r.snippet || r.description));
       a.append(p);
     }
+    a.addEventListener('click', (e) => { if (e.metaKey || e.ctrlKey) { e.preventDefault(); goAlone(r.url); } });
+    a.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); goAlone(r.url); } });
     li.append(a);
     li.addEventListener('mousemove', () => { if (at !== i) select(i); });
     return li;

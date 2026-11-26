@@ -264,7 +264,10 @@ paths in `publish_page`, folder filters in search/list, and the `move_pages` too
 Any single-file HTML page: reports, explainers, dashboards, small tools. A page's
 JavaScript runs, in a sandbox that keeps it away from the API and your sign-in.
 
-**In a browser tab** a page sits in the site's frame: the top bar and sidebar, a title bar with its
+**Opened from a link outside the site** (typed, bookmarked, shared in chat or email, or a link
+inside another page) a page is shown on its own, as it was written. **Opened from the site's own
+pages** (the sidebar, search, gallery cards, backlinks, the graph), or with `?frame=1`, it sits
+in the site's frame: the top bar and sidebar, a title bar with its
 tags, history, comments, **Copy HTML** and "full page ↗", then the page itself in its own
 design, then its local graph and backlinks. The frame grows to the page's full height, so
 the whole thing scrolls as one page: natively with [responsive
@@ -279,6 +282,9 @@ window, and ⌘-clicks, are the browser's as always.
 
 Only browser tabs get the frame. Iframes, gallery previews, the review page, curl and
 other clients get the page itself, as does `?raw=1`, and the frame isn't counted as a view.
+The server tells a link on its own pages from any other by the browser's `Sec-Fetch-Site`
+header, so the address stays the same either way: copying it from a framed page shares the
+page on its own.
 A gallery preview runs the page's scripts and nothing more, whatever `--sandbox-allow`
 adds: a card can't open windows, show alerts or send the gallery's tab elsewhere.
 
@@ -415,7 +421,8 @@ the SIL Open Font License, licences in `public/fonts`) and its three-column layo
   bookmark it). `/random?folder=research` or `/random?category=trips` picks one in a
   folder or with a tag, and `?not=NAME` skips a page.
 - **Search from anywhere:** ⌘K, Ctrl+K or `/` opens a search box with live results;
-  arrows move, Enter opens. Inside an HTML page in the frame, ⌘K and Ctrl+K do too. On
+  arrows move, Enter opens. ⌘Enter, Ctrl+Enter, ⌘-click or a middle click opens a result in a
+  new tab, an HTML page on its own rather than in the frame. Inside an HTML page in the frame, ⌘K and Ctrl+K do too. On
   the home page the same keys go to its own search box, which filters the cards instead,
   keeping each card's live preview as it is rather than loading it again. Search is typo-tolerant (including in the start of a longer word:
   "gardn" finds "gardening"), finds other forms of a word ("studies" finds "study"), ranks
@@ -503,7 +510,8 @@ From then on a view made while signed in also records who made it, kept as long 
 
 **Gallery** (`/gallery`) shows the example pages that ship in this package's `gallery/`
 folder, read-only, so every install has them and they never mix with your own. In a browser
-tab an example sits in the site's frame, as your pages do (`?raw=1` for the example alone).
+tab an example opened from the gallery sits in the site's frame, as your pages do; a link to it from
+elsewhere shows the example alone (`?frame=1` and `?raw=1` choose).
 Sixteen of them show the skills of [effective-html](https://github.com/plannotator/effective-html),
 two per skill: filter by **Effective HTML**, or open them from the table on **About**. To make
 one your own, copy it and `html-server put` it.

@@ -1059,9 +1059,10 @@ curl -X DELETE -H "$H" "$A/api/artifacts/trip-plan.html?purge=1"
   outputs. Images and PDFs that notes embed are assets (\`/api/assets\`).
 - **Everything is public** unless uploaded with \`X-Visibility: private\`. **anyone\*** below means anyone for
   public pages, and only the owner (by token) for private or trashed ones.
-- **In a browser tab** an HTML page sits in the site's frame (sidebar, title bar, graph, backlinks), sized to
-  the page; ⌘K inside the page opens search, and links it follows open in the tab. Iframes, curl and other
-  clients get the page itself, as does \`?raw=1\`.
+- **Opened from outside the site** (a typed or shared link) an HTML page is shown on its own. Opened from the
+  site's own pages (sidebar, search, gallery, backlinks), or with \`?frame=1\`, it sits in the site's frame
+  (sidebar, title bar, graph, backlinks), sized to the page; ⌘K inside the page opens search, and links it
+  follows open in the tab. Iframes, curl and other clients always get the page itself, as does \`?raw=1\`.
 - **Gallery:** a page's \`<meta name="description">\` and \`<meta name="category">\` become its card text and
   category on [the home page](/).
 - **Editing:** by default only a page's owner adds versions. On a server with open editing
